@@ -525,6 +525,81 @@ function onSeedManualInput(){
   }
 }
 
+function readBatchCount(){
+  var field = el('batchCount');
+  var value = field ? parseInt(field.value, 10) : 1;
+  if(!(value >= 1 && value <= 4)){ return 1; }
+  return value;
+}
+
+function renderBatchResults(stage, images, base){
+  var grid;
+  stage.classList.remove('has-failure-advice');
+  clearNode(stage);
+  if(!images.length){
+    renderStageText(stage, '沒有產生任何圖片', 'err');
+    return;
+  }
+  grid = document.createElement('div');
+  grid.className = 'batch-grid';
+  images.forEach(function(item){
+    var image = validateImageUrl(item.image);
+    var card = document.createElement('div');
+    var img = document.createElement('img');
+    var actions = document.createElement('div');
+    var seedTag = document.createElement('span');
+    var lockBtn = document.createElement('button');
+    var dlLink = document.createElement('a');
+    var fallback = getSizeDimensions(base.size);
+
+    card.className = 'batch-card';
+    img.src = image;
+    img.alt = 'generated variation';
+    img.loading = 'lazy';
+    card.appendChild(img);
+
+    seedTag.className = 'batch-seed';
+    seedTag.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
+
+    lockBtn.type = 'button';
+    lockBtn.className = 'btn mini secondary';
+    lockBtn.textContent = '🔒 鎖定';
+    lockBtn.addEventListener('click', function(){
+      if(lockCompositionSeed(item.seed)){
+        setStatus('已鎖定構圖（種子碼 ' + item.seed + '），改描述後生成就能微調', 'done');
+      }
+    });
+
+    dlLink.className = 'btn mini secondary';
+    dlLink.textContent = '⬇ 下載';
+    dlLink.href = image;
+    dlLink.download = slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image);
+
+    actions.className = 'batch-card-actions';
+    actions.appendChild(seedTag);
+    actions.appendChild(lockBtn);
+    actions.appendChild(dlLink);
+    card.appendChild(actions);
+    grid.appendChild(card);
+
+    document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: {
+      image: image,
+      thumbnail: image,
+      prompt: base.prompt,
+      providerPrompt: base.providerPrompt,
+      avoid: base.avoid,
+      model: typeof item.model === 'string' ? item.model : 'schnell',
+      size: base.size,
+      seed: typeof item.seed === 'number' ? item.seed : 0,
+      width: typeof item.width === 'number' ? item.width : fallback.width,
+      height: typeof item.height === 'number' ? item.height : fallback.height,
+      provider: typeof item.provider === 'string' ? item.provider : '',
+      sourceRecordId: ''
+    }}));
+  });
+  stage.appendChild(grid);
+}
+
 function generate(){
   if(generationInFlight){
     pendingSourceRecordId = '';
@@ -599,6 +674,53 @@ function generate(){
     renderFailureAdvice('network');
     pendingSourceRecordId = '';
     setStatus('❌ 失敗：' + err.message, 'fail');
+  }
+
+  var batchCount = readBatchCount();
+  if(batchCount > 1){
+    return fetch('/generate/batch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        prompt: providerPrompt,
+        model: model,
+        size: size,
+        seed: settings.seed,
+        count: batchCount
+      })
+    }).then(function(response){
+      return response.json().then(function(data){
+        var secs;
+        var images;
+        var note;
+        if(!response.ok){
+          var requestId = responseRequestId(response) || (data && data.requestId ? data.requestId : '');
+          var backendMessage = data && data.error ? data.error : ('HTTP ' + response.status);
+          reportClientError(new Error(backendMessage), { type: 'generate_batch_backend', requestId: requestId, source: data && data.code ? data.code : 'unknown' });
+          clearInterval(timer);
+          setResultActionsVisible(false);
+          stage.classList.remove('has-failure-advice');
+          renderStageText(stage, '出錯了：' + backendMessage + requestIdSuffix(requestId), 'err');
+          renderFailureAdvice(data && data.code ? data.code : 'unknown');
+          pendingSourceRecordId = '';
+          setStatus('❌ 失敗：' + backendMessage + requestIdSuffix(requestId), 'fail');
+          return;
+        }
+        clearInterval(timer);
+        secs = ((performance.now() - t0) / 1000).toFixed(1);
+        images = (data && Array.isArray(data.images)) ? data.images : [];
+        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size });
+        setResultActionsVisible(false);
+        pendingSourceRecordId = '';
+        note = (images[0] && images[0].provider === 'demo') ? '（Demo 圖，設定 NVIDIA_API_KEY 後可真實產圖）' : '（NVIDIA FLUX）';
+        setStatus('✅ 生成 ' + images.length + ' 張變體，耗時 ' + secs + ' 秒 ' + note, 'done');
+      });
+    }).then(function(result){
+      cleanupGenerate();
+      return result;
+    }, function(err){
+      try{ handleGenerateError(err); }finally{ cleanupGenerate(); }
+    });
   }
 
   return fetch('/generate', {
