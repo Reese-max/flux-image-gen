@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-06-27
+
+### Added
+
+- 種子碼 / 構圖鎖定（先前未入帳）：前端「🎲 每次都不一樣 / 🔒 鎖定這張構圖」雙模式、「以這張構圖再變化」、自訂種子碼進階區，可重現或微調同一構圖。
+- 生圖 transient retry：`app/image_service.py` 與 Cloudflare Worker 對逾時 / 網路 / 5xx 重試（最多 2 次 + backoff），429 仍即時回 `retry_after`。
+- 批次生成 API：`POST /generate/batch`（一個 prompt 出 1–4 張變體，首張可沿用指定 seed、其餘隨機），FastAPI 與 Worker 皆支援。（前端 UI 待接）
+- 可選 edge rate limiting：Worker `/generate` 在配置 `GENERATE_RATE_LIMITER` binding 時依 client IP 限流，未配置則 no-op。
+- 可選 R2 雲端圖庫：Worker `POST /gallery` 存圖、`GET /gallery/:id` 取圖（需 `IMAGE_BUCKET` binding），未配置回 503。（前端 UI 待接）
+- 本機 CI gate：`node scripts/verify.mjs` 一次跑完 pytest、前端 JS 測試、Cloudflare sync/check/worker 測試。
+- 前端同步腳本：`cloudflare/scripts/sync-static.mjs`（`npm run sync` / `sync:check`），部署前自動擋不一致。
+
+### Changed
+
+- prompt 轉換常數（systemInstruction / styleHints / responseSchema 等）抽成單一來源 `shared/prompt-constants.json`，由 `app/prompt_llm.py` 與 `cloudflare/src/index.js` 共用，消除 Python/JS 雙寫漂移。
+- Worker 抽出 `generateOneImage` 共用核心（`/generate` 與 `/generate/batch` 共用）。
+
+### Fixed
+
+- 修正既有紅燈測試：移除 `cloudflare/public/static/` 內 stray 的 `manifest.webmanifest` 與 `service-worker.js`（PWA root-scope 檔只應存在於 `public/` 根目錄）。
+
+### Infra
+
+- 專案首次納入 git 版控，補上 `.gitignore`（含 `.env` / `.dev.vars` / `node_modules` / `.wrangler` / `*.pid` 等）。
+
+### Verified
+
+- 全套離線測試通過：Python 72 passed（含 23 subtests）、前端 JS 41、Cloudflare Worker 32。
+- `node scripts/verify.mjs` 綠燈；esbuild 可成功 bundle Worker（含 `shared/prompt-constants.json` inline）。
+- 注意：本輪尚未部署上線；rate limiting 與 R2 binding 預設關閉，啟用需建立資源並部署。
+
 ## 2026-06-25
 
 ### Added
