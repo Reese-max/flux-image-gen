@@ -2,9 +2,9 @@
 //
 // Source of truth: app/static/
 // Deploy copy:
-//   - app/static/<file>            -> cloudflare/public/static/<file>   (all except index.html)
 //   - index.html / manifest.webmanifest / service-worker.js
-//                                  -> cloudflare/public/<file>          (root scope)
+//                                  -> cloudflare/public/<file>          (root scope ONLY)
+//   - every other app/static/<file> -> cloudflare/public/static/<file>
 //
 // Usage:
 //   node scripts/sync-static.mjs           Copy any out-of-date files, report changes.
@@ -19,8 +19,9 @@ const sourceDir = path.join(cloudflareDir, '..', 'app', 'static');
 const publicDir = path.join(cloudflareDir, 'public');
 const publicStaticDir = path.join(publicDir, 'static');
 
-// Files that must also live at the public/ root for correct serving:
+// Files served from the public/ root ONLY (never duplicated into public/static):
 // index.html (entry point), manifest.webmanifest + service-worker.js (root-scope PWA).
+// This list must match `rootAssets` in tests/worker-transform.test.mjs.
 const ROOT_SCOPE_FILES = new Set(['index.html', 'manifest.webmanifest', 'service-worker.js']);
 
 const checkOnly = process.argv.includes('--check');
@@ -33,15 +34,12 @@ function listSourceFiles() {
 }
 
 // Returns the list of destination absolute paths a given source file maps to.
+// Root-scope files go to public/ only; everything else goes to public/static/ only.
 function destinationsFor(fileName) {
-  const destinations = [];
-  if (fileName !== 'index.html') {
-    destinations.push(path.join(publicStaticDir, fileName));
-  }
   if (ROOT_SCOPE_FILES.has(fileName)) {
-    destinations.push(path.join(publicDir, fileName));
+    return [path.join(publicDir, fileName)];
   }
-  return destinations;
+  return [path.join(publicStaticDir, fileName)];
 }
 
 function isUpToDate(sourcePath, destPath) {
