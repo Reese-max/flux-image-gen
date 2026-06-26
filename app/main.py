@@ -9,7 +9,15 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
-from .image_service import GenerationRequest, ProviderError, SEED_ERROR_MESSAGE, generate_image, to_http_error, validate_seed
+from .image_service import (
+    GenerationRequest,
+    ProviderError,
+    SEED_ERROR_MESSAGE,
+    generate_batch,
+    generate_image,
+    to_http_error,
+    validate_seed,
+)
 from .prompt_transform import transform_plain_prompt
 from .settings import get_settings
 
@@ -33,6 +41,19 @@ class GeneratePayload(BaseModel):
     model: str = "schnell"
     size: str = "square"
     seed: int | None = None
+
+    @field_validator("seed", mode="before")
+    @classmethod
+    def validate_payload_seed(cls, value):
+        return validate_seed(value)
+
+
+class BatchGeneratePayload(BaseModel):
+    prompt: str
+    model: str = "schnell"
+    size: str = "square"
+    seed: int | None = None
+    count: int = 1
 
     @field_validator("seed", mode="before")
     @classmethod
@@ -91,6 +112,33 @@ async def generate(payload: GeneratePayload):
         "width": result.width,
         "height": result.height,
         "seed": result.seed,
+    }
+
+
+@app.post("/generate/batch")
+async def generate_batch_route(payload: BatchGeneratePayload):
+    try:
+        results = await generate_batch(
+            GenerationRequest(prompt=payload.prompt, model=payload.model, size=payload.size, seed=payload.seed),
+            payload.count,
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    except ProviderError as exc:
+        body, status = to_http_error(exc)
+        return JSONResponse(body, status_code=status)
+    return {
+        "images": [
+            {
+                "image": result.image,
+                "provider": result.provider,
+                "model": result.model,
+                "width": result.width,
+                "height": result.height,
+                "seed": result.seed,
+            }
+            for result in results
+        ]
     }
 
 

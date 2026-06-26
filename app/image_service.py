@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import random
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,6 +31,10 @@ SEED_ERROR_MESSAGE = f"seed 必須是 0 到 {MAX_SEED} 之間的整數"
 IMAGE_MAX_ATTEMPTS = 2
 RETRYABLE_IMAGE_STATUS = frozenset({500, 502, 503, 504})
 IMAGE_RETRY_BACKOFF_SECONDS = 0.5
+
+# Batch generation: one prompt -> several variations, each with its own seed.
+MAX_BATCH_COUNT = 4
+BATCH_COUNT_ERROR_MESSAGE = f"count 必須是 1 到 {MAX_BATCH_COUNT} 之間的整數"
 
 
 @dataclass(frozen=True)
@@ -208,6 +213,36 @@ def choose_provider(settings: Settings | None = None):
 async def generate_image(request: GenerationRequest, settings: Settings | None = None) -> GenerationResult:
     provider = choose_provider(settings)
     return await provider.generate(request)
+
+
+def validate_batch_count(count: Any) -> int:
+    if isinstance(count, bool) or not isinstance(count, int):
+        raise ValueError(BATCH_COUNT_ERROR_MESSAGE)
+    if count < 1 or count > MAX_BATCH_COUNT:
+        raise ValueError(BATCH_COUNT_ERROR_MESSAGE)
+    return count
+
+
+def _random_seed() -> int:
+    return random.randint(1, MAX_SEED)
+
+
+async def generate_batch(
+    request: GenerationRequest, count: int, settings: Settings | None = None
+) -> list[GenerationResult]:
+    """Generate ``count`` variations of a prompt. The first image honours an
+    explicit seed (so users can vary a locked composition); the rest get fresh
+    random seeds so the batch shows genuine variety."""
+    count = validate_batch_count(count)
+    provider = choose_provider(settings)
+    results: list[GenerationResult] = []
+    for index in range(count):
+        seed = request.seed if (index == 0 and request.seed is not None) else _random_seed()
+        variation = GenerationRequest(
+            prompt=request.prompt, model=request.model, size=request.size, seed=seed
+        )
+        results.append(await provider.generate(variation))
+    return results
 
 
 def to_http_error(err: ProviderError) -> tuple[dict[str, Any], int]:

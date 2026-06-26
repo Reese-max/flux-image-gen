@@ -102,6 +102,30 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "bad_request")
 
+    def test_generate_batch_route_returns_images_array(self):
+        with patch("app.main.generate_batch", new_callable=AsyncMock) as mocked_batch:
+            mocked_batch.return_value = [self._generation_result(seed=1), self._generation_result(seed=2)]
+            response = self.client.post(
+                "/generate/batch",
+                json={"prompt": "a cute corgi astronaut", "model": "schnell", "size": "square", "count": 2},
+            )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["images"]), 2)
+        self.assertEqual([img["seed"] for img in data["images"]], [1, 2])
+        self.assertTrue(data["images"][0]["image"].startswith("data:image/png;base64,"))
+        request, count = mocked_batch.await_args.args
+        self.assertEqual(count, 2)
+
+    def test_generate_batch_route_rejects_invalid_count(self):
+        response = self.client.post(
+            "/generate/batch",
+            json={"prompt": "a cute corgi astronaut", "model": "schnell", "size": "square", "count": 9},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "bad_request")
+        self.assertIn("count 必須是 1 到 4 之間的整數", response.json()["error"])
+
     def test_prompt_transform_route_returns_professional_prompt(self):
         response = self.client.post(
             "/prompt/transform",

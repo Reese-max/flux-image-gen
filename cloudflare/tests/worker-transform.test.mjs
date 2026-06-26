@@ -575,6 +575,57 @@ test('POST /generate proceeds when the rate limiter allows the request', async (
   }
 });
 
+test('POST /generate/batch returns an images array of the requested count', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 3 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 3);
+    assert.equal(fetchCalls, 3);
+    for (const item of data.images) {
+      assert.equal(item.provider, 'nvidia');
+      assert.equal(typeof item.seed, 'number');
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch returns demo images when no NVIDIA key is set', async () => {
+  const response = await worker.fetch(
+    jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+    fakeEnv()
+  );
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.images.length, 2);
+  assert.equal(data.images[0].provider, 'demo');
+});
+
+test('POST /generate/batch rejects an out-of-range count', async () => {
+  const response = await worker.fetch(
+    jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 9 }),
+    fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 400);
+  assert.equal(data.code, 'bad_request');
+  assert.match(data.error, /count/);
+});
+
 test('POST /generate maps a CONTENT_FILTERED placeholder to a 422 error', async () => {
   const originalFetch = globalThis.fetch;
 

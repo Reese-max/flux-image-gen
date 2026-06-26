@@ -110,6 +110,7 @@ const GEMINI_STYLE_HINTS = sharedConstants.styleHints;
 const IMAGE_MAX_ATTEMPTS = 2;
 const RETRYABLE_IMAGE_STATUS = new Set([500, 502, 503, 504]);
 const IMAGE_RETRY_BACKOFF_MS = 500;
+const MAX_BATCH_COUNT = 4;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function buildGeminiUserText(source, style) {
@@ -570,35 +571,19 @@ async function checkRateLimit(request, limiter) {
   return null;
 }
 
-async function handleGenerate(request, env) {
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
-  if (limited) return limited;
+function httpErrorJson(e) {
+  const body = { error: e.message, code: e.code };
+  if (e.retry_after != null) body.retry_after = e.retry_after;
+  return json(body, e.status);
+}
 
-  let payload;
-  try {
-    payload = await readJsonPayload(request);
-  } catch (e) {
-    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
-    throw e;
-  }
-
-  let prompt, model, size, width, height, seed;
-  try {
-    prompt = validatePrompt(payload.prompt);
-    seed = validateSeed(payload.seed);
-    model = payload.model || "schnell";
-    if (!MODEL_ENDPOINTS[model]) throw new HttpError("不支援的模型", 400, "bad_request");
-    size = payload.size || "square";
-    if (!SIZE_MAP[size]) throw new HttpError("不支援的尺寸", 400, "bad_request");
-    [width, height] = SIZE_MAP[size];
-  } catch (e) {
-    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
-    throw e;
-  }
-
+// Generate ONE image. Returns a plain result object, or throws HttpError on a
+// provider/validation failure. Shared by /generate and /generate/batch.
+async function generateOneImage(env, { prompt, model, size, seed }) {
+  const [width, height] = SIZE_MAP[size];
   const key = getNvidiaApiKey(env);
   if (!key) {
-    return json({ image: makeDemoImageDataUrl(), provider: "demo", model, width, height, seed });
+    return { image: makeDemoImageDataUrl(), provider: "demo", model, width, height, seed };
   }
 
   const base = (env.NVIDIA_BASE_URL || "https://ai.api.nvidia.com/v1/genai").replace(/\/+$/, "");
@@ -624,7 +609,7 @@ async function handleGenerate(request, env) {
       });
     } catch (e) {
       resp = null;
-      lastError = { error: `NVIDIA 連線失敗：${e}`, code: "network_error", status: 502 };
+      lastError = new HttpError(`NVIDIA 連線失敗：${e}`, 502, "network_error");
     }
     if (resp && !RETRYABLE_IMAGE_STATUS.has(resp.status)) {
       break;
@@ -637,19 +622,19 @@ async function handleGenerate(request, env) {
       } catch {
         msg = `NVIDIA HTTP ${resp.status}`;
       }
-      lastError = { error: msg, code: "nvidia_error", status: resp.status };
+      lastError = new HttpError(msg, resp.status, "nvidia_error");
     }
     if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) {
-      return json({ error: lastError.error, code: lastError.code }, lastError.status);
+      throw lastError;
     }
     await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
   }
 
   if (resp.status === 429) {
     const ra = parseInt(resp.headers.get("retry-after") || "", 10);
-    const out = { error: "叫用太頻繁，請稍後再試", code: "rate_limited" };
-    if (!Number.isNaN(ra)) out.retry_after = Math.max(1, ra);
-    return json(out, 429);
+    const err = new HttpError("叫用太頻繁，請稍後再試", 429, "rate_limited");
+    if (!Number.isNaN(ra)) err.retry_after = Math.max(1, ra);
+    throw err;
   }
   if (resp.status >= 400) {
     let msg;
@@ -659,31 +644,105 @@ async function handleGenerate(request, env) {
     } catch {
       msg = (await readLimitedText(resp, 300)) || `NVIDIA HTTP ${resp.status}`;
     }
-    return json({ error: msg, code: "nvidia_error" }, resp.status);
+    throw new HttpError(msg, resp.status, "nvidia_error");
   }
 
   let data;
   try {
     data = await resp.json();
   } catch {
-    return json({ error: "NVIDIA 回應格式不正確", code: "bad_provider_response" }, 502);
+    throw new HttpError("NVIDIA 回應格式不正確", 502, "bad_provider_response");
   }
-
   if (isContentFiltered(data)) {
-    return json(
-      { error: "此描述觸發 NVIDIA 內容安全過濾，無法生成圖片，請換個描述再試", code: "content_filtered" },
-      422
-    );
+    throw new HttpError("此描述觸發 NVIDIA 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
   }
+  const image = extractImage(data);
+  return { image, provider: "nvidia", model, width, height, seed };
+}
 
-  let image;
+async function handleGenerate(request, env) {
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
+  let payload;
   try {
-    image = extractImage(data);
+    payload = await readJsonPayload(request);
   } catch (e) {
     if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
-    return json({ error: String(e), code: "bad_provider_response" }, 502);
+    throw e;
   }
-  return json({ image, provider: "nvidia", model, width, height, seed });
+
+  let prompt, model, size, seed;
+  try {
+    prompt = validatePrompt(payload.prompt);
+    seed = validateSeed(payload.seed);
+    model = payload.model || "schnell";
+    if (!MODEL_ENDPOINTS[model]) throw new HttpError("不支援的模型", 400, "bad_request");
+    size = payload.size || "square";
+    if (!SIZE_MAP[size]) throw new HttpError("不支援的尺寸", 400, "bad_request");
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+
+  try {
+    return json(await generateOneImage(env, { prompt, model, size, seed }));
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+}
+
+function validateBatchCount(count) {
+  if (count === undefined || count === null) return 1;
+  if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > MAX_BATCH_COUNT) {
+    throw new HttpError(`count 必須是 1 到 ${MAX_BATCH_COUNT} 之間的整數`, 400, "bad_request");
+  }
+  return count;
+}
+
+function randomImageSeed() {
+  return Math.floor(Math.random() * MAX_SEED) + 1;
+}
+
+async function handleGenerateBatch(request, env) {
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
+  let payload;
+  try {
+    payload = await readJsonPayload(request);
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+
+  let prompt, model, size, seed, count, hasExplicitSeed;
+  try {
+    prompt = validatePrompt(payload.prompt);
+    seed = validateSeed(payload.seed);
+    hasExplicitSeed = payload.seed !== undefined && payload.seed !== null && payload.seed !== "";
+    model = payload.model || "schnell";
+    if (!MODEL_ENDPOINTS[model]) throw new HttpError("不支援的模型", 400, "bad_request");
+    size = payload.size || "square";
+    if (!SIZE_MAP[size]) throw new HttpError("不支援的尺寸", 400, "bad_request");
+    count = validateBatchCount(payload.count);
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+
+  try {
+    const images = [];
+    for (let index = 0; index < count; index++) {
+      const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
+      images.push(await generateOneImage(env, { prompt, model, size, seed: variationSeed }));
+    }
+    return json({ images });
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
 }
 
 async function handlePromptTransform(request, env) {
@@ -736,6 +795,9 @@ export default {
     }
     if (url.pathname === "/generate" && request.method === "POST") {
       return handleGenerate(request, env);
+    }
+    if (url.pathname === "/generate/batch" && request.method === "POST") {
+      return handleGenerateBatch(request, env);
     }
     if (url.pathname === "/client-error" && request.method === "POST") {
       return handleClientError(request);

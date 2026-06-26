@@ -309,6 +309,31 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.status_code, 502)
         self.assertEqual(context.exception.code, "network_error")
 
+    async def test_generate_batch_returns_count_variations_with_demo_provider(self):
+        from app.image_service import generate_batch
+
+        settings = Settings(nvidia_api_key="", image_provider="demo")
+        results = await generate_batch(
+            GenerationRequest(prompt="a corgi in space", model="schnell", size="square", seed=999),
+            count=3,
+            settings=settings,
+        )
+
+        self.assertEqual(len(results), 3)
+        for result in results:
+            self.assertTrue(result.image.startswith("data:image/png;base64,"))
+            self.assertEqual(result.provider, "demo")
+        # First variation honours the explicit seed; the rest are fresh randoms.
+        self.assertEqual(results[0].seed, 999)
+
+    def test_validate_batch_count_rejects_out_of_range_values(self):
+        from app.image_service import validate_batch_count
+
+        for count in [0, 5, -1, True, "2", 1.5]:
+            with self.subTest(count=count):
+                with self.assertRaisesRegex(ValueError, "count 必須是 1 到 4 之間的整數"):
+                    validate_batch_count(count)
+
     def test_extract_image_detects_jpeg_base64_from_provider(self):
         import base64
 
