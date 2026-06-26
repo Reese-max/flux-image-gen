@@ -4,6 +4,8 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "check": "node scripts/check-js.mjs",
+    "sync": "node scripts/sync-static.mjs",
+    "sync:check": "node scripts/sync-static.mjs --check",
     "deploy": "node scripts/deploy.mjs",
     "deploy:dry-run": "node scripts/deploy.mjs --dry-run",
     "qa:browser:install": "playwright install chromium",

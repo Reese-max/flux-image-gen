@@ -36,6 +36,13 @@ function hasSuccessfulDryRunOutput(output) {
   return /--dry-run:\s+exiting now\./.test(output) && /assets directory/i.test(output);
 }
 
+// Gate: the Cloudflare copy must match the canonical app/static before deploy.
+const syncCheck = await run(process.execPath, ['scripts/sync-static.mjs', '--check']);
+if (syncCheck.code !== 0) {
+  console.error('[deploy] Aborting: frontend copy is out of sync. Run "npm run sync" first.');
+  process.exit(syncCheck.code || 1);
+}
+
 const wranglerArgs = ['wrangler', 'deploy'].concat(process.argv.slice(2));
 const npmCli = process.env.npm_execpath;
 const command = npmCli ? process.execPath : 'npx';
