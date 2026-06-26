@@ -29,7 +29,9 @@
 
 - 全套離線測試通過：Python 72 passed（含 23 subtests）、前端 JS 41、Cloudflare Worker 32。
 - `node scripts/verify.mjs` 綠燈；esbuild 可成功 bundle Worker（含 `shared/prompt-constants.json` inline）。
-- 注意：本輪尚未部署上線；rate limiting 與 R2 binding 預設關閉，啟用需建立資源並部署。
+- 已部署上線（經 WSL `npx wrangler` 繞過 Windows wrangler native crash）：`Current Version ID: 86d83642-58cb-4226-a074-7c2f0eb91077`。線上驗證：新前端（batchCount / saveToCloud）已上、`/gallery` 回 503（R2 未啟用）、`/health` provider=nvidia。
+- 已知問題（非本輪程式碼造成）：生產 NVIDIA_API_KEY 失效，`/generate` 與 `/generate/batch` 皆回 `NVIDIA HTTP 403: Authorization failed`，需 `wrangler secret put NVIDIA_API_KEY` 更新金鑰。
+- rate limiting 與 R2 binding 仍預設關閉；R2 需先於 Cloudflare Dashboard 啟用後 `wrangler r2 bucket create flux-image-gallery`、取消 binding 註解再重部署。
 
 ## 2026-06-25
 
