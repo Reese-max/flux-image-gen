@@ -142,6 +142,13 @@ async def generate_batch_route(payload: BatchGeneratePayload):
     }
 
 
+@app.post("/gallery")
+def gallery_save_unavailable():
+    # The cloud gallery is backed by Cloudflare R2 and is only served by the Worker.
+    # The local FastAPI dev server returns 503 so the frontend shows a clear notice.
+    return JSONResponse({"error": "雲端圖庫僅在 Cloudflare 部署可用", "code": "gallery_disabled"}, status_code=503)
+
+
 @app.post("/prompt/transform")
 def prompt_transform(payload: PromptTransformPayload):
     try:

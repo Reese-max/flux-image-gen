@@ -525,6 +525,48 @@ function onSeedManualInput(){
   }
 }
 
+function saveToCloud(){
+  var btn = el('saveToCloud');
+  if(!lastGeneration || !lastGeneration.image){
+    setStatus('先生成一張圖，才能存到雲端', 'warn');
+    return;
+  }
+  if(btn){ btn.disabled = true; }
+  setStatus('☁️ 上傳中…', 'busy');
+  fetch('/gallery', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      image: lastGeneration.image,
+      meta: {
+        prompt: lastGeneration.prompt,
+        seed: lastGeneration.seed,
+        model: lastGeneration.model,
+        size: lastGeneration.size
+      }
+    })
+  }).then(function(response){
+    return response.json().then(function(data){
+      if(response.status === 503){
+        setStatus('☁️ 雲端圖庫尚未啟用（部署並設定 R2 後可用）', 'warn');
+        return;
+      }
+      if(!response.ok){
+        setStatus('❌ 雲端儲存失敗：' + (data && data.error ? data.error : ('HTTP ' + response.status)), 'fail');
+        return;
+      }
+      var url = location.origin + data.url;
+      copyText(url);
+      setStatus('☁️ 已存雲端，連結已複製：' + data.url, 'done');
+    });
+  }, function(err){
+    reportClientError(err, { type: 'gallery_save' });
+    setStatus('❌ 雲端儲存失敗：' + err.message, 'fail');
+  }).then(function(){
+    if(btn){ btn.disabled = false; }
+  });
+}
+
 function readBatchCount(){
   var field = el('batchCount');
   var value = field ? parseInt(field.value, 10) : 1;
@@ -873,6 +915,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if(el('regenerate')){ el('regenerate').addEventListener('click', regenerate); }
   if(el('copySettings')){ el('copySettings').addEventListener('click', copySettings); }
   if(el('copyPrompt')){ el('copyPrompt').addEventListener('click', copyPrompt); }
+  if(el('saveToCloud')){ el('saveToCloud').addEventListener('click', saveToCloud); }
   if(el('seedRandom')){ el('seedRandom').addEventListener('click', function(){ setSeedMode('random'); }); }
   if(el('seedLock')){ el('seedLock').addEventListener('click', onSeedLockClick); }
   if(el('seed')){ el('seed').addEventListener('input', onSeedManualInput); }
