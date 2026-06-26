@@ -1,0 +1,344 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+
+const scriptPath = path.resolve(__dirname, '../../app/static/history-store.js');
+
+function readHistoryStoreSource() {
+  return fs.readFileSync(scriptPath, 'utf8');
+}
+
+function loadHistoryStore() {
+  const source = readHistoryStoreSource();
+  const context = vm.createContext({ console });
+
+  vm.runInContext(source, context, { filename: scriptPath });
+
+  assert.ok(context.ImageHistoryStore, 'ImageHistoryStore should be exposed on globalThis');
+  return context.ImageHistoryStore;
+}
+
+function plain(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function createFakeStorage(initialValue) {
+  const calls = {
+    getItem: [],
+    setItem: [],
+    removeItem: []
+  };
+
+  return {
+    calls,
+    getItem(key) {
+      calls.getItem.push(key);
+      return initialValue;
+    },
+    setItem(key, value) {
+      calls.setItem.push([key, value]);
+    },
+    removeItem(key) {
+      calls.removeItem.push(key);
+    }
+  };
+}
+
+function makeRawRecord(index) {
+  return {
+    id: 'record-' + index,
+    image: 'data:image/png;base64,image' + index,
+    thumbnail: 'data:image/png;base64,thumb' + index,
+    prompt: '提示詞 ' + index,
+    providerPrompt: 'provider prompt ' + index,
+    avoid: '低品質',
+    model: 'dev',
+    size: 'portrait',
+    seed: index,
+    createdAt: '2026-06-24T00:00:' + String(index).padStart(2, '0') + '.000Z'
+  };
+}
+
+test('normalizeRecord trims fields, uses injected id factory, and applies defaults', () => {
+  const store = loadHistoryStore();
+  let idCalls = 0;
+
+  const record = store.normalizeRecord({
+    id: '   ',
+    image: '  data:image/png;base64,abc  ',
+    thumbnail: '   ',
+    prompt: '  一隻太空貓  ',
+    providerPrompt: '',
+    avoid: '   ',
+    model: '',
+    size: '',
+    seed: '',
+    createdAt: ''
+  }, () => {
+    idCalls += 1;
+    return 'history-id-1';
+  });
+
+  assert.equal(idCalls, 1);
+  assert.equal(record.createdAt.length > 0, true);
+  assert.deepEqual(plain(Object.assign({}, record, { createdAt: 'normalized-date' })), {
+    id: 'history-id-1',
+    image: 'data:image/png;base64,abc',
+    thumbnail: 'data:image/png;base64,abc',
+    prompt: '一隻太空貓',
+    providerPrompt: '一隻太空貓',
+    avoid: '',
+    model: 'schnell',
+    size: 'square',
+    seed: 0,
+    favorite: false,
+    tags: [],
+    sourceRecordId: '',
+    versionGroupId: 'history-id-1',
+    versionNumber: 1,
+    createdAt: 'normalized-date'
+  });
+});
+
+test('normalizeRecord adds version, tags, favorite, and share defaults', () => {
+  const Store = loadHistoryStore();
+  const record = Store.normalizeRecord({
+    image: 'data:image/png;base64,abc',
+    prompt: '  a cat  ',
+    tags: ['  cute ', '', 'cat'],
+    favorite: true,
+    sourceRecordId: ' parent-1 ',
+    versionGroupId: '',
+    versionNumber: 3
+  }, () => 'record-1');
+
+  assert.equal(record.id, 'record-1');
+  assert.equal(record.favorite, true);
+  assert.deepEqual(plain(record.tags), ['cute', 'cat']);
+  assert.equal(record.sourceRecordId, 'parent-1');
+  assert.equal(record.versionGroupId, 'record-1');
+  assert.equal(record.versionNumber, 3);
+});
+
+test('normalizeRecord rejects partial and decimal version numbers', () => {
+  const Store = loadHistoryStore();
+
+  assert.equal(Store.normalizeRecord({
+    image: 'data:image/png;base64,abc',
+    prompt: 'a cat',
+    versionNumber: '2abc'
+  }, () => 'partial-version').versionNumber, 1);
+
+  assert.equal(Store.normalizeRecord({
+    image: 'data:image/png;base64,abc',
+    prompt: 'a cat',
+    versionNumber: '2.9'
+  }, () => 'decimal-version').versionNumber, 1);
+
+  assert.equal(Store.normalizeRecord({
+    image: 'data:image/png;base64,abc',
+    prompt: 'a cat',
+    versionNumber: '3'
+  }, () => 'integer-version').versionNumber, 3);
+});
+
+test('createVersionRecord links to the parent version group and increments version', () => {
+  const Store = loadHistoryStore();
+  const parent = Store.normalizeRecord({
+    id: 'parent-1',
+    image: 'data:image/png;base64,parent',
+    prompt: 'a cat',
+    versionGroupId: 'group-1',
+    versionNumber: 2
+  });
+  const records = [
+    parent,
+    Store.normalizeRecord({
+      id: 'existing-v3',
+      image: 'data:image/png;base64,v3',
+      prompt: 'a cinematic cat',
+      versionGroupId: 'group-1',
+      versionNumber: 3
+    })
+  ];
+
+  const version = Store.createVersionRecord(records, parent, {
+    image: 'data:image/png;base64,new',
+    prompt: 'a realistic cat'
+  }, () => 'new-version');
+
+  assert.equal(version.id, 'new-version');
+  assert.equal(version.sourceRecordId, 'parent-1');
+  assert.equal(version.versionGroupId, 'group-1');
+  assert.equal(version.versionNumber, 4);
+});
+
+test('findVersionGroup returns records in version order', () => {
+  const Store = loadHistoryStore();
+  const records = [
+    Store.normalizeRecord({ id: 'v2', image: 'data:image/png;base64,2', prompt: 'two', versionGroupId: 'g1', versionNumber: 2 }),
+    Store.normalizeRecord({ id: 'other', image: 'data:image/png;base64,o', prompt: 'other', versionGroupId: 'g2', versionNumber: 1 }),
+    Store.normalizeRecord({ id: 'v1', image: 'data:image/png;base64,1', prompt: 'one', versionGroupId: 'g1', versionNumber: 1 })
+  ];
+
+  assert.deepEqual(plain(Store.findVersionGroup(records, records[0]).map((record) => record.id)), ['v1', 'v2']);
+});
+
+test('findVersionGroup uses id as deterministic final tie-break', () => {
+  const Store = loadHistoryStore();
+  const records = [
+    Store.normalizeRecord({ id: 'same-b', image: 'data:image/png;base64,b', prompt: 'b', versionGroupId: 'g1', versionNumber: 1, createdAt: '2026-06-25T00:00:00.000Z' }),
+    Store.normalizeRecord({ id: 'same-a', image: 'data:image/png;base64,a', prompt: 'a', versionGroupId: 'g1', versionNumber: 1, createdAt: '2026-06-25T00:00:00.000Z' })
+  ];
+
+  assert.deepEqual(plain(Store.findVersionGroup(records, records[0]).map((record) => record.id)), ['same-a', 'same-b']);
+});
+
+test('updateRecordTags and toggleFavorite update only the target record', () => {
+  const Store = loadHistoryStore();
+  const records = [
+    Store.normalizeRecord({ id: 'a', image: 'data:image/png;base64,a', prompt: 'a' }),
+    Store.normalizeRecord({ id: 'b', image: 'data:image/png;base64,b', prompt: 'b' })
+  ];
+
+  const tagged = Store.updateRecordTags(records, 'a', 'cat, cute,,  product ');
+  assert.deepEqual(plain(tagged[0].tags), ['cat', 'cute', 'product']);
+  assert.deepEqual(plain(tagged[1].tags), []);
+
+  const favorited = Store.toggleFavorite(tagged, 'b');
+  assert.equal(favorited[0].favorite, false);
+  assert.equal(favorited[1].favorite, true);
+});
+
+test('normalizeRecord rejects missing image or prompt', () => {
+  const store = loadHistoryStore();
+
+  assert.throws(
+    () => store.normalizeRecord({ image: '   ', prompt: '有提示詞' }, () => 'id-1'),
+    /缺少圖片資料/
+  );
+  assert.throws(
+    () => store.normalizeRecord({ image: 'data:image/png;base64,abc', prompt: '  ' }, () => 'id-1'),
+    /缺少提示詞/
+  );
+});
+
+test('addRecord prepends records and limits list to MAX_RECORDS', () => {
+  const store = loadHistoryStore();
+  const existing = [];
+  let i;
+
+  for (i = 0; i < store.MAX_RECORDS; i += 1) {
+    existing.push(makeRawRecord(i));
+  }
+
+  const result = store.addRecord(existing, {
+    image: 'data:image/png;base64,new',
+    prompt: '最新提示詞'
+  }, () => 'newest-id');
+
+  assert.equal(result.length, store.MAX_RECORDS);
+  assert.equal(result[0].id, 'newest-id');
+  assert.equal(result[0].prompt, '最新提示詞');
+  assert.equal(result[result.length - 1].id, 'record-10');
+  assert.equal(existing.length, store.MAX_RECORDS);
+});
+
+test('loadRecords returns [] when storage is missing, unavailable, or invalid', () => {
+  const store = loadHistoryStore();
+
+  assert.deepEqual(plain(store.loadRecords(null)), []);
+  assert.deepEqual(plain(store.loadRecords({ getItem() { throw new Error('unavailable'); } })), []);
+  assert.deepEqual(plain(store.loadRecords(createFakeStorage('{not-json'))), []);
+  assert.deepEqual(plain(store.loadRecords(createFakeStorage(JSON.stringify({ id: 'not-array' })))), []);
+});
+
+test('saveRecords writes normalized JSON to storage key', () => {
+  const store = loadHistoryStore();
+  const storage = createFakeStorage(null);
+  const result = store.saveRecords([
+    {
+      id: ' save-me ',
+      image: ' data:image/png;base64,saved ',
+      prompt: ' 儲存提示詞 ',
+      model: '',
+      size: ''
+    }
+  ], storage);
+
+  assert.deepEqual(plain(result), [{
+    id: 'save-me',
+    image: 'data:image/png;base64,saved',
+    thumbnail: 'data:image/png;base64,saved',
+    prompt: '儲存提示詞',
+    providerPrompt: '儲存提示詞',
+    avoid: '',
+    model: 'schnell',
+    size: 'square',
+    seed: 0,
+    favorite: false,
+    tags: [],
+    sourceRecordId: '',
+    versionGroupId: 'save-me',
+    versionNumber: 1,
+    createdAt: result[0].createdAt
+  }]);
+  assert.equal(storage.calls.setItem.length, 1);
+  assert.equal(storage.calls.setItem[0][0], store.STORAGE_KEY);
+  assert.deepEqual(JSON.parse(storage.calls.setItem[0][1]), plain(result));
+});
+
+test('saveRecords drops oldest records on quota failure and does not throw', () => {
+  const store = loadHistoryStore();
+  const attempts = [];
+  const storage = {
+    setItem(key, value) {
+      const parsed = JSON.parse(value);
+      attempts.push({ key, length: parsed.length });
+      if (parsed.length > 2) {
+        throw new Error('quota exceeded');
+      }
+    }
+  };
+  const records = [makeRawRecord(1), makeRawRecord(2), makeRawRecord(3), makeRawRecord(4)];
+  let result;
+
+  assert.doesNotThrow(() => {
+    result = store.saveRecords(records, storage);
+  });
+
+  assert.deepEqual(attempts.map((attempt) => attempt.length), [4, 3, 2]);
+  assert.deepEqual(plain(result.map((record) => record.id)), ['record-1', 'record-2']);
+  assert.deepEqual(records.map((record) => record.id), ['record-1', 'record-2', 'record-3', 'record-4']);
+});
+
+test('deleteRecord removes target and preserves others', () => {
+  const store = loadHistoryStore();
+  const records = [makeRawRecord(1), makeRawRecord(2), makeRawRecord(3)];
+  const snapshot = plain(records);
+  const result = store.deleteRecord(records, ' record-2 ');
+
+  assert.deepEqual(plain(result.map((record) => record.id)), ['record-1', 'record-3']);
+  assert.equal(result[0].prompt, snapshot[0].prompt);
+  assert.equal(result[1].prompt, snapshot[2].prompt);
+  assert.deepEqual(plain(records), snapshot);
+});
+
+test('clearRecords calls removeItem and returns []', () => {
+  const store = loadHistoryStore();
+  const storage = createFakeStorage(null);
+
+  assert.deepEqual(plain(store.clearRecords(storage)), []);
+  assert.deepEqual(storage.calls.removeItem, [store.STORAGE_KEY]);
+});
+
+test('source avoids ES6-only finite helpers for ES5 compatibility', () => {
+  const source = readHistoryStoreSource();
+
+  assert.doesNotMatch(source, /Number\.isFinite/);
+  assert.doesNotMatch(source, /Number\.isSafeInteger/);
+  assert.doesNotMatch(source, /=>/);
+  assert.doesNotMatch(source, /\?\./);
+});

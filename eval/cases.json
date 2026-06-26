@@ -1,0 +1,18 @@
+[
+  { "id": "animal_scene", "source": "一隻可愛柴犬在月球上吃拉麵", "style": "cute", "must_keep": ["Shiba", "moon", "ramen"] },
+  { "id": "person_action", "source": "一個女孩在櫻花樹下彈吉他，夕陽", "style": "auto", "must_keep": ["girl", "guitar", "cherry blossom", "sunset"] },
+  { "id": "product", "source": "一瓶玫瑰精油放在大理石桌上，柔和打光", "style": "product", "must_keep": ["rose", "oil", "marble"] },
+  { "id": "colors_count", "source": "三顆紅蘋果和一顆青蘋果在白盤子上", "style": "realistic", "must_keep": ["three", "red apple", "green apple", "white plate"] },
+  { "id": "cityscape", "source": "台北101夜景，藍色時刻", "style": "cinematic", "must_keep": ["Taipei 101", "night", "blue hour"] },
+  { "id": "negation", "source": "空無一人的地鐵車廂，冷色調", "style": "cinematic", "must_keep": ["empty", "subway", "no people"] },
+  { "id": "text_in_image", "source": "霓虹招牌寫著「營業中」", "style": "auto", "must_keep": ["neon", "sign", "open"] },
+  { "id": "anime", "source": "穿水手服的少女站在天台，風吹頭髮", "style": "anime", "must_keep": ["sailor uniform", "rooftop", "wind", "hair"] },
+  { "id": "abstract_mood", "source": "孤獨的感覺", "style": "auto", "must_keep": ["lonely"] },
+  { "id": "food_closeup", "source": "一碗熱騰騰的牛肉麵特寫，蒸氣", "style": "realistic", "must_keep": ["beef noodle", "steam", "close-up"] },
+  { "id": "fantasy", "source": "騎著龍的騎士飛越火山", "style": "cinematic", "must_keep": ["knight", "dragon", "volcano"] },
+  { "id": "cute_cat", "source": "一隻戴帽子的胖橘貓", "style": "cute", "must_keep": ["orange cat", "hat", "chubby"] },
+  { "id": "nature", "source": "清晨薄霧中的杉樹林，陽光穿透", "style": "auto", "must_keep": ["mist", "forest", "sunlight"] },
+  { "id": "two_subjects", "source": "老人和小孩在公園長椅上下棋", "style": "realistic", "must_keep": ["old man", "child", "park bench", "chess"] },
+  { "id": "style_in_text", "source": "梵谷風格的星空下的小鎮", "style": "auto", "must_keep": ["Van Gogh", "starry", "town"] },
+  { "id": "short", "source": "貓", "style": "auto", "must_keep": ["cat"] }
+]

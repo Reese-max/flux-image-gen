@@ -1,0 +1,18 @@
+name = "flux-image-gen"
+main = "src/index.js"
+compatibility_date = "2026-06-24"
+compatibility_flags = ["nodejs_compat"]
+
+# Static SPA (index.html + /static/*) is served directly from ./public.
+# Non-asset routes (/generate, /health) fall through to the Worker in src/index.js.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[vars]
+# Public, non-secret config. Secret keys are set separately:
+#   npx wrangler secret put NVIDIA_API_KEY
+#   npx wrangler secret put GEMINI_API_KEY
+NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
+# Gemma model served via the Gemini API for the plain-CN to English prompt transform.
+GEMINI_PROMPT_MODEL = "gemma-4-31b-it"

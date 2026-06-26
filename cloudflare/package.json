@@ -1,0 +1,17 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check-js.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "deploy:dry-run": "node scripts/deploy.mjs --dry-run",
+    "qa:browser:install": "playwright install chromium",
+    "qa:browser": "node ../tests/e2e/cloudflare-v14-qa.mjs",
+    "qa:perf": "node ../tests/e2e/cloudflare-perf-qa.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1",
+    "wrangler": "^4.104.0"
+  }
+}

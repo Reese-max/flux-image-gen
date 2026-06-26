@@ -1,0 +1,248 @@
+import unittest
+
+from app.image_service import GenerationRequest, choose_provider, map_size, validate_prompt
+from app.settings import Settings
+
+
+class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
+    def test_map_size_supports_reference_ui_sizes(self):
+        self.assertEqual(map_size("square"), (1024, 1024))
+        self.assertEqual(map_size("landscape"), (1344, 768))
+        self.assertEqual(map_size("portrait"), (768, 1344))
+
+    def test_validate_prompt_rejects_blank_prompt(self):
+        with self.assertRaisesRegex(ValueError, "請先輸入描述文字"):
+            validate_prompt("   ")
+
+    def test_validate_seed_accepts_none_zero_and_positive_integer(self):
+        from app.image_service import validate_seed
+
+        valid_seeds = [None, 0, 2147483647, 12345]
+        for seed in valid_seeds:
+            with self.subTest(seed=seed):
+                self.assertEqual(validate_seed(seed), seed)
+
+    def test_validate_seed_rejects_invalid_values(self):
+        from app.image_service import validate_seed
+
+        invalid_seeds = [True, False, "123", "1.5", 1.0, 1.5, 2147483648, -1]
+        for seed in invalid_seeds:
+            with self.subTest(seed=seed):
+                with self.assertRaisesRegex(ValueError, "seed 必須是 0 到 2147483647 之間的整數"):
+                    validate_seed(seed)
+
+    def test_resolve_seed_uses_request_seed_or_model_default(self):
+        from app.image_service import resolve_seed
+
+        settings = Settings(nvidia_schnell_seed=111, nvidia_dev_seed=222)
+        self.assertEqual(resolve_seed(12345, "schnell", settings), 12345)
+        self.assertEqual(resolve_seed(None, "schnell", settings), 111)
+        self.assertEqual(resolve_seed(None, "dev", settings), 222)
+
+    def test_resolve_seed_rejects_unknown_model(self):
+        from app.image_service import resolve_seed
+
+        with self.assertRaisesRegex(ValueError, "不支援的模型"):
+            resolve_seed(None, "unknown", Settings())
+
+    async def test_demo_provider_returns_png_data_url_without_key(self):
+        provider = choose_provider(Settings(nvidia_api_key="", image_provider="auto"))
+        result = await provider.generate(
+            GenerationRequest(
+                prompt="a cute corgi astronaut floating in space",
+                model="schnell",
+                size="square",
+            )
+        )
+        self.assertTrue(result.image.startswith("data:image/png;base64,"))
+        self.assertEqual(result.provider, "demo")
+        self.assertEqual(result.width, 1024)
+        self.assertEqual(result.height, 1024)
+
+    async def test_nvidia_provider_payload_uses_request_seed(self):
+        import base64
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import NvidiaProvider
+
+        sent_payload = {}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                nonlocal sent_payload
+                sent_payload = json
+                png_base64 = base64.b64encode(b"\x89PNG\r\n\x1a\nnot-a-real-full-png").decode("ascii")
+                return httpx.Response(200, json={"artifacts": [{"base64": png_base64}]})
+
+        provider = NvidiaProvider(Settings(nvidia_api_key="dummy-key", image_provider="nvidia", nvidia_schnell_seed=111))
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            result = await provider.generate(
+                GenerationRequest(
+                    prompt="a cute corgi astronaut floating in space",
+                    model="schnell",
+                    size="square",
+                    seed=12345,
+                )
+            )
+
+        self.assertEqual(sent_payload["seed"], 12345)
+        self.assertEqual(result.seed, 12345)
+
+    async def test_nvidia_provider_schnell_payload_has_exact_public_keys(self):
+        import base64
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import NvidiaProvider
+
+        sent_payload = {}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                nonlocal sent_payload
+                sent_payload = json
+                png_base64 = base64.b64encode(b"\x89PNG\r\n\x1a\nnot-a-real-full-png").decode("ascii")
+                return httpx.Response(200, json={"artifacts": [{"base64": png_base64}]})
+
+        provider = NvidiaProvider(Settings(nvidia_api_key="dummy-key", image_provider="nvidia", nvidia_schnell_seed=111))
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            await provider.generate(
+                GenerationRequest(
+                    prompt="a cute corgi astronaut floating in space",
+                    model="schnell",
+                    size="square",
+                    seed=12345,
+                )
+            )
+
+        self.assertEqual(set(sent_payload), {"prompt", "width", "height", "seed"})
+        self.assertEqual(sent_payload["seed"], 12345)
+        self.assertNotIn("api_key", sent_payload)
+        self.assertNotIn("Authorization", sent_payload)
+
+    async def test_nvidia_provider_dev_payload_includes_cfg_steps_and_seed(self):
+        import base64
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import NvidiaProvider
+
+        sent_payload = {}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                nonlocal sent_payload
+                sent_payload = json
+                png_base64 = base64.b64encode(b"\x89PNG\r\n\x1a\nnot-a-real-full-png").decode("ascii")
+                return httpx.Response(200, json={"artifacts": [{"base64": png_base64}]})
+
+        provider = NvidiaProvider(
+            Settings(
+                nvidia_api_key="dummy-key",
+                image_provider="nvidia",
+                nvidia_dev_cfg_scale=3.5,
+                nvidia_dev_steps=28,
+                nvidia_dev_seed=222,
+            )
+        )
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            await provider.generate(
+                GenerationRequest(
+                    prompt="a cute corgi astronaut floating in space",
+                    model="dev",
+                    size="square",
+                    seed=12345,
+                )
+            )
+
+        self.assertEqual(sent_payload["seed"], 12345)
+        self.assertEqual(sent_payload["cfg_scale"], 3.5)
+        self.assertEqual(sent_payload["steps"], 28)
+
+    async def test_nvidia_provider_rejects_non_json_success_response(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import NvidiaProvider, ProviderError
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                return httpx.Response(200, text="not-json")
+
+        provider = NvidiaProvider(Settings(nvidia_api_key="dummy-key", image_provider="nvidia"))
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            with self.assertRaises(ProviderError) as context:
+                await provider.generate(
+                    GenerationRequest(
+                        prompt="a cute corgi astronaut floating in space",
+                        model="schnell",
+                        size="square",
+                    )
+                )
+
+        self.assertEqual(context.exception.message, "NVIDIA 回應不是有效 JSON")
+        self.assertEqual(context.exception.status_code, 502)
+        self.assertEqual(context.exception.code, "bad_provider_response")
+
+    async def test_rate_limit_error_keeps_retry_after(self):
+        from app.image_service import ProviderError, to_http_error
+
+        err = ProviderError("叫用太頻繁", status_code=429, code="rate_limited", retry_after=17)
+        payload, status = to_http_error(err)
+        self.assertEqual(status, 429)
+        self.assertEqual(payload["code"], "rate_limited")
+        self.assertEqual(payload["retry_after"], 17)
+
+    def test_extract_image_detects_jpeg_base64_from_provider(self):
+        import base64
+
+        from app.image_service import extract_image
+
+        jpeg_base64 = base64.b64encode(b"\xff\xd8\xff\xe0not-a-real-full-jpeg").decode("ascii")
+        image = extract_image({"artifacts": [{"base64": jpeg_base64}]})
+        self.assertTrue(image.startswith("data:image/jpeg;base64,"))
+
+
+if __name__ == "__main__":
+    unittest.main()

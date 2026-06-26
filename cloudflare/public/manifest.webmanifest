@@ -1,0 +1,19 @@
+{
+  "name": "AI 圖片產生器",
+  "short_name": "AI 生圖",
+  "description": "用文字生成圖片的行動版 PWA 介面。",
+  "lang": "zh-Hant",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0b0f",
+  "theme_color": "#0a0b0f",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='108' fill='%230a0b0f'/%3E%3Ccircle cx='166' cy='154' r='78' fill='%237c5cff'/%3E%3Ccircle cx='342' cy='168' r='86' fill='%23d946ef' opacity='.86'/%3E%3Cpath d='M102 382c50-88 95-132 136-132 35 0 62 32 91 70 17-28 40-48 70-48 24 0 47 16 72 48v84H102z' fill='%23bef264'/%3E%3Cpath d='M175 108l18 38 42 6-30 30 7 42-37-20-37 20 7-42-30-30 42-6z' fill='white'/%3E%3C/svg%3E",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

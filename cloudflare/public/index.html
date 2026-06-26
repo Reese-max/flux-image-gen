@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0b0f">
+  <title>AI 圖片產生器</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="aurora" aria-hidden="true">
+    <span class="blob blob-a"></span>
+    <span class="blob blob-b"></span>
+    <span class="blob blob-c"></span>
+    <span class="grain"></span>
+  </div>
+
+  <main class="shell">
+    <div id="oldbrowser" class="oldbrowser">⚠️ 偵測到你的瀏覽器較舊，部分功能可能無法運作。建議改用最新版 Chrome、Edge、Firefox 或 Safari。</div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">✦</span>
+        <span class="brand-name">AI 圖片產生器</span>
+        <span class="badge">v1.2.0</span>
+      </div>
+      <div id="provider-pill" class="pill" title="後端服務狀態">
+        <span class="dot"></span><span id="provider-text">連線中…</span>
+      </div>
+    </header>
+
+    <div id="demo-notice" class="demo-notice" hidden>
+      <span class="demo-ico" aria-hidden="true">⚠️</span>
+      <span>目前是 <b>Demo 模式</b>，產出為本機示意圖。於 <code>.env</code> 設定 <code>NVIDIA_API_KEY</code> 後即為真實 FLUX 出圖。</span>
+    </div>
+
+    <header class="hero">
+      <p class="eyebrow">Modal 部署 · NVIDIA FLUX 出圖 · 用英文描述效果最好</p>
+      <h1 class="title">用文字，<br>生成你的想像。</h1>
+      <p class="lede">在 FLUX.1 上以無伺服器 GPU 出圖，輸入提示詞、選好尺寸，幾秒生成一張圖。</p>
+      <button id="openTutorial" class="mini-btn help-btn" type="button">？教學</button>
+    </header>
+
+    <section class="composer glass" aria-label="圖片描述">
+      <div class="prompt-tool" aria-label="白話中文轉專業英文提示詞">
+        <div class="section-heading">
+          <span class="section-kicker">Prompt helper</span>
+          <h2>白話中文轉專業英文提示詞</h2>
+          <p>先用中文描述畫面，再轉成適合 FLUX 的英文提示詞。</p>
+        </div>
+        <label class="final-prompt-label" for="plainPrompt">白話中文描述</label>
+        <textarea id="plainPrompt" rows="3" placeholder="例如：一隻可愛柴犬在月球上吃拉麵，風格要可愛一點"></textarea>
+        <div class="prompt-controls">
+          <label class="field">
+            <span class="field-label">風格</span>
+            <div class="select-wrap">
+              <select id="promptStyle">
+                <option value="auto">自動判斷</option>
+                <option value="cute">可愛</option>
+                <option value="cinematic">電影感</option>
+                <option value="realistic">寫實</option>
+                <option value="anime">動漫</option>
+                <option value="product">產品照</option>
+              </select>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </div>
+          </label>
+          <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
+        </div>
+        <div id="transformStatus" class="transform-status" aria-live="polite"></div>
+      </div>
+
+      <label class="final-prompt-label" for="prompt">最終英文提示詞</label>
+      <textarea id="prompt" rows="3" placeholder="Enter the final English prompt for image generation, or use the helper above."></textarea>
+
+      <div id="promptEnhancer" class="prompt-enhancer" aria-label="Prompt 強化器">
+        <span class="field-label">快速強化</span>
+        <div class="enhance-actions">
+          <button class="btn mini secondary" type="button" data-enhance-mode="realistic">更寫實</button>
+          <button class="btn mini secondary" type="button" data-enhance-mode="cinematic">電影感</button>
+          <button class="btn mini secondary" type="button" data-enhance-mode="product">產品照</button>
+          <button class="btn mini secondary" type="button" data-enhance-mode="cute">更可愛</button>
+          <button class="btn mini secondary" type="button" data-enhance-mode="clean">乾淨構圖</button>
+          <button class="btn mini secondary" type="button" data-enhance-mode="fix_artifacts">修正常見瑕疵</button>
+        </div>
+      </div>
+
+      <div class="prompt-controls advanced-controls" aria-label="進階生成設定">
+        <div class="field seed-field">
+          <span class="field-label">畫面變化</span>
+          <div class="seed-mode" role="group" aria-label="畫面變化模式">
+            <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
+            <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
+          </div>
+          <p id="seedModeHint" class="seed-mode-hint">每次生成都會給你不一樣的畫面。</p>
+          <details class="seed-advanced">
+            <summary>進階：自訂種子碼</summary>
+            <input id="seed" class="text-input" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="留空＝每次都不一樣">
+            <p class="seed-advanced-hint">同一個數字會畫出構圖相同的圖，想重現或微調時很好用。</p>
+          </details>
+        </div>
+        <label class="field field-wide">
+          <span class="field-label">排除描述輔助</span>
+          <input id="avoid" class="text-input" type="text" maxlength="240" placeholder="例如：blurry, extra fingers, low quality">
+        </label>
+      </div>
+
+      <div class="composer-foot">
+        <div class="controls">
+          <label class="field">
+            <span class="field-label">模型</span>
+            <div class="select-wrap">
+              <select id="model">
+                <option value="schnell">快速 · FLUX.1-schnell</option>
+                <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
+              </select>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </div>
+          </label>
+          <label class="field">
+            <span class="field-label">尺寸 / 比例</span>
+            <div class="select-wrap">
+              <select id="size">
+                <option value="square">方形 1024×1024</option>
+                <option value="landscape">橫向 1344×768</option>
+                <option value="portrait">直向 768×1344</option>
+              </select>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </div>
+          </label>
+        </div>
+
+        <div class="btn-row">
+          <a id="dl" class="btn download is-disabled" aria-disabled="true" download="flux.png">⬇ 下載圖片</a>
+          <button id="go" class="btn primary" type="button">🎨 生成圖片</button>
+        </div>
+      </div>
+      <div id="status" class="status" aria-live="polite"></div>
+    </section>
+
+    <section class="ideas" aria-label="提示詞靈感">
+      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下直接出圖）</span></div>
+      <div class="idea-grid">
+        <button class="idea" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><span class="emo">🏞️</span><span class="lbl">水墨山水</span></button>
+        <button class="idea" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><span class="emo">🌃</span><span class="lbl">賽博夜市</span></button>
+        <button class="idea" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><span class="emo">💎</span><span class="lbl">鑽石恐龍</span></button>
+        <button class="idea" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><span class="emo">📖</span><span class="lbl">動漫漫畫</span></button>
+        <button class="idea" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><span class="emo">⚙️</span><span class="lbl">剖面圖</span></button>
+        <button class="idea" data-prompt="an astronaut cat floating in deep space, galaxies behind, highly detailed, cinematic"><span class="emo">🐱</span><span class="lbl">太空貓</span></button>
+        <button class="idea" data-prompt="a tiny adorable miniature village, tilt-shift, soft lighting, highly detailed"><span class="emo">🏯</span><span class="lbl">微縮世界</span></button>
+        <button class="idea" data-prompt="a dreamy vaporwave beach with palm trees and a retro sun, pink and teal, 80s aesthetic"><span class="emo">🌴</span><span class="lbl">蒸氣波</span></button>
+        <button class="idea" data-prompt="a bustling city scene built entirely from colorful toy building blocks, playful, vivid colors"><span class="emo">🧱</span><span class="lbl">樂高世界</span></button>
+        <button class="idea" data-prompt="a steaming bowl of ramen, delicious, macro food photography, shallow depth of field"><span class="emo">🍜</span><span class="lbl">美食特寫</span></button>
+        <button class="idea" data-prompt="a giant mecha robot standing in a ruined city, dramatic lighting, epic, hyperrealistic"><span class="emo">🤖</span><span class="lbl">機甲戰士</span></button>
+        <button id="random" class="idea" type="button"><span class="emo">🎲</span><span class="lbl">隨機驚喜</span></button>
+      </div>
+
+      <div class="custom-ideas">
+        <div class="custom-ideas-head">
+          <div>
+            <div class="ideas-title">🧩 我的客製梗卡<span class="hint">（儲存在這台瀏覽器）</span></div>
+            <p class="custom-ideas-copy">建立常用提示詞，點卡片會自動套用模型與尺寸並生成圖片。</p>
+          </div>
+          <div class="mini-actions" aria-label="客製梗卡操作">
+            <button id="addIdea" class="btn mini" type="button">＋ 新增梗卡</button>
+            <button id="exportIdeas" class="btn mini secondary" type="button">匯出 JSON</button>
+            <label class="btn mini secondary import-label" for="importIdeas">匯入 JSON</label>
+            <input id="importIdeas" class="visually-hidden" type="file" accept="application/json,.json">
+          </div>
+        </div>
+        <div id="customIdeaGrid" class="idea-grid custom-grid" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <section class="stage glass" id="stage" aria-label="生成結果"><span class="muted">圖片會出現在這裡</span></section>
+
+    <div id="resultActions" class="result-actions" hidden>
+      <button id="regenerate" class="btn secondary" type="button">🔁 再生一張</button>
+      <button id="useComposition" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
+      <button id="copySettings" class="btn secondary" type="button">📋 複製這組設定</button>
+      <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
+    </div>
+
+    <section id="historyWall" class="history-wall glass" aria-label="歷史記錄牆">
+      <div class="history-head">
+        <div>
+          <div class="ideas-title">🖼️ 歷史記錄牆<span class="hint">（存在這台瀏覽器）</span></div>
+          <p class="custom-ideas-copy">保留最近生成的圖片，可重新下載、複製提示詞或再生。</p>
+        </div>
+        <button id="clearHistory" class="btn mini secondary" type="button">清空歷史</button>
+      </div>
+      <div class="history-filters" aria-label="歷史篩選">
+        <input id="historySearch" class="text-input" type="search" placeholder="搜尋 prompt 或標籤">
+        <select id="historyModelFilter" class="text-input">
+          <option value="">所有模型</option>
+          <option value="schnell">schnell</option>
+          <option value="dev">dev</option>
+        </select>
+        <select id="historySizeFilter" class="text-input">
+          <option value="">所有尺寸</option>
+          <option value="square">方形</option>
+          <option value="landscape">橫向</option>
+          <option value="portrait">直向</option>
+        </select>
+        <label class="tutorial-check" for="historyFavoritesOnly">
+          <input id="historyFavoritesOnly" type="checkbox">
+          <span>只看收藏</span>
+        </label>
+      </div>
+      <div id="historyGrid" class="history-grid" aria-live="polite"></div>
+    </section>
+
+    <footer class="footer">
+      <div>感謝 Modal 提供部署與運算，NVIDIA 提供 FLUX 影像生成資源。未設定金鑰時會回傳本機 Demo PNG，方便驗證流程。</div>
+      <div class="footer-meta">AI 圖片產生器 · 版本 v1.2.0</div>
+    </footer>
+
+    <div id="historyDetailModal" class="modal-backdrop" hidden>
+      <div class="modal history-detail" role="dialog" aria-modal="true" aria-labelledby="historyDetailTitle">
+        <div class="modal-head">
+          <h2 id="historyDetailTitle">作品詳情</h2>
+          <button id="closeHistoryDetail" class="icon-btn" type="button" aria-label="關閉作品詳情">×</button>
+        </div>
+        <img id="historyDetailImage" class="history-detail-image" alt="歷史作品預覽">
+        <div class="history-detail-grid">
+          <section>
+            <h3>白話／使用者提示詞</h3>
+            <p id="historyDetailPrompt"></p>
+          </section>
+          <section>
+            <h3>最終 provider prompt</h3>
+            <p id="historyDetailProviderPrompt"></p>
+          </section>
+          <section>
+            <h3>設定</h3>
+            <p id="historyDetailMeta"></p>
+          </section>
+          <section>
+            <h3>版本</h3>
+            <div id="historyVersionList" class="version-list"></div>
+          </section>
+        </div>
+        <label class="form-field" for="historyTagEditor">
+          <span>標籤</span>
+          <input id="historyTagEditor" class="text-input" type="text" placeholder="用逗號分隔，例如：角色, 產品, 靈感">
+        </label>
+        <button id="saveHistoryTags" class="btn secondary" type="button">儲存標籤</button>
+        <label class="tutorial-check" for="hidePromptInShare">
+          <input id="hidePromptInShare" type="checkbox">
+          <span>分享時隱藏 prompt</span>
+        </label>
+        <div class="modal-actions">
+          <button id="downloadHistoryDetail" class="btn secondary" type="button">下載圖片</button>
+          <button id="copyHistoryPrompt" class="btn secondary" type="button">複製 prompt</button>
+          <button id="copyHistoryShareText" class="btn secondary" type="button">複製分享文案</button>
+          <button id="exportHistoryJson" class="btn secondary" type="button">匯出作品 JSON</button>
+          <button id="useCompositionDetail" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
+          <button id="regenerateHistoryDetail" class="btn primary" type="button">以此版本再生</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ideaEditor" class="modal-backdrop" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ideaEditorTitle">
+        <div class="modal-head">
+          <h2 id="ideaEditorTitle">新增客製梗卡</h2>
+          <button id="closeIdeaEditor" class="icon-btn" type="button" aria-label="關閉">×</button>
+        </div>
+        <form id="ideaForm" class="idea-form">
+          <input id="ideaId" type="hidden">
+          <div class="form-grid">
+            <label class="form-field form-field-emoji">
+              <span>Emoji</span>
+              <input id="ideaEmoji" type="text" maxlength="8" placeholder="✨" autocomplete="off">
+            </label>
+            <label class="form-field">
+              <span>卡片名稱</span>
+              <input id="ideaTitle" type="text" maxlength="24" placeholder="例如：月光貓咪" required>
+            </label>
+          </div>
+          <label class="form-field">
+            <span>中文描述</span>
+            <textarea id="ideaPromptZh" rows="3" maxlength="500" placeholder="沒有英文提示詞時，點卡片會先自動轉成英文。"></textarea>
+          </label>
+          <label class="form-field">
+            <span>英文提示詞</span>
+            <textarea id="ideaPromptEn" rows="4" maxlength="1000" placeholder="可直接貼最終英文提示詞；有填寫時會略過轉換。"></textarea>
+          </label>
+          <div class="form-grid">
+            <label class="form-field">
+              <span>模型</span>
+              <select id="ideaModel">
+                <option value="schnell">快速 · FLUX.1-schnell</option>
+                <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>尺寸 / 比例</span>
+              <select id="ideaSize">
+                <option value="square">方形 1024×1024</option>
+                <option value="landscape">橫向 1344×768</option>
+                <option value="portrait">直向 768×1344</option>
+              </select>
+            </label>
+          </div>
+          <div id="ideaEditorStatus" class="form-status" aria-live="polite"></div>
+          <div class="modal-actions">
+            <button id="deleteIdea" class="btn danger" type="button">刪除卡片</button>
+            <div class="modal-actions-main">
+              <button class="btn secondary" type="button" data-close-idea-editor>取消</button>
+              <button class="btn primary" type="submit">儲存卡片</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div id="tutorialModal" class="modal-backdrop" hidden>
+      <div class="modal tutorial-card" role="dialog" aria-modal="true" aria-labelledby="tutorialTitle">
+        <div class="modal-head">
+          <h2 id="tutorialTitle">快速教學</h2>
+          <button id="closeTutorial" class="icon-btn" type="button" aria-label="關閉教學">×</button>
+        </div>
+        <ol class="tutorial-list">
+          <li data-tutorial-step="1">
+            <strong>輸入白話中文</strong>
+            <span>先把你想看的畫面用自然中文寫下來，不需要一開始就會英文提示詞。</span>
+          </li>
+          <li data-tutorial-step="2">
+            <strong>轉成專業英文提示詞</strong>
+            <span>使用 Prompt helper 把中文描述轉成更適合 FLUX 的英文提示詞。</span>
+          </li>
+          <li data-tutorial-step="3">
+            <strong>選模型與尺寸</strong>
+            <span>依照速度、品質與用途，選擇 FLUX 模型和方形、橫向或直向尺寸。</span>
+          </li>
+          <li data-tutorial-step="4">
+            <strong>生成、下載、收藏梗卡</strong>
+            <span>按下生成後可下載圖片，也能把常用題材存成客製梗卡下次快速重用。</span>
+          </li>
+        </ol>
+        <div class="modal-actions">
+          <label class="tutorial-check" for="dontShowTutorialAgain">
+            <input id="dontShowTutorialAgain" type="checkbox">
+            <span>下次不要自動顯示</span>
+          </label>
+          <div class="modal-actions-main">
+            <button id="finishTutorial" class="btn primary" type="button">我知道了</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="pwaUpdateNotice" class="pwa-update-notice" role="status" aria-live="polite" hidden>
+      <span>新版本已準備好。</span>
+      <button id="reloadPwa" class="btn mini secondary" type="button">重新整理</button>
+    </div>
+
+    <div id="mobileGenerateBar" class="mobile-generate-bar" hidden>
+      <button id="mobileGenerate" class="btn primary" type="button">🎨 生成圖片</button>
+    </div>
+  </main>
+
+  <script src="/static/generation-settings.js"></script>
+  <script src="/static/prompt-enhancer.js"></script>
+  <script src="/static/failure-advice.js"></script>
+  <script src="/static/app.js"></script>
+  <script src="/static/prompt-transform.js"></script>
+  <script src="/static/idea-store.js"></script>
+  <script src="/static/idea-cards.js"></script>
+  <script src="/static/history-store.js"></script>
+  <script src="/static/history-wall.js"></script>
+  <script src="/static/tutorial.js"></script>
+</body>
+</html>
