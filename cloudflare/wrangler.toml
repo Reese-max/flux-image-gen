@@ -16,3 +16,13 @@ binding = "ASSETS"
 NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 # Gemma model served via the Gemini API for the plain-CN to English prompt transform.
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
+
+# --- Edge rate limiting for /generate (per client IP) ---
+# The Worker treats env.GENERATE_RATE_LIMITER as optional: until the binding below
+# is enabled, /generate is NOT rate limited. To activate, uncomment the block,
+# confirm the binding syntax against the Wrangler docs for your installed version
+# (`npx wrangler --version`), then `npm run deploy`. `period` accepts 10 or 60.
+# [[unstable_rate_limit]]
+# name = "GENERATE_RATE_LIMITER"
+# namespace_id = "1001"
+# simple = { limit = 12, period = 60 }

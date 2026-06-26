@@ -515,6 +515,66 @@ test('POST /generate surfaces the error after exhausting retries on 5xx', async 
   }
 });
 
+test('POST /generate returns 429 when the rate limiter rejects the request', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({
+        NVIDIA_API_KEY: 'test-key',
+        GENERATE_RATE_LIMITER: { limit: async () => ({ success: false }) },
+      })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 429);
+    assert.equal(data.code, 'rate_limited');
+    assert.equal(fetchCalls, 0, 'must not call the provider when rate limited');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate proceeds when the rate limiter allows the request', async () => {
+  const originalFetch = globalThis.fetch;
+  let limiterKey;
+  globalThis.fetch = async function () {
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({
+        NVIDIA_API_KEY: 'test-key',
+        GENERATE_RATE_LIMITER: {
+          limit: async ({ key }) => {
+            limiterKey = key;
+            return { success: true };
+          },
+        },
+      })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'nvidia');
+    assert.equal(limiterKey, 'anonymous');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate maps a CONTENT_FILTERED placeholder to a 422 error', async () => {
   const originalFetch = globalThis.fetch;
 

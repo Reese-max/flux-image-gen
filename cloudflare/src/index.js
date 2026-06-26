@@ -551,7 +551,29 @@ function getNvidiaApiKey(env) {
   return String((env && env.NVIDIA_API_KEY) || "").trim();
 }
 
+// Optional edge rate limiting for /generate. Active only when a Cloudflare
+// Rate Limiting binding named GENERATE_RATE_LIMITER is configured in wrangler.toml;
+// otherwise this is a no-op so local dev and un-provisioned deploys keep working.
+// Rate limiting must never fail the request itself, so any binding error is ignored.
+async function checkRateLimit(request, limiter) {
+  if (!limiter || typeof limiter.limit !== "function") return null;
+  const key = request.headers.get("cf-connecting-ip") || "anonymous";
+  let outcome;
+  try {
+    outcome = await limiter.limit({ key });
+  } catch {
+    return null;
+  }
+  if (outcome && outcome.success === false) {
+    return json({ error: "叫用太頻繁，請稍後再試", code: "rate_limited", retry_after: 60 }, 429);
+  }
+  return null;
+}
+
 async function handleGenerate(request, env) {
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
   let payload;
   try {
     payload = await readJsonPayload(request);
