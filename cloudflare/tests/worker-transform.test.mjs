@@ -575,6 +575,77 @@ test('POST /generate proceeds when the rate limiter allows the request', async (
   }
 });
 
+function fakeBucket() {
+  const store = new Map();
+  return {
+    store,
+    async put(key, value, options) {
+      store.set(key, { value, options });
+    },
+    async get(key) {
+      if (!store.has(key)) return null;
+      const entry = store.get(key);
+      return { body: entry.value, httpMetadata: entry.options?.httpMetadata };
+    },
+  };
+}
+
+const TINY_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
+
+test('POST /gallery returns 503 when no R2 bucket is bound', async () => {
+  const response = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL }),
+    fakeEnv()
+  );
+  const data = await response.json();
+  assert.equal(response.status, 503);
+  assert.equal(data.code, 'gallery_disabled');
+});
+
+test('POST /gallery stores the image and GET /gallery/:id round-trips it', async () => {
+  const bucket = fakeBucket();
+
+  const saveResponse = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat', seed: 7 } }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 201);
+  assert.match(saved.id, /\.png$/);
+  assert.equal(saved.url, `/gallery/${saved.id}`);
+  assert.equal(bucket.store.size, 1);
+
+  const getResponse = await worker.fetch(
+    new Request(`https://example.test/gallery/${saved.id}`, { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  assert.equal(getResponse.status, 200);
+  assert.equal(getResponse.headers.get('content-type'), 'image/png');
+  const bytes = new Uint8Array(await getResponse.arrayBuffer());
+  assert.ok(bytes.length > 0);
+});
+
+test('GET /gallery/:id returns 404 for an unknown id', async () => {
+  const response = await worker.fetch(
+    new Request('https://example.test/gallery/does-not-exist.png', { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: fakeBucket() })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 404);
+  assert.equal(data.code, 'not_found');
+});
+
+test('POST /gallery rejects a non-data-URL image', async () => {
+  const response = await worker.fetch(
+    jsonRequest('/gallery', { image: 'https://example.test/not-allowed.png' }),
+    fakeEnv({ IMAGE_BUCKET: fakeBucket() })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 400);
+  assert.equal(data.code, 'bad_request');
+});
+
 test('POST /generate/batch returns an images array of the requested count', async () => {
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;

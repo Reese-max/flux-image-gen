@@ -745,6 +745,91 @@ async function handleGenerateBatch(request, env) {
   }
 }
 
+// --- Optional R2-backed cloud gallery ---
+// Active only when an R2 bucket binding named IMAGE_BUCKET is configured in
+// wrangler.toml; otherwise the endpoints return 503 so the app keeps working
+// device-locally. Lets users persist a chosen image and fetch it from any device.
+const GALLERY_PREFIX = "gallery/";
+const GALLERY_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
+
+function decodeImageDataUrl(dataUrl) {
+  const match = /^data:([^;]+);base64,(.+)$/s.exec(String(dataUrl || ""));
+  if (!match) throw new HttpError("image 必須是 base64 data URL", 400, "bad_request");
+  const contentType = match[1];
+  if (!GALLERY_EXT[contentType]) throw new HttpError("不支援的圖片格式", 400, "bad_request");
+  let binary;
+  try {
+    binary = atob(match[2]);
+  } catch {
+    throw new HttpError("圖片資料格式不正確", 400, "bad_request");
+  }
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return { contentType, bytes };
+}
+
+function sanitizeGalleryMeta(meta) {
+  const out = {};
+  if (meta && typeof meta === "object") {
+    for (const field of ["prompt", "model", "size", "seed"]) {
+      if (meta[field] !== undefined && meta[field] !== null) {
+        out[field] = String(meta[field]).slice(0, 500);
+      }
+    }
+  }
+  return out;
+}
+
+async function handleGallerySave(request, env) {
+  const bucket = env.IMAGE_BUCKET;
+  if (!bucket || typeof bucket.put !== "function") {
+    return json({ error: "雲端圖庫尚未啟用", code: "gallery_disabled" }, 503);
+  }
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
+  let payload;
+  try {
+    payload = await readJsonPayload(request);
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+
+  let decoded;
+  try {
+    decoded = decodeImageDataUrl(payload.image);
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+
+  const id = `${crypto.randomUUID()}.${GALLERY_EXT[decoded.contentType]}`;
+  await bucket.put(`${GALLERY_PREFIX}${id}`, decoded.bytes, {
+    httpMetadata: { contentType: decoded.contentType },
+    customMetadata: sanitizeGalleryMeta(payload.meta),
+  });
+  return json({ id, url: `/gallery/${id}` }, 201);
+}
+
+async function handleGalleryGet(env, id) {
+  const bucket = env.IMAGE_BUCKET;
+  if (!bucket || typeof bucket.get !== "function") {
+    return json({ error: "雲端圖庫尚未啟用", code: "gallery_disabled" }, 503);
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(id)) {
+    return json({ error: "找不到圖片", code: "not_found" }, 404);
+  }
+  const object = await bucket.get(`${GALLERY_PREFIX}${id}`);
+  if (!object) {
+    return json({ error: "找不到圖片", code: "not_found" }, 404);
+  }
+  const headers = new Headers();
+  headers.set("Content-Type", object.httpMetadata?.contentType || "application/octet-stream");
+  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  return new Response(object.body, { status: 200, headers });
+}
+
 async function handlePromptTransform(request, env) {
   let payload;
   try {
@@ -798,6 +883,12 @@ export default {
     }
     if (url.pathname === "/generate/batch" && request.method === "POST") {
       return handleGenerateBatch(request, env);
+    }
+    if (url.pathname === "/gallery" && request.method === "POST") {
+      return handleGallerySave(request, env);
+    }
+    if (url.pathname.startsWith("/gallery/") && request.method === "GET") {
+      return handleGalleryGet(env, decodeURIComponent(url.pathname.slice("/gallery/".length)));
     }
     if (url.pathname === "/client-error" && request.method === "POST") {
       return handleClientError(request);
