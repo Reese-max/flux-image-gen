@@ -234,6 +234,81 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["code"], "rate_limited")
         self.assertEqual(payload["retry_after"], 17)
 
+    async def test_nvidia_provider_retries_transient_failure_then_succeeds(self):
+        import base64
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from app.image_service import NvidiaProvider
+
+        calls = {"count": 0}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                calls["count"] += 1
+                if calls["count"] == 1:
+                    return httpx.Response(503, text="service unavailable")
+                png_base64 = base64.b64encode(b"\x89PNG\r\n\x1a\nnot-a-real-full-png").decode("ascii")
+                return httpx.Response(200, json={"artifacts": [{"base64": png_base64}]})
+
+        provider = NvidiaProvider(Settings(nvidia_api_key="dummy-key", image_provider="nvidia"))
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient), patch(
+            "app.image_service.asyncio.sleep", new=AsyncMock()
+        ) as sleep_mock:
+            result = await provider.generate(
+                GenerationRequest(prompt="a corgi in space", model="schnell", size="square")
+            )
+
+        self.assertEqual(calls["count"], 2)
+        self.assertEqual(sleep_mock.await_count, 1)
+        self.assertTrue(result.image.startswith("data:image/png;base64,"))
+
+    async def test_nvidia_provider_exhausts_retries_and_raises(self):
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from app.image_service import IMAGE_MAX_ATTEMPTS, NvidiaProvider, ProviderError
+
+        calls = {"count": 0}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                calls["count"] += 1
+                raise httpx.ConnectError("connection refused")
+
+        provider = NvidiaProvider(Settings(nvidia_api_key="dummy-key", image_provider="nvidia"))
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient), patch(
+            "app.image_service.asyncio.sleep", new=AsyncMock()
+        ):
+            with self.assertRaises(ProviderError) as context:
+                await provider.generate(
+                    GenerationRequest(prompt="a corgi in space", model="schnell", size="square")
+                )
+
+        self.assertEqual(calls["count"], IMAGE_MAX_ATTEMPTS)
+        self.assertEqual(context.exception.status_code, 502)
+        self.assertEqual(context.exception.code, "network_error")
+
     def test_extract_image_detects_jpeg_base64_from_provider(self):
         import base64
 

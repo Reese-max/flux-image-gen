@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 from dataclasses import dataclass
 from typing import Any
@@ -22,6 +23,13 @@ MODEL_ENDPOINTS: dict[str, str] = {
 
 MAX_SEED = 2147483647
 SEED_ERROR_MESSAGE = f"seed 必須是 0 到 {MAX_SEED} 之間的整數"
+
+# Image generation is the slowest, most expensive call — retry transient failures
+# (timeout / network / 5xx) before giving up. 429 is surfaced immediately so the
+# client can honour retry_after instead of hammering the quota.
+IMAGE_MAX_ATTEMPTS = 2
+RETRYABLE_IMAGE_STATUS = frozenset({500, 502, 503, 504})
+IMAGE_RETRY_BACKOFF_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -140,13 +148,24 @@ class NvidiaProvider:
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        try:
-            async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
-                response = await client.post(endpoint, headers=headers, json=payload)
-        except httpx.TimeoutException as exc:
-            raise ProviderError("NVIDIA 產圖逾時，請稍後再試", status_code=504, code="timeout") from exc
-        except httpx.HTTPError as exc:
-            raise ProviderError(f"NVIDIA 連線失敗：{exc}", status_code=502, code="network_error") from exc
+        last_error: ProviderError | None = None
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            for attempt in range(IMAGE_MAX_ATTEMPTS):
+                try:
+                    response = await client.post(endpoint, headers=headers, json=payload)
+                except httpx.TimeoutException:
+                    last_error = ProviderError("NVIDIA 產圖逾時，請稍後再試", status_code=504, code="timeout")
+                except httpx.HTTPError as exc:
+                    last_error = ProviderError(f"NVIDIA 連線失敗：{exc}", status_code=502, code="network_error")
+                else:
+                    if response.status_code not in RETRYABLE_IMAGE_STATUS:
+                        break
+                    last_error = ProviderError(
+                        _response_error_message(response), status_code=response.status_code, code="nvidia_error"
+                    )
+                if attempt + 1 >= IMAGE_MAX_ATTEMPTS:
+                    raise last_error
+                await asyncio.sleep(IMAGE_RETRY_BACKOFF_SECONDS * (attempt + 1))
 
         if response.status_code == 429:
             retry_after = _parse_retry_after(response.headers.get("retry-after"))

@@ -105,6 +105,13 @@ const GEMINI_SYSTEM_INSTRUCTION = sharedConstants.systemInstruction;
 const GEMINI_RESPONSE_SCHEMA = sharedConstants.responseSchema;
 const GEMINI_STYLE_HINTS = sharedConstants.styleHints;
 
+// Image generation retry policy — mirrors app/image_service.py. Retry transient
+// failures (network / 5xx); 429 is surfaced immediately so the client honours retry_after.
+const IMAGE_MAX_ATTEMPTS = 2;
+const RETRYABLE_IMAGE_STATUS = new Set([500, 502, 503, 504]);
+const IMAGE_RETRY_BACKOFF_MS = 500;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 function buildGeminiUserText(source, style) {
   const hint = GEMINI_STYLE_HINTS[style] || GEMINI_STYLE_HINTS.auto;
   return `${hint}\n\nDescription:\n${String(source).trim()}`;
@@ -580,19 +587,40 @@ async function handleGenerate(request, env) {
     body.steps = 30;
   }
 
-  let resp;
-  try {
-    resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        Accept: "application/json",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (e) {
-    return json({ error: `NVIDIA 連線失敗：${e}`, code: "network_error" }, 502);
+  let resp = null;
+  let lastError = null;
+  for (let attempt = 0; attempt < IMAGE_MAX_ATTEMPTS; attempt++) {
+    try {
+      resp = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      resp = null;
+      lastError = { error: `NVIDIA 連線失敗：${e}`, code: "network_error", status: 502 };
+    }
+    if (resp && !RETRYABLE_IMAGE_STATUS.has(resp.status)) {
+      break;
+    }
+    if (resp) {
+      let msg;
+      try {
+        const d = await resp.json();
+        msg = d.error || d.message || `NVIDIA HTTP ${resp.status}`;
+      } catch {
+        msg = `NVIDIA HTTP ${resp.status}`;
+      }
+      lastError = { error: msg, code: "nvidia_error", status: resp.status };
+    }
+    if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) {
+      return json({ error: lastError.error, code: lastError.code }, lastError.status);
+    }
+    await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
   }
 
   if (resp.status === 429) {
