@@ -459,3 +459,81 @@ test('Cloudflare package exposes repeatable performance QA scripts', async () =>
   assert.match(perfScript, /transferSize/);
   assert.match(perfScript, /response\.body\(\)/);
 });
+
+test('POST /generate retries a transient 5xx then succeeds', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = async function () {
+    calls += 1;
+    if (calls === 1) {
+      return new Response('upstream unavailable', { status: 503 });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(calls, 2);
+    assert.equal(data.provider, 'nvidia');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate surfaces the error after exhausting retries on 5xx', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+
+  globalThis.fetch = async function () {
+    calls += 1;
+    return new Response(JSON.stringify({ error: 'overloaded' }), {
+      status: 503,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 503);
+    assert.equal(calls, 2);
+    assert.equal(data.code, 'nvidia_error');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate maps a CONTENT_FILTERED placeholder to a 422 error', async () => {
+  const originalFetch = globalThis.fetch;
+
+  globalThis.fetch = async function () {
+    return new Response(JSON.stringify({ artifacts: [{ finishReason: 'CONTENT_FILTERED' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'something blocked', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 422);
+    assert.equal(data.code, 'content_filtered');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
