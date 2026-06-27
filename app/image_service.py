@@ -235,14 +235,22 @@ async def generate_batch(
     random seeds so the batch shows genuine variety."""
     count = validate_batch_count(count)
     provider = choose_provider(settings)
-    results: list[GenerationResult] = []
-    for index in range(count):
-        seed = request.seed if (index == 0 and request.seed is not None) else _random_seed()
-        variation = GenerationRequest(
-            prompt=request.prompt, model=request.model, size=request.size, seed=seed
+    # The variations are independent network calls; run them concurrently so a
+    # 4-image batch costs one round-trip of latency, not four. The first image
+    # honours an explicit seed; the rest get fresh random seeds for variety.
+    seeds = [
+        request.seed if (index == 0 and request.seed is not None) else _random_seed()
+        for index in range(count)
+    ]
+    tasks = [
+        provider.generate(
+            GenerationRequest(
+                prompt=request.prompt, model=request.model, size=request.size, seed=seed
+            )
         )
-        results.append(await provider.generate(variation))
-    return results
+        for seed in seeds
+    ]
+    return list(await asyncio.gather(*tasks))
 
 
 def to_http_error(err: ProviderError) -> tuple[dict[str, Any], int]:
@@ -362,4 +370,5 @@ def _response_error_message(response: httpx.Response) -> str:
             return data["message"]
         if "detail" in data:
             return f"NVIDIA HTTP {response.status_code}: {data['detail']}"
-    return f"NVIDIA HTTP {response.status_code}: {data}"
+    # Avoid leaking the raw provider payload (repr of an arbitrary dict) to clients.
+    return f"NVIDIA HTTP {response.status_code}"

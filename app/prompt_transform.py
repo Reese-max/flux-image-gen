@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import re
 
 from .prompt_llm import PromptLLMError, codex_transform_prompt, llm_transform_prompt
 from .settings import get_settings
+
+_log = logging.getLogger(__name__)
 
 
 SUPPORTED_STYLES = {"auto", "cute", "cinematic", "realistic", "anime", "product"}
@@ -105,15 +108,15 @@ def transform_plain_prompt(source: str, style: str = "auto") -> PromptTransformR
         try:
             prompt = llm_transform_prompt(source_text, resolved_style)
             return _llm_result("gemini", prompt, resolved_style, source_text)
-        except PromptLLMError:
-            pass
+        except PromptLLMError as exc:
+            _log.warning("gemini prompt transform failed, falling back: %s", exc)
 
     if settings.codex_api_key:
         try:
             prompt = codex_transform_prompt(source_text, resolved_style)
             return _llm_result("codex", prompt, resolved_style, source_text)
-        except PromptLLMError:
-            pass
+        except PromptLLMError as exc:
+            _log.warning("codex prompt transform failed, falling back: %s", exc)
 
     return _rule_based_transform(source_text, resolved_style)
 

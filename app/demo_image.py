@@ -8,7 +8,7 @@ from textwrap import wrap
 from PIL import Image, ImageDraw, ImageFont
 
 
-def _load_font(size: int) -> ImageFont.ImageFont:
+def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     candidates = [
         "C:/Windows/Fonts/msjh.ttc",
         "C:/Windows/Fonts/mingliu.ttc",
@@ -54,8 +54,9 @@ def make_demo_png_data_url(prompt: str, width: int, height: int, model: str) -> 
         width=2,
     )
 
+    body_font_size = max(20, width // 48)
     title_font = _load_font(max(28, width // 30))
-    body_font = _load_font(max(20, width // 48))
+    body_font = _load_font(body_font_size)
     small_font = _load_font(max(16, width // 62))
     draw.text((margin + 28, box_y + 24), "Demo Image", font=title_font, fill=(226, 232, 240, 255))
     draw.text(
@@ -70,7 +71,7 @@ def make_demo_png_data_url(prompt: str, width: int, height: int, model: str) -> 
     y = box_y + 116
     for line in lines[:4]:
         draw.text((margin + 28, y), line, font=body_font, fill=(203, 213, 225, 255))
-        y += int(body_font.size * 1.35)
+        y += int(body_font_size * 1.35)
 
     image = Image.alpha_composite(image.convert("RGBA"), overlay).convert("RGB")
     buf = BytesIO()

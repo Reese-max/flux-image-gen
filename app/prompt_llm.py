@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import httpx
@@ -32,6 +33,9 @@ SYSTEM_INSTRUCTION = _CONSTANTS["systemInstruction"]
 RESPONSE_SCHEMA = _CONSTANTS["responseSchema"]
 STYLE_HINTS = _CONSTANTS["styleHints"]
 MAX_LLM_PROMPT_LENGTH = _CONSTANTS["maxLlmPromptLength"]
+# Backoff between transient retries, so an immediate re-hit on a 429 doesn't
+# just fail again. Mirrors the image service's linear backoff.
+RETRY_BACKOFF_SECONDS = 0.5
 
 
 def llm_transform_prompt(source: str, style: str, settings: Settings | None = None) -> str:
@@ -70,6 +74,7 @@ def llm_transform_prompt(source: str, style: str, settings: Settings | None = No
             last_error = PromptLLMError(str(exc))
             if attempt + 1 >= MAX_ATTEMPTS:
                 break
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("gemini request failed")
 
 
@@ -103,6 +108,7 @@ def codex_transform_prompt(source: str, style: str, settings: Settings | None = 
             last_error = PromptLLMError(str(exc))
             if attempt + 1 >= MAX_ATTEMPTS:
                 break
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("codex request failed")
 
 
