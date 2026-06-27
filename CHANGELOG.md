@@ -2,6 +2,15 @@
 
 ## 2026-06-28
 
+### Performance & hardening（三 agent 平行審查後的優化輪）
+
+- **批次生成並行化**：`/generate/batch`（Worker `Promise.all`）與後端 `generate_batch`（`asyncio.gather`）由序列改並行。線上實測 count=2 由 ~4s 降到 ~2s（≈單張時間）。
+- **堵 body 大小繞過**：Worker `readJsonPayload` 改有界串流讀取，不再信任可偽造 / 可省略的 `Content-Length`；`decodeImageDataUrl` 加 5MB 解碼前上限。線上實測超大 body 回 413。
+- **補限流與輸入上限**：`/prompt/transform` 補 `checkRateLimit` 與 source 長度上限（保護 Gemini 配額）。
+- **可觀測性**：Gemini/Codex prompt 轉換 fallback 失敗由靜默吞掉改為結構化 log（Worker `console.error` / 後端 `logging.WARNING`）。
+- **正確性修復**：LLM transient retry 加 backoff；`_response_error_message` 不再回傳原始 provider dict；`demo_image` 修 `font.size` 在 fallback 字型的 `AttributeError`；`/gallery` GET 的 `decodeURIComponent` 加防護（畸形編碼→404）；前端 `saveToCloud` 處理 `copyText` promise 與非 JSON 回應時按鈕永久鎖死。
+- 部署：`Current Version ID: dd287940-f815-4694-9d6a-6ece179a7954`。
+
 ### Changed
 
 - 啟用 edge rate limiting：`cloudflare/wrangler.toml` 取消註解並改用 GA `[[ratelimits]]` binding（`GENERATE_RATE_LIMITER`，12 requests / 60s，key=`cf-connecting-ip`）。`/generate` 與 `/generate/batch` 皆在最前面做限流檢查。
