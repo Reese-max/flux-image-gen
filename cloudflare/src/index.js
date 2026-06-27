@@ -17,6 +17,8 @@ const MODEL_ENDPOINTS = {
 
 const MAX_JSON_BYTES = 64 * 1024;
 const MAX_PROMPT_LENGTH = 900;
+const MAX_TRANSFORM_SOURCE_LENGTH = 2000;
+const MAX_GALLERY_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_SEED = 2147483647;
 const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 const SUPPORTED_STYLES = new Set(["auto", "cute", "cinematic", "realistic", "anime", "product"]);
@@ -326,13 +328,37 @@ function validateSeed(seed) {
 }
 
 async function readJsonPayload(request) {
-  const header = request.headers.get("content-length");
-  const contentLength = header ? Number(header) : 0;
-  if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BYTES) {
-    throw new HttpError("請求內容太大", 413, "payload_too_large");
+  // Stream the body with a real byte counter. Trusting Content-Length lets a
+  // client omit the header (or lie) and bypass the size cap entirely.
+  if (!request.body) {
+    throw new HttpError("請求格式錯誤", 400, "bad_request");
+  }
+  const reader = request.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_JSON_BYTES) {
+        await reader.cancel();
+        throw new HttpError("請求內容太大", 413, "payload_too_large");
+      }
+      chunks.push(value);
+    }
+  } catch (e) {
+    if (e instanceof HttpError) throw e;
+    throw new HttpError("請求讀取失敗", 400, "bad_request");
+  }
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
   }
   try {
-    return await request.json();
+    return JSON.parse(new TextDecoder().decode(combined));
   } catch {
     throw new HttpError("請求格式錯誤", 400, "bad_request");
   }
@@ -733,11 +759,14 @@ async function handleGenerateBatch(request, env) {
   }
 
   try {
-    const images = [];
+    // The variations are independent network calls; run them concurrently so a
+    // 4-image batch costs one round-trip of latency instead of four.
+    const tasks = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
-      images.push(await generateOneImage(env, { prompt, model, size, seed: variationSeed }));
+      tasks.push(generateOneImage(env, { prompt, model, size, seed: variationSeed }));
     }
+    const images = await Promise.all(tasks);
     return json({ images });
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
@@ -757,6 +786,11 @@ function decodeImageDataUrl(dataUrl) {
   if (!match) throw new HttpError("image 必須是 base64 data URL", 400, "bad_request");
   const contentType = match[1];
   if (!GALLERY_EXT[contentType]) throw new HttpError("不支援的圖片格式", 400, "bad_request");
+  // base64 expands the payload ~4/3; reject before allocating so a single POST
+  // can't push an oversized object into R2 or burn Worker CPU decoding it.
+  if (match[2].length > Math.ceil(MAX_GALLERY_IMAGE_BYTES * 4 / 3)) {
+    throw new HttpError("圖片太大（上限 5MB）", 413, "payload_too_large");
+  }
   let binary;
   try {
     binary = atob(match[2]);
@@ -831,6 +865,10 @@ async function handleGalleryGet(env, id) {
 }
 
 async function handlePromptTransform(request, env) {
+  // Each call can hit the Gemini API (separate paid quota); throttle like /generate.
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
   let payload;
   try {
     payload = await readJsonPayload(request);
@@ -841,6 +879,9 @@ async function handlePromptTransform(request, env) {
 
   const source = String(payload.source || "").trim();
   if (!source) return json({ error: "請先輸入白話描述", code: "bad_request" }, 400);
+  if (source.length > MAX_TRANSFORM_SOURCE_LENGTH) {
+    return json({ error: "描述太長", code: "bad_request" }, 400);
+  }
 
   // LLM-first: try Gemini when a key is configured, then gracefully fall back.
   if (String((env && env.GEMINI_API_KEY) || "").trim()) {
@@ -848,7 +889,8 @@ async function handlePromptTransform(request, env) {
       const resolvedStyle = resolveStyle(source, normalizeStyle(payload.style));
       const prompt = await geminiTransformPrompt(source, resolvedStyle, env);
       return json({ source, prompt, provider: "gemini", warnings: [] });
-    } catch {
+    } catch (geminiErr) {
+      console.error(JSON.stringify({ event: "gemini_transform_failed", error: String(geminiErr) }));
       // fall through to the offline rule-based engine
     }
   }
@@ -888,7 +930,13 @@ export default {
       return handleGallerySave(request, env);
     }
     if (url.pathname.startsWith("/gallery/") && request.method === "GET") {
-      return handleGalleryGet(env, decodeURIComponent(url.pathname.slice("/gallery/".length)));
+      let galleryId;
+      try {
+        galleryId = decodeURIComponent(url.pathname.slice("/gallery/".length));
+      } catch {
+        return json({ error: "找不到圖片", code: "not_found" }, 404);
+      }
+      return handleGalleryGet(env, galleryId);
     }
     if (url.pathname === "/client-error" && request.method === "POST") {
       return handleClientError(request);

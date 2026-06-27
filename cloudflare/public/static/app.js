@@ -556,14 +556,20 @@ function saveToCloud(){
         return;
       }
       var url = location.origin + data.url;
-      copyText(url);
-      setStatus('☁️ 已存雲端，連結已複製：' + data.url, 'done');
+      return copyText(url).then(function(){
+        setStatus('☁️ 已存雲端，連結已複製：' + data.url, 'done');
+      }, function(){
+        setStatus('☁️ 已存雲端（複製失敗，請手動複製）：' + data.url, 'warn');
+      });
     });
   }, function(err){
     reportClientError(err, { type: 'gallery_save' });
     setStatus('❌ 雲端儲存失敗：' + err.message, 'fail');
   }).then(function(){
     if(btn){ btn.disabled = false; }
+  }, function(){
+    if(btn){ btn.disabled = false; }
+    setStatus('❌ 雲端儲存失敗，請稍後再試', 'fail');
   });
 }
 
