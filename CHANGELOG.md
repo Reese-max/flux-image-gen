@@ -1,14 +1,34 @@
 # Changelog
 
+## 2026-06-28
+
+### Changed
+
+- 啟用 edge rate limiting：`cloudflare/wrangler.toml` 取消註解並改用 GA `[[ratelimits]]` binding（`GENERATE_RATE_LIMITER`，12 requests / 60s，key=`cf-connecting-ip`）。`/generate` 與 `/generate/batch` 皆在最前面做限流檢查。
+
+### Deployed
+
+- 重新部署（Windows 原生 wrangler 4.104，本次未出現 native crash）：`Current Version ID: ba0fa316-46a9-4fbb-be39-6ba1968be642`。部署輸出確認 binding 生效：`env.GENERATE_RATE_LIMITER (12 requests/60s) → Rate Limit`。
+
+### Verified
+
+- 線上 `/generate` 回歸：`/health` provider=nvidia；schnell / dev valid 生圖皆 HTTP 200 並回合法 JPEG。
+- 前端「☁️ 存到雲端」對未啟用 R2 的優雅處理：線上 `POST /gallery` 回 `503 {code:gallery_disabled}`，前端已顯示「雲端圖庫尚未啟用」warn（非錯誤），止血確認。
+
+### Known issues / 待辦
+
+- **限流線上強制執行未證實**：dry-run 與 deploy 都顯示 binding（12 requests/60s）、Worker 程式碼正確（`outcome.success===false → 429`、fail-open）、`wrangler tail` 顯示 `limiter.limit()` 無例外（`exceptions:[]`），但連送 50+ 次仍全數放行、未見任何 429。研判為新建 rate-limit namespace 傳播延遲或帳號 usage-model 因素；因 fail-open 不影響服務，待數分鐘後或換更低 limit 再複測確認。
+- **R2 雲端圖庫仍未啟用**：需在 Cloudflare Dashboard 開通 R2，且目前 OAuth token 無 `r2` scope（`wrangler whoami` 未列），`wrangler r2 bucket create` 無法由本工作階段代勞 → 需使用者本人於 Dashboard 啟用後再 `wrangler r2 bucket create flux-image-gallery`、取消 `wrangler.toml` 對應註解並重部署。
+
 ## 2026-06-27
 
 ### Added
 
 - 種子碼 / 構圖鎖定（先前未入帳）：前端「🎲 每次都不一樣 / 🔒 鎖定這張構圖」雙模式、「以這張構圖再變化」、自訂種子碼進階區，可重現或微調同一構圖。
 - 生圖 transient retry：`app/image_service.py` 與 Cloudflare Worker 對逾時 / 網路 / 5xx 重試（最多 2 次 + backoff），429 仍即時回 `retry_after`。
-- 批次生成 API：`POST /generate/batch`（一個 prompt 出 1–4 張變體，首張可沿用指定 seed、其餘隨機），FastAPI 與 Worker 皆支援。（前端 UI 待接）
+- 批次生成 API：`POST /generate/batch`（一個 prompt 出 1–4 張變體，首張可沿用指定 seed、其餘隨機），FastAPI 與 Worker 皆支援。前端 `batchCount` 下拉已接。
 - 可選 edge rate limiting：Worker `/generate` 在配置 `GENERATE_RATE_LIMITER` binding 時依 client IP 限流，未配置則 no-op。
-- 可選 R2 雲端圖庫：Worker `POST /gallery` 存圖、`GET /gallery/:id` 取圖（需 `IMAGE_BUCKET` binding），未配置回 503。（前端 UI 待接）
+- 可選 R2 雲端圖庫：Worker `POST /gallery` 存圖、`GET /gallery/:id` 取圖（需 `IMAGE_BUCKET` binding），未配置回 503。前端「☁️ 存到雲端」按鈕已接；惟生產 R2 binding 尚未啟用，線上點擊會收到 503。
 - 本機 CI gate：`node scripts/verify.mjs` 一次跑完 pytest、前端 JS 測試、Cloudflare sync/check/worker 測試。
 - 前端同步腳本：`cloudflare/scripts/sync-static.mjs`（`npm run sync` / `sync:check`），部署前自動擋不一致。
 
@@ -20,6 +40,7 @@
 ### Fixed
 
 - 修正既有紅燈測試：移除 `cloudflare/public/static/` 內 stray 的 `manifest.webmanifest` 與 `service-worker.js`（PWA root-scope 檔只應存在於 `public/` 根目錄）。
+- **生產 NVIDIA_API_KEY 失效已修復**：以本機驗證過有效的金鑰（直打 schnell 端點回 HTTP 200）`wrangler secret put NVIDIA_API_KEY` 更新生產 secret。線上 `/generate` 由 `403 Authorization failed` 恢復為 HTTP 200。（`secret put` 為純 API 呼叫，Windows 原生 wrangler 可正常執行，無須繞 WSL；native crash 僅發生於需要 workerd 的 build/deploy 類指令。）
 
 ### Infra
 
@@ -30,7 +51,7 @@
 - 全套離線測試通過：Python 72 passed（含 23 subtests）、前端 JS 41、Cloudflare Worker 32。
 - `node scripts/verify.mjs` 綠燈；esbuild 可成功 bundle Worker（含 `shared/prompt-constants.json` inline）。
 - 已部署上線（經 WSL `npx wrangler` 繞過 Windows wrangler native crash）：`Current Version ID: 86d83642-58cb-4226-a074-7c2f0eb91077`。線上驗證：新前端（batchCount / saveToCloud）已上、`/gallery` 回 503（R2 未啟用）、`/health` provider=nvidia。
-- 已知問題（非本輪程式碼造成）：生產 NVIDIA_API_KEY 失效，`/generate` 與 `/generate/batch` 皆回 `NVIDIA HTTP 403: Authorization failed`，需 `wrangler secret put NVIDIA_API_KEY` 更新金鑰。
+- ~~已知問題：生產 NVIDIA_API_KEY 失效，`/generate` 與 `/generate/batch` 皆回 `NVIDIA HTTP 403: Authorization failed`~~ → **已於 2026-06-27 23:xx 修復**（見 Fixed）。線上實測：`/generate` schnell HTTP 200（~3s，52KB JPEG）、dev HTTP 200（~6.4s，247KB JPEG），圖檔內容與 prompt 相符。`/health` provider=nvidia。
 - rate limiting 與 R2 binding 仍預設關閉；R2 需先於 Cloudflare Dashboard 啟用後 `wrangler r2 bucket create flux-image-gallery`、取消 binding 註解再重部署。
 
 ## 2026-06-25
