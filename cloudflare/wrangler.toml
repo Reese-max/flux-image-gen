@@ -26,10 +26,8 @@ name = "GENERATE_RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 12, period = 60 }
 
-# --- Optional R2-backed cloud gallery ---
-# The Worker treats env.IMAGE_BUCKET as optional: /gallery returns 503 until the
-# binding below is enabled. To activate: create the bucket, then uncomment.
-#   npx wrangler r2 bucket create flux-image-gallery
-# [[r2_buckets]]
-# binding = "IMAGE_BUCKET"
-# bucket_name = "flux-image-gallery"
+# --- R2-backed cloud gallery (enabled 2026-06-28) ---
+# Worker reads env.IMAGE_BUCKET; binding name must stay IMAGE_BUCKET.
+[[r2_buckets]]
+binding = "IMAGE_BUCKET"
+bucket_name = "flux-image-gallery"

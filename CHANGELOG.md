@@ -5,20 +5,21 @@
 ### Changed
 
 - 啟用 edge rate limiting：`cloudflare/wrangler.toml` 取消註解並改用 GA `[[ratelimits]]` binding（`GENERATE_RATE_LIMITER`，12 requests / 60s，key=`cf-connecting-ip`）。`/generate` 與 `/generate/batch` 皆在最前面做限流檢查。
+- 啟用 R2 雲端圖庫：帳號於 Dashboard 開通 R2 後 `wrangler r2 bucket create flux-image-gallery`，`wrangler.toml` 取消 `[[r2_buckets]]` 註解（binding `IMAGE_BUCKET`）。`/gallery` 由 503 改為實際存取 R2。
 
 ### Deployed
 
-- 重新部署（Windows 原生 wrangler 4.104，本次未出現 native crash）：`Current Version ID: ba0fa316-46a9-4fbb-be39-6ba1968be642`。部署輸出確認 binding 生效：`env.GENERATE_RATE_LIMITER (12 requests/60s) → Rate Limit`。
+- 重新部署（Windows 原生 wrangler 4.104，本次未出現 native crash）：限流先行 `ba0fa316-…`，加 R2 binding 後 `Current Version ID: d1490387-fcda-41e4-8456-8d790ec221f9`。部署輸出確認 bindings：`env.IMAGE_BUCKET (flux-image-gallery) → R2 Bucket`、`env.GENERATE_RATE_LIMITER (12 requests/60s) → Rate Limit`。
 
 ### Verified
 
 - 線上 `/generate` 回歸：`/health` provider=nvidia；schnell / dev valid 生圖皆 HTTP 200 並回合法 JPEG。
-- 前端「☁️ 存到雲端」對未啟用 R2 的優雅處理：線上 `POST /gallery` 回 `503 {code:gallery_disabled}`，前端已顯示「雲端圖庫尚未啟用」warn（非錯誤），止血確認。
+- R2 雲端圖庫端到端：`POST /gallery` → 201（回 id/url）；`GET /gallery/:id` → 200、`image/png`、bytes 與上傳相符。「存到雲端」按鈕現可實際存取，不再 503。
 
 ### Known issues / 待辦
 
 - **限流線上強制執行未證實**：dry-run 與 deploy 都顯示 binding（12 requests/60s）、Worker 程式碼正確（`outcome.success===false → 429`、fail-open）、`wrangler tail` 顯示 `limiter.limit()` 無例外（`exceptions:[]`），但連送 50+ 次仍全數放行、未見任何 429。研判為新建 rate-limit namespace 傳播延遲或帳號 usage-model 因素；因 fail-open 不影響服務，待數分鐘後或換更低 limit 再複測確認。
-- **R2 雲端圖庫仍未啟用**：需在 Cloudflare Dashboard 開通 R2，且目前 OAuth token 無 `r2` scope（`wrangler whoami` 未列），`wrangler r2 bucket create` 無法由本工作階段代勞 → 需使用者本人於 Dashboard 啟用後再 `wrangler r2 bucket create flux-image-gallery`、取消 `wrangler.toml` 對應註解並重部署。
+- ~~R2 雲端圖庫仍未啟用~~ → **已於 2026-06-28 啟用並驗證**（見 Verified）。卡點實為帳號層級 R2 未開通（API 回 `code: 10042`），非 token scope；使用者於 Dashboard 開通後本工作階段完成建 bucket → 解註解 → 部署 → 端到端驗證。
 
 ## 2026-06-27
 
