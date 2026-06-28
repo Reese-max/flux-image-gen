@@ -2,6 +2,10 @@
 
 ## 2026-06-28
 
+### Refactor
+
+- **拆分 Worker `index.js`（999 行）成模組**：依職責分為 `constants.js` / `http.js` / `prompt.js` / `image.js` / `gallery.js`，`index.js` 縮為 259 行（6 個 handler + router + `transformPlainPrompt` 再匯出）。最大模組 234 行、全部 <800、無循環相依、函式逐字搬移零行為變動。worker 33 tests / verify.mjs / esbuild bundle / 線上 smoke test 皆通過（Version `046f11d3`）。
+
 ### Performance & hardening（三 agent 平行審查後的優化輪）
 
 - **批次生成並行化**：`/generate/batch`（Worker `Promise.all`）與後端 `generate_batch`（`asyncio.gather`）由序列改並行。線上實測 count=2 由 ~4s 降到 ~2s（≈單張時間）。
