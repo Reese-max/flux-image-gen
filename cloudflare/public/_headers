@@ -10,6 +10,8 @@
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   Content-Security-Policy: default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://datasets-server.huggingface.co; font-src 'self'
 
-# Fingerprint-free asset names, so cache modestly and revalidate in the background.
+# Asset names are not content-hashed, so always revalidate (cheap 304s) to avoid
+# serving stale JS/CSS after a deploy. The service worker layers stale-while-revalidate
+# on top for instant loads.
 /static/*
-  Cache-Control: public, max-age=3600, stale-while-revalidate=86400
+  Cache-Control: public, no-cache
