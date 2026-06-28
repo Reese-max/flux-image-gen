@@ -712,7 +712,9 @@ async function handleGenerate(request, env) {
   }
 
   try {
-    return json(await generateOneImage(env, { prompt, model, size, seed }));
+    const result = await generateOneImage(env, { prompt, model, size, seed });
+    const galleryToken = await issueGalleryToken(env);
+    return json(galleryToken ? { ...result, galleryToken } : result);
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
     throw e;
@@ -767,7 +769,8 @@ async function handleGenerateBatch(request, env) {
       tasks.push(generateOneImage(env, { prompt, model, size, seed: variationSeed }));
     }
     const images = await Promise.all(tasks);
-    return json({ images });
+    const galleryToken = await issueGalleryToken(env);
+    return json(galleryToken ? { images, galleryToken } : { images });
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
     throw e;
@@ -814,6 +817,50 @@ function sanitizeGalleryMeta(meta) {
   return out;
 }
 
+// --- Gallery save authorization (optional HMAC token) ---
+// When env.GALLERY_TOKEN_SECRET is set, /generate(/batch) hand out a short-lived
+// signed token that POST /gallery requires, so the cloud gallery can only be
+// written to right after a real generation — not by anonymous bulk writers.
+// Without the secret (local dev / tests) enforcement is disabled and saves stay open.
+const GALLERY_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+async function hmacHex(secret, message) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
+  return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function issueGalleryToken(env) {
+  const secret = env && env.GALLERY_TOKEN_SECRET;
+  if (!secret) return undefined;
+  const ts = Date.now().toString();
+  return `${ts}.${await hmacHex(secret, ts)}`;
+}
+
+async function verifyGalleryToken(env, token) {
+  const secret = env && env.GALLERY_TOKEN_SECRET;
+  if (!secret) return true; // enforcement disabled
+  if (typeof token !== "string" || token.indexOf(".") === -1) return false;
+  const dot = token.indexOf(".");
+  const ts = token.slice(0, dot);
+  const sig = token.slice(dot + 1);
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum)) return false;
+  const now = Date.now();
+  if (now - tsNum > GALLERY_TOKEN_TTL_MS || tsNum > now + 60000) return false;
+  const expected = await hmacHex(secret, ts);
+  if (sig.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
+  return diff === 0;
+}
+
 async function handleGallerySave(request, env) {
   const bucket = env.IMAGE_BUCKET;
   if (!bucket || typeof bucket.put !== "function") {
@@ -821,6 +868,10 @@ async function handleGallerySave(request, env) {
   }
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
   if (limited) return limited;
+
+  if (!(await verifyGalleryToken(env, request.headers.get("x-gallery-token")))) {
+    return json({ error: "儲存授權無效或已過期，請重新生成圖片再儲存", code: "unauthorized" }, 401);
+  }
 
   let payload;
   try {

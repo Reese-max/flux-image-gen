@@ -626,6 +626,41 @@ test('POST /gallery stores the image and GET /gallery/:id round-trips it', async
   assert.ok(bytes.length > 0);
 });
 
+test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', async () => {
+  const bucket = fakeBucket();
+  const env = fakeEnv({ IMAGE_BUCKET: bucket, GALLERY_TOKEN_SECRET: 'test-secret' });
+
+  const noToken = await worker.fetch(jsonRequest('/gallery', { image: TINY_PNG_DATA_URL }), env);
+  assert.equal(noToken.status, 401);
+  assert.equal((await noToken.json()).code, 'unauthorized');
+
+  const badToken = await worker.fetch(
+    new Request('https://example.test/gallery', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Gallery-Token': `${Date.now()}.deadbeef` },
+      body: JSON.stringify({ image: TINY_PNG_DATA_URL }),
+    }),
+    env
+  );
+  assert.equal(badToken.status, 401);
+
+  // A token minted by /generate (demo path, no NVIDIA key needed) is accepted.
+  const gen = await worker.fetch(jsonRequest('/generate', { prompt: 'a cat' }), env);
+  const genData = await gen.json();
+  assert.equal(typeof genData.galleryToken, 'string');
+
+  const withToken = await worker.fetch(
+    new Request('https://example.test/gallery', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Gallery-Token': genData.galleryToken },
+      body: JSON.stringify({ image: TINY_PNG_DATA_URL }),
+    }),
+    env
+  );
+  assert.equal(withToken.status, 201);
+  assert.equal(bucket.store.size, 1);
+});
+
 test('GET /gallery/:id returns 404 for an unknown id', async () => {
   const response = await worker.fetch(
     new Request('https://example.test/gallery/does-not-exist.png', { method: 'GET' }),

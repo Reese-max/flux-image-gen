@@ -533,9 +533,11 @@ function saveToCloud(){
   }
   if(btn){ btn.disabled = true; }
   setStatus('☁️ 上傳中…', 'busy');
+  var galleryHeaders = {'Content-Type': 'application/json'};
+  if(lastGeneration.galleryToken){ galleryHeaders['X-Gallery-Token'] = lastGeneration.galleryToken; }
   fetch('/gallery', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: galleryHeaders,
     body: JSON.stringify({
       image: lastGeneration.image,
       meta: {
@@ -838,6 +840,7 @@ function generate(){
         width: typeof data.width === 'number' ? data.width : fallbackDimensions.width,
         height: typeof data.height === 'number' ? data.height : fallbackDimensions.height,
         provider: typeof data.provider === 'string' ? data.provider : '',
+        galleryToken: typeof data.galleryToken === 'string' ? data.galleryToken : '',
         sourceRecordId: pendingSourceRecordId
       };
       lastGeneration = shallowClone(generatedRecord);
