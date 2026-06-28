@@ -328,7 +328,7 @@ function updateSeedModeUi(){
     if(locked){
       hint.textContent = '已鎖定構圖（種子碼 ' + (seedField && seedField.value ? seedField.value : '—') + '），改描述後再生成就能微調。';
     }else{
-      hint.textContent = '每次生成都會給你不一樣的畫面。';
+      hint.textContent = '每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。';
     }
   }
 }
