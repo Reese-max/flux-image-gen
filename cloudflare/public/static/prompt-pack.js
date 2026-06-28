@@ -72,12 +72,17 @@
     title.appendChild(hint);
     section.appendChild(title);
 
-    categories.forEach(function (category) {
+    // Each category is collapsible (collapsed by default, first one open as a
+    // preview) so 72 cards take ~12 compact rows instead of a tall wall.
+    categories.forEach(function (category, index) {
       var cards = (category && category.cards) || [];
       if (!cards.length) return;
-      var groupLabel = el('div', 'pack-group-label', (category.emoji ? category.emoji + ' ' : '') + (category.label || ''));
-      groupLabel.style.cssText = 'margin:14px 0 6px;font-size:0.85rem;font-weight:600;opacity:0.7;';
-      section.appendChild(groupLabel);
+      var details = el('details', 'pack-cat');
+      if (index === 0) { details.open = true; }
+      var summary = el('summary', 'pack-group-label',
+        (category.emoji ? category.emoji + ' ' : '') + (category.label || '') + ' (' + cards.length + ')');
+      summary.style.cssText = 'cursor:pointer;margin:10px 0 6px;font-size:0.85rem;font-weight:600;opacity:0.75;';
+      details.appendChild(summary);
       var grid = el('div', 'idea-grid');
       cards.forEach(function (card) {
         var withEmoji = card;
@@ -86,7 +91,8 @@
         }
         grid.appendChild(buildCard(withEmoji));
       });
-      section.appendChild(grid);
+      details.appendChild(grid);
+      section.appendChild(details);
     });
 
     var anchor = document.querySelector('section.ideas');
