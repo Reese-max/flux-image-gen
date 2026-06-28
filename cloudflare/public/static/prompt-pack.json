@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "note": "FLUX-tuned curated prompts. Natural-language style (NOT Stable Diffusion keyword soup), because FLUX.1 is trained on descriptive captions.",
   "categories": [
     {
@@ -10,7 +10,9 @@
         { "title": "海邊老漁夫", "zh": "風霜臉孔的老漁夫，自然光人像", "en": "A natural-light portrait of an old fisherman with weathered, sun-creased skin and kind tired eyes, soft directional window light from the left, shallow depth of field, shot on an 85mm lens, muted earthy tones, quiet and dignified.", "model": "dev", "size": "portrait" },
         { "title": "霓虹下的女子", "zh": "雨夜霓虹街頭的電影感人像", "en": "A cinematic close-up of a young woman standing on a rainy city street at night, magenta and teal neon reflecting on her face and wet skin, soft bokeh of blurred signs behind her, moody film-still atmosphere, 50mm lens.", "model": "dev", "size": "portrait" },
         { "title": "陽光少年", "zh": "逆光金色時刻的自然笑容", "en": "A candid portrait of a teenage boy laughing in a sunlit meadow during golden hour, warm backlight rimming his hair, gentle lens flare, natural skin texture, airy and joyful, documentary feel.", "model": "schnell", "size": "portrait" },
-        { "title": "職人黑白", "zh": "工坊裡的職人黑白肖像", "en": "A black-and-white environmental portrait of a craftsman in his workshop, hands resting on a worn wooden bench, dramatic single-source side light carving out the texture of his face, fine grain, timeless and intimate.", "model": "dev", "size": "portrait" }
+        { "title": "職人黑白", "zh": "工坊裡的職人黑白肖像", "en": "A black-and-white environmental portrait of a craftsman in his workshop, hands resting on a worn wooden bench, dramatic single-source side light carving out the texture of his face, fine grain, timeless and intimate.", "model": "dev", "size": "portrait" },
+        { "title": "慈祥奶奶", "zh": "廚房暖光中的祖母笑容", "en": "A warm portrait of an elderly grandmother smiling gently in a cozy kitchen, soft afternoon light wrapping around her, fine wrinkles and silver hair full of character, tender and nostalgic, shallow depth of field.", "model": "dev", "size": "portrait" },
+        { "title": "舞者動態", "zh": "棚拍凝結的舞者躍動", "en": "A dynamic studio portrait of a contemporary dancer caught mid-leap, flowing fabric frozen in motion, dramatic rim lighting against a dark seamless background, powerful and graceful, crisp detail.", "model": "dev", "size": "portrait" }
       ]
     },
     {
@@ -21,7 +23,9 @@
         { "title": "晨霧松林", "zh": "破曉薄霧穿過松林的光束", "en": "A misty pine forest at dawn, low fog drifting between tall trees, golden sunbeams breaking through the canopy and catching the haze, soft and atmospheric, wide-angle landscape photograph, serene mood.", "model": "schnell", "size": "landscape" },
         { "title": "冰島瀑布", "zh": "苔原上的壯闊冰島瀑布", "en": "A powerful waterfall cascading down dark volcanic cliffs in the Icelandic highlands, mist rising from the base, moody overcast sky, vivid green moss in the foreground, epic scale, long-exposure smooth water.", "model": "dev", "size": "landscape" },
         { "title": "星空沙漠", "zh": "沙漠夜空的銀河", "en": "A vast desert under a brilliant night sky, the Milky Way arcing overhead, smooth wind-sculpted dunes faintly lit by starlight, a lone silhouette for scale, deep blues and soft amber horizon glow, astrophotography.", "model": "dev", "size": "landscape" },
-        { "title": "梯田夕照", "zh": "黃昏倒映天空的梯田", "en": "Terraced rice paddies at sunset, flooded fields reflecting a pink and orange sky like shards of mirror, a winding path between the terraces, warm tranquil light, layered depth, fine-art landscape.", "model": "schnell", "size": "landscape" }
+        { "title": "梯田夕照", "zh": "黃昏倒映天空的梯田", "en": "Terraced rice paddies at sunset, flooded fields reflecting a pink and orange sky like shards of mirror, a winding path between the terraces, warm tranquil light, layered depth, fine-art landscape.", "model": "schnell", "size": "landscape" },
+        { "title": "秋日楓紅", "zh": "陽光灑落的火紅楓林小徑", "en": "A quiet path winding through a forest of fiery red and orange maple trees in autumn, warm sunlight filtering through the leaves and dappling the ground, a soft carpet of fallen leaves, peaceful and golden.", "model": "schnell", "size": "landscape" },
+        { "title": "風暴燈塔", "zh": "怒濤拍岸的崖邊燈塔", "en": "A lone lighthouse on a rocky cliff during a storm, towering waves crashing against the rocks and throwing white spray into the air, dramatic grey clouds, a single beam of light cutting through the gloom, moody and powerful.", "model": "dev", "size": "landscape" }
       ]
     },
     {
@@ -32,7 +36,9 @@
         { "title": "極簡耳機", "zh": "漂浮於漸層背景的耳機盒", "en": "A minimalist product shot of a matte black wireless earbud case floating against a soft pastel gradient background, clean studio lighting with one gentle reflection and a subtle shadow, crisp focus, premium commercial style.", "model": "dev", "size": "square" },
         { "title": "香水光影", "zh": "硬光戲劇感的香水瓶", "en": "A luxury perfume bottle on a polished stone surface, dramatic hard light casting a long crisp shadow, a thin sliver of golden rim light on the glass, dewy condensation droplets, elegant and editorial.", "model": "dev", "size": "portrait" },
         { "title": "潑濺飲料", "zh": "凝結瞬間的飲料潑濺", "en": "A refreshing soda can with ice-cold droplets, a dynamic splash of liquid frozen mid-air around it, bright high-key lighting on a clean white background, vivid and energetic, high-speed beverage photography.", "model": "schnell", "size": "square" },
-        { "title": "球鞋懸浮", "zh": "棚拍懸浮運動鞋", "en": "A modern running sneaker suspended in mid-air in a studio, bold rim lighting against a deep teal seamless background, clean reflective floor, crisp materials and stitching detail, energetic sportswear advertisement.", "model": "dev", "size": "square" }
+        { "title": "球鞋懸浮", "zh": "棚拍懸浮運動鞋", "en": "A modern running sneaker suspended in mid-air in a studio, bold rim lighting against a deep teal seamless background, clean reflective floor, crisp materials and stitching detail, energetic sportswear advertisement.", "model": "dev", "size": "square" },
+        { "title": "機械腕錶", "zh": "微距金屬質感的機械錶", "en": "A macro product shot of a luxury mechanical watch, intricate metal detailing and a sapphire crystal face catching soft reflections, dark moody background with a single elegant highlight, crisp and premium.", "model": "dev", "size": "square" },
+        { "title": "美妝平拍", "zh": "柔粉色系的彩妝平拍", "en": "A flat-lay of cosmetics arranged neatly on a soft blush-pink surface, a lipstick, compact and brushes, gentle even lighting with delicate shadows, clean pastel palette, modern beauty-brand aesthetic.", "model": "schnell", "size": "square" }
       ]
     },
     {
@@ -43,7 +49,9 @@
         { "title": "拉麵特寫", "zh": "熱氣騰騰的拉麵微距", "en": "A steaming bowl of tonkotsu ramen shot from a low angle, glossy broth, a soft-boiled egg cut in half, curls of steam rising into warm backlight, shallow depth of field, appetizing macro food photography.", "model": "schnell", "size": "square" },
         { "title": "莓果鬆餅", "zh": "晨光中淋糖漿的鬆餅", "en": "A tall stack of fluffy pancakes drizzled with maple syrup and topped with fresh berries, soft morning window light, a dusting of powdered sugar mid-fall, rustic table setting, cozy and inviting.", "model": "schnell", "size": "portrait" },
         { "title": "黑底牛排", "zh": "暗調戲劇感的炙烤牛排", "en": "A perfectly seared steak resting on a dark slate board, rich charred crust, a sprig of rosemary and flakes of sea salt, moody low-key lighting with a single warm highlight, steam rising, gourmet editorial style.", "model": "dev", "size": "square" },
-        { "title": "手沖咖啡", "zh": "蒸氣繚繞的手沖咖啡", "en": "An overhead flat-lay of a pour-over coffee setup on a worn wooden table, gentle steam curling from the cup, scattered roasted beans, soft diffused daylight, warm minimalist café aesthetic.", "model": "schnell", "size": "square" }
+        { "title": "手沖咖啡", "zh": "蒸氣繚繞的手沖咖啡", "en": "An overhead flat-lay of a pour-over coffee setup on a worn wooden table, gentle steam curling from the cup, scattered roasted beans, soft diffused daylight, warm minimalist café aesthetic.", "model": "schnell", "size": "square" },
+        { "title": "壽司拼盤", "zh": "精緻擺盤的握壽司特寫", "en": "An elegant close-up of an assortment of nigiri sushi on a dark ceramic plate, glistening fresh fish, a few grains of rice catching the light, minimalist Japanese plating, soft directional lighting, refined and appetizing.", "model": "dev", "size": "landscape" },
+        { "title": "巧克力蛋糕", "zh": "切開流心的巧克力蛋糕", "en": "A decadent slice of chocolate lava cake on a white plate, warm molten center oozing out, a dusting of cocoa and a scoop of vanilla ice cream beside it, soft warm lighting, rich and indulgent food photography.", "model": "schnell", "size": "square" }
       ]
     },
     {
@@ -54,7 +62,9 @@
         { "title": "極簡禪屋", "zh": "灑落自然光的極簡室內", "en": "A minimalist Japanese interior with warm wooden floors and a low table, soft afternoon sunlight streaming through paper screens casting long geometric shadows, a single potted plant, calm and uncluttered, architectural photography.", "model": "dev", "size": "landscape" },
         { "title": "賽博街景", "zh": "雨夜霓虹的未來街道", "en": "A rain-soaked futuristic alley at night, dense neon signage in pink and cyan reflecting on wet pavement, steam rising from grates, distant figures with umbrellas, cinematic cyberpunk atmosphere, wide cinematic frame.", "model": "dev", "size": "landscape" },
         { "title": "螺旋階梯", "zh": "由上俯瞰的螺旋樓梯", "en": "A top-down view of an elegant spiral staircase, smooth curving lines spiraling into the depths, soft natural light grazing the marble steps, strong sense of symmetry and rhythm, fine-art architectural composition.", "model": "schnell", "size": "portrait" },
-        { "title": "海邊玻璃屋", "zh": "黃昏崖邊的現代玻璃屋", "en": "A modern glass house perched on a coastal cliff at dusk, warm interior lights glowing against a deep blue sky, calm ocean below, clean architectural lines, luxury real-estate photography, tranquil.", "model": "dev", "size": "landscape" }
+        { "title": "海邊玻璃屋", "zh": "黃昏崖邊的現代玻璃屋", "en": "A modern glass house perched on a coastal cliff at dusk, warm interior lights glowing against a deep blue sky, calm ocean below, clean architectural lines, luxury real-estate photography, tranquil.", "model": "dev", "size": "landscape" },
+        { "title": "哥德教堂", "zh": "光束灑落的哥德式教堂內部", "en": "The soaring interior of a gothic cathedral, towering stone columns and ribbed vaults, shafts of colored light streaming through tall stained-glass windows onto the floor, awe-inspiring scale, soft atmospheric haze.", "model": "dev", "size": "portrait" },
+        { "title": "北歐客廳", "zh": "溫暖自然的北歐風客廳", "en": "A cozy Scandinavian living room bathed in soft natural light, light wood furniture, a chunky knit throw, plants by a large window and warm neutral tones, clean hygge aesthetic, inviting interior photography.", "model": "schnell", "size": "landscape" }
       ]
     },
     {
@@ -65,7 +75,9 @@
         { "title": "宮崎駿風", "zh": "手繪溫暖的奇幻小鎮", "en": "A whimsical hillside town in a hand-painted anime style reminiscent of classic Japanese animation, soft watercolor skies, lush rolling greenery, tiny warm windows glowing at dusk, gentle nostalgic atmosphere.", "model": "dev", "size": "landscape" },
         { "title": "漫畫分鏡", "zh": "黑白細膩線條的漫畫格", "en": "A black-and-white manga panel of a young man and his cat on a rooftop at night, expressive detailed linework, dramatic screentone shading, a quiet emotional moment under a full moon, classic shonen style.", "model": "schnell", "size": "portrait" },
         { "title": "童書水彩", "zh": "柔和童趣的水彩繪本", "en": "A cozy children's-book watercolor illustration of a small fox reading a book under a glowing mushroom, soft textured paper, warm pastel palette, gentle storybook charm, hand-painted look.", "model": "schnell", "size": "square" },
-        { "title": "扁平向量", "zh": "現代簡約的扁平插畫", "en": "A clean flat-design vector illustration of a person working at a desk by a large window with plants, bold simple shapes, harmonious muted color palette, soft long shadows, modern editorial style.", "model": "schnell", "size": "landscape" }
+        { "title": "扁平向量", "zh": "現代簡約的扁平插畫", "en": "A clean flat-design vector illustration of a person working at a desk by a large window with plants, bold simple shapes, harmonious muted color palette, soft long shadows, modern editorial style.", "model": "schnell", "size": "landscape" },
+        { "title": "等距小屋", "zh": "等距視角的可愛遊戲小屋", "en": "A cute isometric illustration of a tiny cozy cottage on a floating grass platform, soft cel-shaded colors, warm little lights and rounded shapes, clean game-art style, charming and detailed.", "model": "schnell", "size": "square" },
+        { "title": "復古海報", "zh": "懷舊風的旅遊宣傳海報", "en": "A vintage travel poster of a seaside town, bold flat shapes and a warm retro palette, stylized clouds and gentle texture, clean lettering space, 1950s tourism-poster aesthetic, nostalgic and graphic.", "model": "dev", "size": "portrait" }
       ]
     },
     {
@@ -76,7 +88,9 @@
         { "title": "巨型機甲", "zh": "廢墟城市中的巨大機甲", "en": "A towering mecha standing in a ruined city at dusk, scale emphasized by tiny figures below, volumetric god-rays piercing dust and smoke, weathered metal panels, dramatic concept-art lighting, epic and cinematic.", "model": "dev", "size": "portrait" },
         { "title": "外星地景", "zh": "雙月低垂的外星地表", "en": "An alien landscape with two large moons low on the horizon, bioluminescent plants glowing softly across rocky terrain, a thin violet atmosphere, an explorer in a sleek suit for scale, awe-inspiring sci-fi concept art.", "model": "dev", "size": "landscape" },
         { "title": "太空站內部", "zh": "舷窗映著地球的太空站", "en": "The interior of a sleek orbital space station, a large curved window revealing Earth below, soft blue rim lighting on brushed-metal surfaces, floating dust catching the light, calm and futuristic.", "model": "schnell", "size": "landscape" },
-        { "title": "太空貓", "zh": "漂浮深空的太空人貓", "en": "An astronaut cat floating peacefully in deep space, reflective helmet visor catching distant galaxies and nebulae, tiny paws in the gloves, highly detailed, charming and cinematic.", "model": "schnell", "size": "square" }
+        { "title": "太空貓", "zh": "漂浮深空的太空人貓", "en": "An astronaut cat floating peacefully in deep space, reflective helmet visor catching distant galaxies and nebulae, tiny paws in the gloves, highly detailed, charming and cinematic.", "model": "schnell", "size": "square" },
+        { "title": "飛行城市", "zh": "雲海之上的漂浮未來城市", "en": "A futuristic city of sleek towers floating above a sea of clouds at golden hour, small airships drifting between the buildings, warm light glinting off glass and metal, grand sci-fi concept art, hopeful and vast.", "model": "dev", "size": "landscape" },
+        { "title": "仿生人特寫", "zh": "柔光下的仿生人臉部特寫", "en": "A close-up of a humanoid android, smooth synthetic skin with faint seams and softly glowing eyes, cool studio lighting with a hint of blue, calm enigmatic expression, highly detailed, thoughtful sci-fi portrait.", "model": "dev", "size": "portrait" }
       ]
     },
     {
@@ -87,7 +101,9 @@
         { "title": "雪地狐狸", "zh": "晨光雪原的紅狐特寫", "en": "A red fox in a snowy forest at first light, breath visible in the cold air, soft frost on its fur, warm low sun rimming its coat against a cool blue background, sharp eyes, intimate wildlife photography.", "model": "dev", "size": "landscape" },
         { "title": "微距瓢蟲", "zh": "露珠葉尖的瓢蟲微距", "en": "An extreme macro photograph of a ladybug on a dew-covered leaf tip, tiny water droplets acting as lenses, soft green bokeh background, crisp detail on the shell, glistening morning light.", "model": "schnell", "size": "square" },
         { "title": "水下海龜", "zh": "陽光穿透海面的海龜", "en": "A sea turtle gliding through clear turquoise water, shafts of sunlight rippling down from the surface, tiny fish nearby, soft caustic patterns on the sandy seabed, serene underwater photography.", "model": "dev", "size": "landscape" },
-        { "title": "水晶玩具龍", "zh": "暗背景的鑲鑽玩具恐龍", "en": "A cute toy dinosaur figurine covered in sparkling crystals, glossy reflective surfaces catching colorful light, dark gradient background, studio product photography, playful and jewel-like.", "model": "schnell", "size": "square" }
+        { "title": "水晶玩具龍", "zh": "暗背景的鑲鑽玩具恐龍", "en": "A cute toy dinosaur figurine covered in sparkling crystals, glossy reflective surfaces catching colorful light, dark gradient background, studio product photography, playful and jewel-like.", "model": "schnell", "size": "square" },
+        { "title": "草原雄獅", "zh": "黃昏草原的雄獅凝視", "en": "A majestic male lion resting on the savanna at sunset, golden backlight catching his mane, warm dust in the air, soft distant grassland, a steady powerful gaze, cinematic wildlife photography.", "model": "dev", "size": "landscape" },
+        { "title": "蜂鳥花間", "zh": "懸停採蜜的蜂鳥定格", "en": "A vibrant hummingbird hovering at a bright flower, wings frozen mid-beat, iridescent feathers shimmering green and magenta, soft blurred garden background, crisp high-speed nature photography.", "model": "schnell", "size": "square" }
       ]
     },
     {
@@ -98,7 +114,48 @@
         { "title": "潑墨山水", "zh": "留白意境的水墨山水", "en": "A serene traditional Chinese ink-wash painting of misty mountains and a lone boat on calm water, generous negative space, delicate gradients of black ink, minimalist and poetic, elegant brushwork.", "model": "dev", "size": "landscape" },
         { "title": "蒸氣波海灘", "zh": "復古80年代蒸氣波", "en": "A dreamy vaporwave beach scene with palm trees and a giant retro gradient sun, pink and teal palette, subtle grid horizon, soft glow and grain, nostalgic 80s aesthetic.", "model": "schnell", "size": "landscape" },
         { "title": "微縮世界", "zh": "移軸效果的微縮村落", "en": "A tiny adorable miniature village photographed with a tilt-shift effect, soft selective focus making it look like a toy model, warm soft lighting, highly detailed little rooftops and trees, charming and playful.", "model": "schnell", "size": "landscape" },
-        { "title": "液態金屬", "zh": "抽象流動的液態金屬", "en": "An abstract close-up of flowing liquid metal, smooth chrome ripples reflecting a soft sunset gradient, elegant organic curves, glossy and futuristic, minimalist fine-art render.", "model": "dev", "size": "square" }
+        { "title": "液態金屬", "zh": "抽象流動的液態金屬", "en": "An abstract close-up of flowing liquid metal, smooth chrome ripples reflecting a soft sunset gradient, elegant organic curves, glossy and futuristic, minimalist fine-art render.", "model": "dev", "size": "square" },
+        { "title": "雙重曝光", "zh": "人像與森林的雙重曝光", "en": "A double-exposure portrait blending the silhouette of a woman with a misty pine forest, soft monochrome tones with a hint of teal, dreamy and poetic, fine-art photographic composite.", "model": "dev", "size": "portrait" },
+        { "title": "低多邊形", "zh": "幾何低多邊形的山狐", "en": "A stylized low-poly illustration of a fox on a mountain at sunrise, crisp geometric facets, a warm gradient sky of orange and purple, clean modern vector aesthetic, calm and graphic.", "model": "schnell", "size": "landscape" }
+      ]
+    },
+    {
+      "key": "fantasy",
+      "label": "奇幻",
+      "emoji": "🐉",
+      "cards": [
+        { "title": "巨龍寶藏", "zh": "盤踞金山的巨龍", "en": "A colossal dragon coiled atop a mountain of golden treasure inside a vast cavern, warm firelight glinting off coins and scales, smoke curling from its nostrils, epic fantasy concept art, dramatic and grand.", "model": "dev", "size": "landscape" },
+        { "title": "精靈森林", "zh": "光點飄舞的魔法精靈森林", "en": "An enchanted elven forest at twilight, towering ancient trees, glowing fireflies and floating motes of light, a soft mist and delicate bridges between roots, ethereal fantasy atmosphere, lush and magical.", "model": "dev", "size": "portrait" },
+        { "title": "漂浮島嶼", "zh": "瀑布垂落的天空浮島", "en": "Floating islands drifting in a bright sky, waterfalls pouring off their edges into the clouds, lush greenery and tiny ruins on top, warm sunlight and distant flying creatures, wondrous fantasy landscape.", "model": "dev", "size": "landscape" },
+        { "title": "法師施法", "zh": "掌心匯聚魔力的法師", "en": "A robed wizard casting a spell on a stormy cliff, glowing arcane energy swirling around his raised hands, wind whipping his cloak, dramatic moody lighting, cinematic fantasy illustration.", "model": "dev", "size": "portrait" },
+        { "title": "魔法圖書館", "zh": "漂浮書籍的古老魔法圖書館", "en": "A grand ancient library with towering shelves, books and glowing lanterns floating gently in the air, dust catching warm shafts of light, spiral staircases and arched windows, magical and cozy.", "model": "schnell", "size": "landscape" },
+        { "title": "水晶洞窟", "zh": "幽光閃爍的巨大水晶洞", "en": "An immense underground cavern filled with giant glowing crystals in blues and purples, a small explorer for scale, soft reflections on a still pool, mysterious bioluminescent light, awe-inspiring fantasy scene.", "model": "schnell", "size": "landscape" }
+      ]
+    },
+    {
+      "key": "fashion",
+      "label": "時尚",
+      "emoji": "👗",
+      "cards": [
+        { "title": "高訂禮服", "zh": "棚拍流光的高級訂製禮服", "en": "A high-fashion editorial shot of a model in a flowing haute couture gown, elegant studio lighting sculpting the fabric, a clean minimalist backdrop, confident pose, glossy magazine quality, refined and dramatic.", "model": "dev", "size": "portrait" },
+        { "title": "街頭時尚", "zh": "都市街拍的潮流穿搭", "en": "A candid street-style fashion photo of a stylish person in layered streetwear, blurred city background, soft overcast daylight, natural confident stride, contemporary urban editorial look.", "model": "schnell", "size": "portrait" },
+        { "title": "復古旗袍", "zh": "舊上海風情的旗袍人像", "en": "An elegant portrait of a woman in a vintage silk qipao, soft warm lighting evoking 1930s Shanghai, delicate embroidery detail, a quiet refined expression, nostalgic and graceful, fine-art fashion photography.", "model": "dev", "size": "portrait" },
+        { "title": "雜誌封面", "zh": "強烈彩光的雜誌封面感", "en": "A bold fashion-magazine cover shot, a model lit with dramatic colored gels of pink and blue, striking makeup, clean negative space for a title, high-contrast and editorial, glossy and modern.", "model": "dev", "size": "portrait" },
+        { "title": "珠寶特寫", "zh": "黑絨上的鑽石項鍊微距", "en": "A macro close-up of a diamond necklace resting on black velvet, brilliant sparkle and crisp facets catching focused light, deep shadows, luxurious jewelry-advertisement aesthetic, elegant and rich.", "model": "dev", "size": "square" },
+        { "title": "紳士西裝", "zh": "暖光下的訂製西裝肖像", "en": "A sophisticated portrait of a man in a tailored three-piece suit, warm directional light highlighting the fabric texture, a confident relaxed pose against a muted backdrop, classic menswear editorial style.", "model": "schnell", "size": "portrait" }
+      ]
+    },
+    {
+      "key": "vehicle",
+      "label": "交通工具",
+      "emoji": "🏎️",
+      "cards": [
+        { "title": "跑車甩尾", "zh": "煙霧瀰漫的跑車甩尾", "en": "A sleek sports car drifting around a corner, tire smoke billowing behind it, motion blur on the background, dramatic late-afternoon light glinting off the bodywork, dynamic automotive photography, energetic.", "model": "dev", "size": "landscape" },
+        { "title": "重機公路", "zh": "夕陽公路上的重型機車", "en": "A powerful motorcycle cruising down an open desert highway at sunset, long shadows and warm golden light, distant mountains, a sense of speed and freedom, cinematic wide shot.", "model": "schnell", "size": "landscape" },
+        { "title": "復古飛機", "zh": "雲端翱翔的復古螺旋槳機", "en": "A vintage propeller airplane soaring above a sea of fluffy clouds at golden hour, warm sunlight on its polished metal body, a few light streaks of vapor, nostalgic and adventurous aviation photography.", "model": "dev", "size": "landscape" },
+        { "title": "海上帆船", "zh": "金色海面的揚帆帆船", "en": "A graceful sailboat gliding across a calm ocean at sunset, full white sails catching warm golden light, gentle reflections on the water, a serene and expansive horizon, peaceful marine photography.", "model": "schnell", "size": "landscape" },
+        { "title": "蒸汽火車", "zh": "山林間奔馳的蒸汽火車", "en": "A classic steam train winding through a misty mountain valley, billowing white smoke trailing behind, autumn forest and a stone bridge, warm nostalgic light, cinematic and romantic.", "model": "dev", "size": "landscape" },
+        { "title": "復古愛車", "zh": "棕櫚街道旁的經典老爺車", "en": "A polished vintage convertible parked on a sunny palm-lined street, pastel buildings behind it, warm retro color grading, soft reflections on the chrome, nostalgic mid-century aesthetic.", "model": "schnell", "size": "landscape" }
       ]
     }
   ]
