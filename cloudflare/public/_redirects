@@ -1,0 +1,3 @@
+# Cloudflare Workers static-assets redirects (https://developers.cloudflare.com/workers/static-assets/redirects/)
+# Serve the SVG logo for browsers that probe /favicon.ico directly (200 = rewrite).
+/favicon.ico /static/favicon.svg 200
