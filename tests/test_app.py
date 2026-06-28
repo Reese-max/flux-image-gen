@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, patch
 
 from app.image_service import GenerationResult
 from app.main import app
+from app.prompt_complete import PromptCompleteResult
 from fastapi.testclient import TestClient
 
 
@@ -145,6 +146,31 @@ class AppRouteTests(unittest.TestCase):
 
     def test_prompt_transform_route_rejects_blank_source(self):
         response = self.client.post("/prompt/transform", json={"source": "   ", "style": "cute"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "bad_request")
+
+    def test_prompt_complete_route_returns_completed_chinese_prompt(self):
+        with patch("app.main.complete_plain_prompt") as mocked_complete:
+            mocked_complete.return_value = PromptCompleteResult(
+                provider="gemini",
+                prompt="一位年輕女生站在夜晚雨中的街道，霓虹燈倒映在濕潤地面上，氛圍安靜而電影感強烈。",
+                source="女生雨中",
+                style="cinematic",
+            )
+            response = self.client.post(
+                "/prompt/complete",
+                json={"source": "女生雨中", "style": "cinematic"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["provider"], "gemini")
+        self.assertIn("女生", data["prompt"])
+        self.assertIn("霓虹燈", data["prompt"])
+        mocked_complete.assert_called_once_with("女生雨中", "cinematic")
+
+    def test_prompt_complete_route_rejects_blank_source(self):
+        response = self.client.post("/prompt/complete", json={"source": "   ", "style": "cute"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "bad_request")
 

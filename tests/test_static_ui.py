@@ -83,15 +83,24 @@ def test_modal_accessibility_and_clipboard_fallback_are_wired():
 def test_prompt_transform_ui_is_wired():
     html = read_static("index.html")
     transform_js = read_static("prompt-transform.js")
+    styles = read_static("styles.css")
 
     assert 'id="plainPrompt"' in html
     assert 'for="plainPrompt"' in html
     assert 'id="promptStyle"' in html
     assert 'id="transformPrompt"' in html
+    assert 'class="prompt-shortcut-hint"' in html
+    assert "按 Tab 讓 Gemma 補完整中文描述" in html
+    assert "Ctrl / ⌘ + Enter 轉英文" in html
     assert 'src="/static/prompt-transform.js"' in html
     assert "fetch('/prompt/transform'" in transform_js
+    assert "fetch('/prompt/complete'" in transform_js
     assert "plainPrompt" in transform_js
     assert "transformPrompt" in transform_js
+    assert "completePrompt" in transform_js
+    assert "event.key === 'Tab'" in transform_js
+    assert "event.preventDefault()" in transform_js
+    assert ".prompt-shortcut-hint" in styles
 
 
 def test_custom_idea_card_ui_is_wired():

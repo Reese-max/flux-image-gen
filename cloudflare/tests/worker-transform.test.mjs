@@ -156,6 +156,97 @@ test('POST /prompt/transform falls back to rule-based when Gemini fails', async 
   }
 });
 
+test('POST /prompt/complete uses Gemma Chinese completion model', async () => {
+  const originalFetch = globalThis.fetch;
+  let calledUrl = '';
+  let providerPayload;
+  globalThis.fetch = async (url, init) => {
+    calledUrl = String(url);
+    providerPayload = JSON.parse(init.body);
+    return new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: '{"prompt": "一位年輕女生站在夜晚雨中的街道，濕潤柏油路反射霓虹燈光，畫面具有電影感。"}',
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
+      fakeEnv({ GEMINI_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'gemini');
+    assert.equal(data.source, '女生雨中');
+    assert.match(data.prompt, /霓虹燈/);
+    assert.match(calledUrl, /gemma-4-26b-a4b-it:generateContent/);
+    assert.match(providerPayload.system_instruction.parts[0].text, /繁體中文/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /prompt/complete validates blank source', async () => {
+  const response = await worker.fetch(jsonRequest('/prompt/complete', { source: '   ' }), fakeEnv());
+  const data = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(data.code, 'bad_request');
+});
+
+test('POST /prompt/complete unwraps nested JSON prompt strings from Gemma', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: '{"prompt": "{\\"prompt\\": \\"一位女生站在雨中的霓虹街道。\\"}"}',
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
+      fakeEnv({ GEMINI_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(data.prompt, '一位女生站在雨中的霓虹街道。');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /prompt/complete requires Gemini key', async () => {
+  const response = await worker.fetch(jsonRequest('/prompt/complete', { source: '一隻貓' }), fakeEnv());
+  const data = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(data.code, 'missing_api_key');
+});
+
 test('POST /generate still validates empty prompt before provider access', async () => {
   const response = await worker.fetch(jsonRequest('/generate', { prompt: '   ' }), fakeEnv());
   const data = await response.json();

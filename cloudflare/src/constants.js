@@ -99,12 +99,16 @@ export const STYLE_MODIFIERS = Object.freeze({
 
 // --- Gemini (Gemma) LLM prompt transform: mirrors app/prompt_llm.py ---
 export const GEMINI_DEFAULT_MODEL = sharedConstants.geminiDefaultModel;
+export const GEMINI_COMPLETE_DEFAULT_MODEL = sharedConstants.geminiCompleteDefaultModel;
 export const GEMINI_DEFAULT_BASE_URL = sharedConstants.geminiDefaultBaseUrl;
 export const GEMINI_MAX_ATTEMPTS = sharedConstants.geminiMaxAttempts;
 export const GEMINI_RETRYABLE_STATUS = new Set(sharedConstants.geminiRetryableStatus);
 export const GEMINI_SYSTEM_INSTRUCTION = sharedConstants.systemInstruction;
 export const GEMINI_RESPONSE_SCHEMA = sharedConstants.responseSchema;
 export const GEMINI_STYLE_HINTS = sharedConstants.styleHints;
+export const GEMINI_COMPLETION_SYSTEM_INSTRUCTION = sharedConstants.completionSystemInstruction;
+export const GEMINI_COMPLETION_RESPONSE_SCHEMA = sharedConstants.completionResponseSchema;
+export const GEMINI_COMPLETION_STYLE_HINTS = sharedConstants.completionStyleHints;
 
 // Image generation retry policy — mirrors app/image_service.py. Retry transient
 // failures (network / 5xx); 429 is surfaced immediately so the client honours retry_after.

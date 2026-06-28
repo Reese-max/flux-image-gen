@@ -5,6 +5,7 @@ import pytest
 from app import prompt_transform
 from app.prompt_llm import (
     PromptLLMError,
+    _extract_prompt_text,
     _parse_codex_response,
     _parse_gemini_response,
     _strip_wrapping,
@@ -32,6 +33,11 @@ def test_parse_gemini_response_extracts_prompt_from_json_envelope():
         ]
     }
     assert _parse_gemini_response(data) == "a red cup on a wooden table"
+
+
+def test_extract_prompt_text_unwraps_nested_prompt_json_string():
+    raw = '{"prompt": "{\\"prompt\\": \\"一位女生站在雨中的霓虹街道。\\"}"}'
+    assert _extract_prompt_text(raw) == "一位女生站在雨中的霓虹街道。"
 
 
 def test_parse_gemini_response_handles_trailing_code_fence():

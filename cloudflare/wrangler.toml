@@ -14,8 +14,9 @@ binding = "ASSETS"
 #   npx wrangler secret put NVIDIA_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY
 NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
-# Gemma model served via the Gemini API for the plain-CN to English prompt transform.
+# Gemma models served via the Gemini API.
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
+GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
 
 # --- Edge rate limiting for /generate (per client IP) ---
 # The Worker treats env.GENERATE_RATE_LIMITER as optional: until the binding below

@@ -32,6 +32,9 @@ RETRYABLE_STATUS = frozenset(_CONSTANTS["geminiRetryableStatus"])
 SYSTEM_INSTRUCTION = _CONSTANTS["systemInstruction"]
 RESPONSE_SCHEMA = _CONSTANTS["responseSchema"]
 STYLE_HINTS = _CONSTANTS["styleHints"]
+COMPLETION_SYSTEM_INSTRUCTION = _CONSTANTS["completionSystemInstruction"]
+COMPLETION_RESPONSE_SCHEMA = _CONSTANTS["completionResponseSchema"]
+COMPLETION_STYLE_HINTS = _CONSTANTS["completionStyleHints"]
 MAX_LLM_PROMPT_LENGTH = _CONSTANTS["maxLlmPromptLength"]
 # Backoff between transient retries, so an immediate re-hit on a 429 doesn't
 # just fail again. Mirrors the image service's linear backoff.
@@ -76,6 +79,48 @@ def llm_transform_prompt(source: str, style: str, settings: Settings | None = No
                 break
             time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("gemini request failed")
+
+
+def llm_complete_prompt(source: str, style: str, settings: Settings | None = None) -> str:
+    """Call Gemini/Gemma to expand a short Traditional Chinese image idea.
+
+    The output intentionally stays in Traditional Chinese; `/prompt/transform`
+    remains responsible for turning the completed description into English.
+    """
+    resolved_settings = settings or get_settings()
+    api_key = resolved_settings.gemini_api_key.strip()
+    if not api_key:
+        raise PromptLLMError("missing GEMINI_API_KEY")
+
+    user_text = _build_complete_user_text(source, style)
+    payload = {
+        "system_instruction": {"parts": [{"text": COMPLETION_SYSTEM_INSTRUCTION}]},
+        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": 0.35,
+            "maxOutputTokens": 450,
+            "responseMimeType": "application/json",
+            "responseSchema": COMPLETION_RESPONSE_SCHEMA,
+        },
+    }
+    model = getattr(resolved_settings, "gemini_complete_model", "gemma-4-26b-a4b-it")
+    url = (
+        f"{resolved_settings.gemini_base_url.rstrip('/')}"
+        f"/models/{model}:generateContent"
+    )
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+    timeout = resolved_settings.prompt_llm_timeout_seconds
+
+    last_error: PromptLLMError | None = None
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            return _request_prompt(url, headers, payload, timeout)
+        except _RetryableError as exc:
+            last_error = PromptLLMError(str(exc))
+            if attempt + 1 >= MAX_ATTEMPTS:
+                break
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+    raise last_error or PromptLLMError("gemini completion request failed")
 
 
 def codex_transform_prompt(source: str, style: str, settings: Settings | None = None) -> str:
@@ -178,6 +223,11 @@ def _build_user_text(source: str, style: str) -> str:
     return f"{style_hint}\n\nDescription:\n{source.strip()}"
 
 
+def _build_complete_user_text(source: str, style: str) -> str:
+    style_hint = COMPLETION_STYLE_HINTS.get(style, COMPLETION_STYLE_HINTS["auto"])
+    return f"{style_hint}\n\n原始描述：\n{source.strip()}"
+
+
 def _parse_gemini_response(data: dict) -> str:
     feedback = data.get("promptFeedback") or {}
     if feedback.get("blockReason"):
@@ -229,7 +279,9 @@ def _try_parse_prompt_json(candidate: str) -> str | None:
     if isinstance(parsed, dict):
         prompt = parsed.get("prompt")
         if isinstance(prompt, str) and prompt.strip():
-            return prompt.strip()
+            cleaned_prompt = prompt.strip()
+            nested = _try_parse_prompt_json(cleaned_prompt)
+            return nested or cleaned_prompt
     return None
 
 

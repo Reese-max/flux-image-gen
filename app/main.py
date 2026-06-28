@@ -18,6 +18,8 @@ from .image_service import (
     to_http_error,
     validate_seed,
 )
+from .prompt_complete import complete_plain_prompt
+from .prompt_llm import PromptLLMError
 from .prompt_transform import transform_plain_prompt
 from .settings import get_settings
 
@@ -155,6 +157,33 @@ def prompt_transform(payload: PromptTransformPayload):
         result = transform_plain_prompt(payload.source, payload.style)
     except ValueError as exc:
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    return {
+        "source": result.source,
+        "prompt": result.prompt,
+        "provider": result.provider,
+        "warnings": result.warnings,
+    }
+
+
+@app.post("/prompt/complete")
+def prompt_complete(payload: PromptTransformPayload):
+    try:
+        result = complete_plain_prompt(payload.source, payload.style)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    except PromptLLMError as exc:
+        if "missing GEMINI_API_KEY" in str(exc):
+            return JSONResponse(
+                {
+                    "error": "Gemma 中文補全尚未啟用（缺少 GEMINI_API_KEY）",
+                    "code": "missing_api_key",
+                },
+                status_code=503,
+            )
+        return JSONResponse(
+            {"error": "Gemma 中文補全失敗，請稍後再試", "code": "prompt_complete_failed"},
+            status_code=502,
+        )
     return {
         "source": result.source,
         "prompt": result.prompt,

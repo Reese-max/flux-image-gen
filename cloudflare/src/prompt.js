@@ -3,6 +3,10 @@
 import {
   CJK_PATTERN,
   CHINESE_FILLER_TERMS,
+  GEMINI_COMPLETE_DEFAULT_MODEL,
+  GEMINI_COMPLETION_RESPONSE_SCHEMA,
+  GEMINI_COMPLETION_STYLE_HINTS,
+  GEMINI_COMPLETION_SYSTEM_INSTRUCTION,
   GEMINI_DEFAULT_BASE_URL,
   GEMINI_DEFAULT_MODEL,
   GEMINI_MAX_ATTEMPTS,
@@ -21,6 +25,11 @@ import { HttpError } from "./http.js";
 function buildGeminiUserText(source, style) {
   const hint = GEMINI_STYLE_HINTS[style] || GEMINI_STYLE_HINTS.auto;
   return `${hint}\n\nDescription:\n${String(source).trim()}`;
+}
+
+function buildGeminiCompletionUserText(source, style) {
+  const hint = GEMINI_COMPLETION_STYLE_HINTS[style] || GEMINI_COMPLETION_STYLE_HINTS.auto;
+  return `${hint}\n\n原始描述：\n${String(source).trim()}`;
 }
 
 function stripWrapping(text) {
@@ -46,7 +55,8 @@ function tryParsePromptJson(candidate) {
   try {
     const parsed = JSON.parse(candidate);
     if (parsed && typeof parsed === "object" && typeof parsed.prompt === "string" && parsed.prompt.trim()) {
-      return parsed.prompt.trim();
+      const cleanedPrompt = parsed.prompt.trim();
+      return tryParsePromptJson(cleanedPrompt) || cleanedPrompt;
     }
   } catch {
     // not valid JSON
@@ -133,6 +143,54 @@ export async function geminiTransformPrompt(source, style, env) {
     return parseGeminiResponse(data);
   }
   throw lastError || new Error("gemini request failed");
+}
+
+export async function geminiCompletePrompt(source, style, env) {
+  const apiKey = String(env.GEMINI_API_KEY || "").trim();
+  if (!apiKey) throw new HttpError("Gemma 中文補全尚未啟用（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
+
+  const model = env.GEMINI_COMPLETE_MODEL || GEMINI_COMPLETE_DEFAULT_MODEL;
+  const base = (env.GEMINI_BASE_URL || GEMINI_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const url = `${base}/models/${model}:generateContent`;
+  const payload = {
+    system_instruction: { parts: [{ text: GEMINI_COMPLETION_SYSTEM_INSTRUCTION }] },
+    contents: [{ role: "user", parts: [{ text: buildGeminiCompletionUserText(source, style) }] }],
+    generationConfig: {
+      temperature: 0.35,
+      maxOutputTokens: 450,
+      responseMimeType: "application/json",
+      responseSchema: GEMINI_COMPLETION_RESPONSE_SCHEMA,
+    },
+  };
+
+  let lastError;
+  for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      lastError = new Error(`gemini completion network error: ${e}`);
+      continue;
+    }
+    if (GEMINI_RETRYABLE_STATUS.has(resp.status)) {
+      lastError = new Error(`gemini completion returned HTTP ${resp.status}`);
+      continue;
+    }
+    if (resp.status !== 200) throw new Error(`gemini completion returned HTTP ${resp.status}`);
+
+    let data;
+    try {
+      data = await resp.json();
+    } catch {
+      throw new Error("gemini completion returned non-JSON response");
+    }
+    return parseGeminiResponse(data);
+  }
+  throw lastError || new Error("gemini completion request failed");
 }
 
 export function normalizeStyle(style) {
@@ -229,6 +287,24 @@ export function transformPlainPrompt(source, style = "auto") {
     prompt,
     provider: "rule_based",
     warnings,
+    style: resolvedStyle,
+  };
+}
+
+export async function completePlainPrompt(source, style = "auto", env = {}) {
+  const sourceText = String(source || "").trim();
+  if (!sourceText) {
+    throw new HttpError("請先輸入白話描述", 400, "bad_request");
+  }
+
+  const normalizedStyle = normalizeStyle(style);
+  const resolvedStyle = resolveStyle(sourceText, normalizedStyle);
+  const prompt = await geminiCompletePrompt(sourceText, resolvedStyle, env);
+  return {
+    source: sourceText,
+    prompt,
+    provider: "gemini",
+    warnings: [],
     style: resolvedStyle,
   };
 }

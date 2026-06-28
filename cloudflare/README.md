@@ -2,15 +2,16 @@
 
 此目錄是與 FastAPI 版同步的 Cloudflare Workers 部署版本：
 
-1. 白話中文轉專業英文提示詞：`POST /prompt/transform`
-2. 圖片生成：`POST /generate`，透過 NVIDIA FLUX，支援 `prompt / model / size / seed`
-3. 客製梗卡：前端 `localStorage` 儲存、匯入、匯出
-4. 使用者教學：首次開啟自動顯示，也可按「？教學」
-5. 迭代體驗功能：歷史記錄牆、一鍵再生、複製設定、Seed 控制與排除描述輔助
+1. 白話中文補全：`POST /prompt/complete`，前端中文輸入框按 `Tab` 會用 Gemma 補完整描述。
+2. 白話中文轉專業英文提示詞：`POST /prompt/transform`
+3. 圖片生成：`POST /generate`，透過 NVIDIA FLUX，支援 `prompt / model / size / seed`
+4. 客製梗卡：前端 `localStorage` 儲存、匯入、匯出
+5. 使用者教學：首次開啟自動顯示，也可按「？教學」
+6. 迭代體驗功能：歷史記錄牆、一鍵再生、複製設定、Seed 控制與排除描述輔助
 
 ## 目錄
 
-- `src/index.js`：Worker API，包含 `/health`、`/prompt/transform`、`/generate`
+- `src/index.js`：Worker API，包含 `/health`、`/prompt/complete`、`/prompt/transform`、`/generate`
 - `public/index.html`：靜態頁面
 - `public/static/`：前端互動腳本與樣式
 - `tests/`：Node 內建測試
@@ -66,7 +67,8 @@ npx wrangler dev --local --port 8787
 本機金鑰放在 `.dev.vars`：
 
 ```text
-NVIDIA_API_KEY=你的金鑰
+NVIDIA_API_KEY=你的 NVIDIA 金鑰
+GEMINI_API_KEY=你的 Gemini/Gemma 金鑰
 ```
 
 ## 部署

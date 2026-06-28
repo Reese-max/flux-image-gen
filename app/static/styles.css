@@ -189,6 +189,12 @@ textarea:focus { outline: none; }
   display: block; margin: 0 0 6px 2px;
   color: var(--muted); font-size: 12px; font-weight: 700;
 }
+.prompt-shortcut-hint {
+  margin: -6px 0 0 2px;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.45;
+}
 .transform-status {
   min-height: 20px; font-size: 13px; font-family: var(--mono); color: var(--muted);
 }

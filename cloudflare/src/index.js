@@ -11,7 +11,7 @@ import {
   readJsonPayload,
   sanitizeClientErrorReport,
 } from "./http.js";
-import { geminiTransformPrompt, normalizeStyle, resolveStyle, transformPlainPrompt } from "./prompt.js";
+import { completePlainPrompt, geminiTransformPrompt, normalizeStyle, resolveStyle, transformPlainPrompt } from "./prompt.js";
 import {
   generateOneImage,
   getNvidiaApiKey,
@@ -221,7 +221,41 @@ async function handlePromptTransform(request, env) {
   }
 }
 
-export { transformPlainPrompt };
+async function handlePromptComplete(request, env) {
+  // Gemma completion can consume paid quota; throttle like /prompt/transform.
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
+  let payload;
+  try {
+    payload = await readJsonPayload(request);
+  } catch (e) {
+    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
+    throw e;
+  }
+
+  const source = String(payload.source || "").trim();
+  if (!source) return json({ error: "請先輸入白話描述", code: "bad_request" }, 400);
+  if (source.length > MAX_TRANSFORM_SOURCE_LENGTH) {
+    return json({ error: "描述太長", code: "bad_request" }, 400);
+  }
+
+  try {
+    const result = await completePlainPrompt(source, payload.style, env);
+    return json({
+      source: result.source,
+      prompt: result.prompt,
+      provider: result.provider,
+      warnings: result.warnings,
+    });
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    console.error(JSON.stringify({ event: "gemini_complete_failed", error: String(e) }));
+    return json({ error: "Gemma 中文補全失敗，請稍後再試", code: "prompt_complete_failed" }, 502);
+  }
+}
+
+export { completePlainPrompt, transformPlainPrompt };
 
 export default {
   async fetch(request, env) {
@@ -231,6 +265,9 @@ export default {
     }
     if (url.pathname === "/prompt/transform" && request.method === "POST") {
       return handlePromptTransform(request, env);
+    }
+    if (url.pathname === "/prompt/complete" && request.method === "POST") {
+      return handlePromptComplete(request, env);
     }
     if (url.pathname === "/generate" && request.method === "POST") {
       return handleGenerate(request, env);

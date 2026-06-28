@@ -36,6 +36,7 @@ class Settings:
     nvidia_dev_seed: int = _int_env("NVIDIA_DEV_SEED", 0)
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
+    gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-26b-a4b-it")
     gemini_base_url: str = os.getenv(
         "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
     )

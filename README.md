@@ -10,6 +10,7 @@
 ## 新功能
 
 - 白話中文轉專業英文提示詞：`POST /prompt/transform` 可把中文想法轉成更適合圖片模型的英文 prompt，並可搭配風格參數調整語氣。
+- Tab 中文補全：在白話中文輸入框按 `Tab` 會呼叫 Gemma（預設 `GEMINI_COMPLETE_MODEL=gemma-4-26b-a4b-it`）把短中文描述補成更完整的繁中畫面描述。
 - 客製梗卡：前端使用 `localStorage` 儲存使用者自己的點子卡，支援新增、編輯、刪除、匯出與匯入，重新整理頁面後仍會保留。
 - 使用者教學：第一次進站會自動顯示教學，也可以隨時按右上角「？教學」重新開啟。
 
@@ -121,6 +122,30 @@ Request：
 {
   "source": "一隻可愛柴犬在月球上吃拉麵",
   "style": "cute"
+}
+```
+
+### `POST /prompt/complete`
+
+把短中文描述補成較完整的繁體中文畫面描述；供前端 `plainPrompt` 按 `Tab` 使用。
+
+Request：
+
+```json
+{
+  "source": "女生雨中",
+  "style": "cinematic"
+}
+```
+
+Response：
+
+```json
+{
+  "source": "女生雨中",
+  "prompt": "一位年輕女生站在夜晚的雨中街道，身穿深色外套，濕潤柏油路反射霓虹燈光，背景有柔和散景，畫面帶有電影感，氛圍安靜而孤獨。",
+  "provider": "gemini",
+  "warnings": []
 }
 ```
 
