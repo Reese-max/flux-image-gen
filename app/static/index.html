@@ -49,7 +49,7 @@
           <h2>白話中文轉專業英文提示詞</h2>
           <p>先用中文描述畫面，再轉成適合 FLUX 的英文提示詞。</p>
         </div>
-        <label class="final-prompt-label" for="plainPrompt">白話中文描述</label>
+        <label class="final-prompt-label" for="plainPrompt">① 先用中文描述你想要的畫面</label>
         <textarea id="plainPrompt" rows="3" placeholder="例如：一隻可愛柴犬在月球上吃拉麵，風格要可愛一點"></textarea>
         <div class="prompt-controls">
           <label class="field">
@@ -66,16 +66,16 @@
               <span class="chevron" aria-hidden="true">▾</span>
             </div>
           </label>
-          <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
+          <button id="transformPrompt" class="btn secondary" type="button">② 轉成英文提示詞</button>
         </div>
         <div id="transformStatus" class="transform-status" aria-live="polite"></div>
       </div>
 
-      <label class="final-prompt-label" for="prompt">最終英文提示詞</label>
-      <textarea id="prompt" rows="3" placeholder="Enter the final English prompt for image generation, or use the helper above."></textarea>
+      <label class="final-prompt-label" for="prompt">③ 拿去生成的英文提示詞（上面按鈕會自動填，也可直接打英文）</label>
+      <textarea id="prompt" rows="3" placeholder="按上方「② 轉成英文提示詞」會自動填這裡；你也可以直接打或貼英文，或點下方的靈感卡。"></textarea>
 
       <div id="promptEnhancer" class="prompt-enhancer" aria-label="Prompt 強化器">
-        <span class="field-label">快速強化</span>
+        <span class="field-label">一鍵加效果（選填）</span>
         <div class="enhance-actions">
           <button class="btn mini secondary" type="button" data-enhance-mode="realistic">更寫實</button>
           <button class="btn mini secondary" type="button" data-enhance-mode="cinematic">電影感</button>
@@ -101,8 +101,8 @@
           </details>
         </div>
         <label class="field field-wide">
-          <span class="field-label">排除描述輔助</span>
-          <input id="avoid" class="text-input" type="text" maxlength="240" placeholder="例如：blurry, extra fingers, low quality">
+          <span class="field-label">不想出現的東西（選填）</span>
+          <input id="avoid" class="text-input" type="text" maxlength="240" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, extra fingers）">
         </label>
       </div>
 
