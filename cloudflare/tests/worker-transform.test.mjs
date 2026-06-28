@@ -438,6 +438,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
     '/static/history-store.js',
     '/static/history-wall.js',
     '/static/tutorial.js',
+    '/static/prompt-pack.js',
   ];
   const scriptSrcs = [...html.matchAll(/<script\s+src="([^"]+)"><\/script>/g)].map((match) => match[1]);
 
