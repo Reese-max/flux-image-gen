@@ -116,4 +116,12 @@
         }
       });
   });
+
+  // Load the optional live HF prompt-sampling panel without touching index.html.
+  ready(function () {
+    var s = document.createElement('script');
+    s.src = '/static/hf-ideas.js';
+    s.defer = true;
+    document.head.appendChild(s);
+  });
 })();
