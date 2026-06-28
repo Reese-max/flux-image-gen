@@ -25,9 +25,16 @@
 - 線上 `/generate` 回歸：`/health` provider=nvidia；schnell / dev valid 生圖皆 HTTP 200 並回合法 JPEG。
 - R2 雲端圖庫端到端：`POST /gallery` → 201（回 id/url）；`GET /gallery/:id` → 200、`image/png`、bytes 與上傳相符。「存到雲端」按鈕現可實際存取，不再 503。
 
-### Known issues / 待辦
+### Security
 
-- **限流線上強制執行未證實**：dry-run 與 deploy 都顯示 binding（12 requests/60s）、Worker 程式碼正確（`outcome.success===false → 429`、fail-open）、`wrangler tail` 顯示 `limiter.limit()` 無例外（`exceptions:[]`），但連送 50+ 次仍全數放行、未見任何 429。研判為新建 rate-limit namespace 傳播延遲或帳號 usage-model 因素；因 fail-open 不影響服務，待數分鐘後或換更低 limit 再複測確認。
+- **`/gallery` POST 加 HMAC token 認證**：`/generate`(`/batch`) 成功時夾帶短效 `galleryToken`（`HMAC-SHA256(ts)`，2h TTL、常數時間比對），`/gallery` 驗 `X-Gallery-Token`。`GALLERY_TOKEN_SECRET` 未設時不強制（向後相容）。已設生產 secret + 部署（`d227812b`），線上實測 401→token→201。前端 `saveToCloud` 全自動帶 token，使用者無感。擋匿名 bulk 寫入 R2。
+
+### Decisions（成本防護，2026-06-28 與 owner 確認）
+
+- **不採用 Turnstile / 不採用伺服器端每日上限**：owner 不要任何使用者端驗證關卡，且選擇接受 `/generate` 的成本濫用風險。
+- 後果：`/generate` 與 `/generate/batch` 公開且無有效限流，理論上可被腳本連續呼叫燒 NVIDIA 額度。owner 自行監控用量；屬個人 / 低流量場景的可接受取捨。
+- 若日後要防護又不加使用者摩擦，最小侵入解是 Worker 內 KV/Durable Object 的「全站每日總量上限」（使用者無感）。
+- edge rate limiting binding（`GENERATE_RATE_LIMITER` 12/60s）保留於 `wrangler.toml`，但實測線上不強制執行（best-effort、官方明示非精準計數）；fail-open，不影響服務，視為無效防護、不依賴它。
 - ~~R2 雲端圖庫仍未啟用~~ → **已於 2026-06-28 啟用並驗證**（見 Verified）。卡點實為帳號層級 R2 未開通（API 回 `code: 10042`），非 token scope；使用者於 Dashboard 開通後本工作階段完成建 bucket → 解註解 → 部署 → 端到端驗證。
 
 ## 2026-06-27
