@@ -38,7 +38,7 @@ export function httpErrorJson(e) {
   return json(body, e.status);
 }
 
-export async function readJsonPayload(request) {
+export async function readJsonPayload(request, maxBytes = MAX_JSON_BYTES) {
   // Stream the body with a real byte counter. Trusting Content-Length lets a
   // client omit the header (or lie) and bypass the size cap entirely.
   if (!request.body) {
@@ -52,7 +52,7 @@ export async function readJsonPayload(request) {
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > MAX_JSON_BYTES) {
+      if (total > maxBytes) {
         await reader.cancel();
         throw new HttpError("請求內容太大", 413, "payload_too_large");
       }

@@ -832,6 +832,22 @@ test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', as
   assert.equal(bucket.store.size, 1);
 });
 
+test('POST /gallery accepts a realistic-size image larger than the generic 64KB JSON cap', async () => {
+  const bucket = fakeBucket();
+  // ~150KB of valid base64 (no interior padding) — matches a real 1024×1024
+  // generation, which the old shared 64KB readJsonPayload cap rejected.
+  const bigImage = 'data:image/png;base64,' + 'QUJD'.repeat(38400);
+
+  const response = await worker.fetch(
+    jsonRequest('/gallery', { image: bigImage, meta: { prompt: 'big qa image' } }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 201);
+  assert.match(data.id, /\.png$/);
+  assert.equal(bucket.store.size, 1);
+});
+
 test('GET /gallery/:id returns 404 for an unknown id', async () => {
   const response = await worker.fetch(
     new Request('https://example.test/gallery/does-not-exist.png', { method: 'GET' }),
@@ -901,6 +917,51 @@ test('POST /generate/batch rejects an out-of-range count', async () => {
   assert.equal(response.status, 400);
   assert.equal(data.code, 'bad_request');
   assert.match(data.error, /count/);
+});
+
+test('POST /generate maps an upstream fetch timeout to a clean 504 timeout error', async () => {
+  const originalFetch = globalThis.fetch;
+  let sawSignal = false;
+  globalThis.fetch = async (_url, init) => {
+    sawSignal = Boolean(init && init.signal);
+    throw new DOMException('The operation timed out.', 'TimeoutError');
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 504);
+    assert.equal(data.code, 'timeout');
+    assert.match(data.error, /逾時/);
+    assert.equal(sawSignal, true, 'fetch must be called with an AbortSignal');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate surfaces a clean nvidia_error when a 4xx body is not JSON', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response('Payment Required - upgrade your plan', {
+      status: 402,
+      headers: { 'Content-Type': 'text/plain' },
+    });
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 402);
+    assert.equal(data.code, 'nvidia_error');
+    assert.match(data.error, /Payment Required/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('POST /generate maps a CONTENT_FILTERED placeholder to a 422 error', async () => {

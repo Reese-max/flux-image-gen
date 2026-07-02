@@ -1,7 +1,7 @@
 // Cloudflare Worker entry: serves the static SPA and routes the JSON API.
 // Request handlers live here; pure helpers are split into sibling modules
 // (constants / http / prompt / image / gallery). Mirrors the Python backend.
-import { GALLERY_EXT, GALLERY_PREFIX, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP } from "./constants.js";
+import { GALLERY_EXT, GALLERY_PREFIX, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP } from "./constants.js";
 import {
   HttpError,
   checkRateLimit,
@@ -136,7 +136,9 @@ async function handleGallerySave(request, env) {
 
   let payload;
   try {
-    payload = await readJsonPayload(request);
+    // The image travels as a base64 data URL, so this endpoint needs a much
+    // larger JSON cap than the generic 64KB (which rejects every real image).
+    payload = await readJsonPayload(request, MAX_GALLERY_JSON_BYTES);
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
     throw e;

@@ -15,6 +15,10 @@ export const MODEL_ENDPOINTS = {
 };
 
 export const MAX_JSON_BYTES = 64 * 1024;
+// The gallery POST carries a whole generated image as a base64 data URL
+// (~4/3 × binary size), so the generic 64KB JSON cap would reject every real
+// image. Sized for MAX_GALLERY_IMAGE_BYTES × 4/3 plus meta headroom.
+export const MAX_GALLERY_JSON_BYTES = 8 * 1024 * 1024;
 export const MAX_PROMPT_LENGTH = 900;
 export const MAX_TRANSFORM_SOURCE_LENGTH = 2000;
 export const MAX_GALLERY_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -135,6 +139,11 @@ export const GEMINI_ENHANCE_RESPONSE_SCHEMA = sharedConstants.enhanceResponseSch
 export const IMAGE_MAX_ATTEMPTS = 2;
 export const RETRYABLE_IMAGE_STATUS = new Set([500, 502, 503, 504]);
 export const IMAGE_RETRY_BACKOFF_MS = 500;
+// Abort the NVIDIA fetch when the upstream hangs (observed: flux.1-schnell
+// accepting the request then sending 0 bytes forever). Without this the Worker
+// waits until the edge kills the whole request as an ugly 1101. Mirrors the
+// FastAPI request_timeout_seconds + 504 "timeout" mapping.
+export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
 export const MAX_BATCH_COUNT = 4;
 
 // --- Cloud gallery (R2) ---

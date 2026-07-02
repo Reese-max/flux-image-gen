@@ -2,6 +2,7 @@
 // image extraction, and request validators. Faithful port of app/image_service.py
 // (incl. the CONTENT_FILTERED guard).
 import {
+  IMAGE_FETCH_TIMEOUT_MS,
   IMAGE_MAX_ATTEMPTS,
   IMAGE_RETRY_BACKOFF_MS,
   MAX_BATCH_COUNT,
@@ -150,10 +151,14 @@ export async function generateOneImage(env, { prompt, model, size, seed }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
       });
     } catch (e) {
       resp = null;
-      lastError = new HttpError(`NVIDIA 連線失敗：${e}`, 502, "network_error");
+      lastError =
+        e && (e.name === "TimeoutError" || e.name === "AbortError")
+          ? new HttpError("NVIDIA 產圖逾時，請稍後再試", 504, "timeout")
+          : new HttpError(`NVIDIA 連線失敗：${e}`, 502, "network_error");
     }
     if (resp && !RETRYABLE_IMAGE_STATUS.has(resp.status)) {
       break;
@@ -181,12 +186,22 @@ export async function generateOneImage(env, { prompt, model, size, seed }) {
     throw err;
   }
   if (resp.status >= 400) {
-    let msg;
+    // Read the body ONCE as text, then try JSON. resp.json() followed by another
+    // body read throws "body already used" and turned NVIDIA errors into 1101s.
+    let msg = `NVIDIA HTTP ${resp.status}`;
+    let raw = "";
     try {
-      const d = await resp.json();
-      msg = d.error || d.message || (d.detail ? `NVIDIA HTTP ${resp.status}: ${d.detail}` : `NVIDIA HTTP ${resp.status}`);
+      raw = (await readLimitedText(resp, 300)).trim();
     } catch {
-      msg = (await readLimitedText(resp, 300)) || `NVIDIA HTTP ${resp.status}`;
+      // keep the generic message
+    }
+    if (raw) {
+      try {
+        const d = JSON.parse(raw);
+        msg = d.error || d.message || (d.detail ? `NVIDIA HTTP ${resp.status}: ${d.detail}` : msg);
+      } catch {
+        msg = raw;
+      }
     }
     throw new HttpError(msg, resp.status, "nvidia_error");
   }
