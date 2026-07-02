@@ -144,6 +144,11 @@ export const IMAGE_RETRY_BACKOFF_MS = 500;
 // waits until the edge kills the whole request as an ugly 1101. Mirrors the
 // FastAPI request_timeout_seconds + 504 "timeout" mapping.
 export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
+
+// Workers AI model backing the UI's "fast" tier. FLUX.2 klein 4B is a 4-step
+// distilled model (schnell-class speed) that, unlike @cf/...flux-1-schnell,
+// supports width/height (256-1920) and seed. Takes multipart form input.
+export const WORKERS_AI_FAST_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 export const MAX_BATCH_COUNT = 4;
 
 // --- Cloud gallery (R2) ---

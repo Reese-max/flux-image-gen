@@ -919,6 +919,98 @@ test('POST /generate/batch rejects an out-of-range count', async () => {
   assert.match(data.error, /count/);
 });
 
+function fakeAi(result) {
+  const calls = [];
+  return {
+    calls,
+    async run(model, args) {
+      // Reconstruct the multipart form the worker sent so tests can assert on fields.
+      const req = new Request('https://fake.test', {
+        method: 'POST',
+        headers: { 'content-type': args.multipart.contentType },
+        body: args.multipart.body,
+        // Node's fetch Request requires duplex for stream bodies (workerd does not).
+        duplex: 'half',
+      });
+      const form = await req.formData();
+      calls.push({ model, fields: Object.fromEntries(form.entries()) });
+      if (result instanceof Error) throw result;
+      return result;
+    },
+  };
+}
+
+test('POST /generate model=schnell uses Workers AI with size and a real seed', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'landscape', seed: 0 }),
+    fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'workers-ai');
+  assert.equal(data.width, 1344);
+  assert.equal(data.height, 768);
+  assert.ok(data.seed >= 1, 'seed 0 must be replaced with a real random seed');
+  assert.match(data.image, /^data:image\/png;base64,/);
+  assert.equal(ai.calls.length, 1);
+  assert.equal(ai.calls[0].model, '@cf/black-forest-labs/flux-2-klein-4b');
+  assert.equal(ai.calls[0].fields.prompt, 'a cat');
+  assert.equal(ai.calls[0].fields.width, '1344');
+  assert.equal(ai.calls[0].fields.height, '768');
+  assert.equal(String(data.seed), ai.calls[0].fields.seed);
+});
+
+test('POST /generate model=schnell keeps an explicit seed on Workers AI', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 12345 }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(data.seed, 12345);
+  assert.equal(ai.calls[0].fields.seed, '12345');
+});
+
+test('POST /generate model=schnell maps a Workers AI failure to a clean 502', async () => {
+  const ai = fakeAi(new Error('model overloaded'));
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(data.code, 'workers_ai_error');
+});
+
+test('POST /generate model=dev still uses NVIDIA even when Workers AI is bound', async () => {
+  const originalFetch = globalThis.fetch;
+  let nvidiaCalled = false;
+  globalThis.fetch = async function () {
+    nvidiaCalled = true;
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const ai = fakeAi({ image: 'should-not-be-used' });
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'dev', size: 'square', seed: 1 }),
+      fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'nvidia');
+    assert.equal(nvidiaCalled, true);
+    assert.equal(ai.calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate maps an upstream fetch timeout to a clean 504 timeout error', async () => {
   const originalFetch = globalThis.fetch;
   let sawSignal = false;

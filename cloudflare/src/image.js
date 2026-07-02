@@ -10,6 +10,7 @@ import {
   MODEL_ENDPOINTS,
   RETRYABLE_IMAGE_STATUS,
   SIZE_MAP,
+  WORKERS_AI_FAST_MODEL,
   sleep,
 } from "./constants.js";
 import { HttpError, readLimitedText } from "./http.js";
@@ -122,10 +123,54 @@ export function randomImageSeed() {
   return Math.floor(Math.random() * MAX_SEED) + 1;
 }
 
+// The "fast" tier runs on Workers AI (FLUX.2 klein 4B) — NVIDIA's hosted
+// flux.1-schnell accepts requests but never responds (2026-07 outage).
+// Kept behind an env.AI check so tests and AI-less deploys fall back to NVIDIA.
+async function generateWithWorkersAi(env, { prompt, model, width, height, seed }) {
+  // UI contract: seed 0 (or blank) means "random variation". klein treats every
+  // seed literally, so 0 would pin the output; substitute a real random seed
+  // and return it for reproducibility.
+  const effectiveSeed = seed === 0 ? randomImageSeed() : seed;
+
+  // klein takes multipart form input even for a text-only prompt.
+  const form = new FormData();
+  form.append("prompt", prompt);
+  form.append("width", String(width));
+  form.append("height", String(height));
+  form.append("seed", String(effectiveSeed));
+  const formResponse = new Response(form);
+
+  let data;
+  try {
+    data = await env.AI.run(WORKERS_AI_FAST_MODEL, {
+      multipart: {
+        body: formResponse.body,
+        contentType: formResponse.headers.get("content-type"),
+      },
+    });
+  } catch (e) {
+    throw new HttpError(`Workers AI 生圖失敗：${e}`, 502, "workers_ai_error");
+  }
+
+  const b64 = data && typeof data.image === "string" && data.image.trim() ? data.image.trim() : null;
+  if (!b64) throw new HttpError("Workers AI 回應中找不到圖片資料", 502, "bad_provider_response");
+  return {
+    image: `data:${detectMimeFromBase64(b64)};base64,` + b64,
+    provider: "workers-ai",
+    model,
+    width,
+    height,
+    seed: effectiveSeed,
+  };
+}
+
 // Generate ONE image. Returns a plain result object, or throws HttpError on a
 // provider/validation failure. Shared by /generate and /generate/batch.
 export async function generateOneImage(env, { prompt, model, size, seed }) {
   const [width, height] = SIZE_MAP[size];
+  if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
+    return generateWithWorkersAi(env, { prompt, model, width, height, seed });
+  }
   const key = getNvidiaApiKey(env);
   if (!key) {
     return { image: makeDemoImageDataUrl(), provider: "demo", model, width, height, seed };

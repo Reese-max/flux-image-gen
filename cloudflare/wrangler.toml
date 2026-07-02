@@ -32,3 +32,10 @@ simple = { limit = 12, period = 60 }
 [[r2_buckets]]
 binding = "IMAGE_BUCKET"
 bucket_name = "flux-image-gallery"
+
+# --- Workers AI: backs the "fast" model (FLUX.2 klein 4B) since 2026-07 ---
+# NVIDIA's hosted flux.1-schnell went dark (accepts requests, never responds),
+# so the fast tier runs on Workers AI instead. The Worker treats env.AI as
+# optional: without it, "schnell" falls back to the NVIDIA endpoint.
+[ai]
+binding = "AI"

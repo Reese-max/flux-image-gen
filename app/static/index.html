@@ -123,9 +123,9 @@
             <span class="field-label">模型</span>
             <div class="select-wrap">
               <select id="model">
-                <!-- 暫時預設 dev：NVIDIA flux.1-schnell 端點故障中（2026-07），恢復後把 selected 移回 schnell -->
-                <option value="schnell">快速 · FLUX.1-schnell（暫時故障）</option>
-                <option value="dev" selected>高品質 · FLUX.1-dev</option>
+                <!-- 快速檔自 2026-07 起由 Cloudflare Workers AI 的 FLUX.2 klein 4B 供圖（NVIDIA schnell 故障期間） -->
+                <option value="schnell" selected>快速 · FLUX.2 Klein</option>
+                <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
               </select>
               <span class="chevron" aria-hidden="true">▾</span>
             </div>
@@ -316,7 +316,7 @@
             <label class="form-field">
               <span>模型</span>
               <select id="ideaModel">
-                <option value="schnell">快速 · FLUX.1-schnell</option>
+                <option value="schnell">快速 · FLUX.2 Klein</option>
                 <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
               </select>
             </label>
