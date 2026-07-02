@@ -16,6 +16,7 @@ import {
   GEMINI_SYSTEM_INSTRUCTION,
   MAX_PROMPT_LENGTH,
   PHRASE_RULES,
+  STYLE_KEYWORD_RULES,
   STYLE_MODIFIERS,
   SUPPORTED_STYLES,
   TRANSLATED_CHINESE_TERMS,
@@ -200,11 +201,9 @@ export function normalizeStyle(style) {
 
 export function resolveStyle(sourceText, style) {
   if (style !== "auto") return style;
-  if (["可愛", "萌", "療癒"].some((keyword) => sourceText.includes(keyword))) return "cute";
-  if (["電影", "鏡頭", "夜景", "街景"].some((keyword) => sourceText.includes(keyword))) return "cinematic";
-  if (["動畫", "動漫", "二次元"].some((keyword) => sourceText.includes(keyword))) return "anime";
-  if (["商品", "產品", "包裝"].some((keyword) => sourceText.includes(keyword))) return "product";
-  if (["寫實", "真實", "照片"].some((keyword) => sourceText.includes(keyword))) return "realistic";
+  for (const [resolvedStyle, keywords] of STYLE_KEYWORD_RULES) {
+    if (keywords.some((keyword) => sourceText.includes(keyword))) return resolvedStyle;
+  }
   return "auto";
 }
 

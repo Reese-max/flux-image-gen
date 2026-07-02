@@ -65,6 +65,28 @@ test('unknown Chinese prompt falls back to generic English with warning', () => 
   assert.ok(result.warnings.some((warning) => warning.includes('部分詞彙未能精準翻譯')));
 });
 
+test('auto style detection picks the expected style from expanded keywords', () => {
+  const cases = [
+    { source: '卡哇伊的吉祥物娃娃', style: 'cute', modifier: /adorable/ },
+    { source: '霓虹招牌的巷子逆光', style: 'cinematic', modifier: /cinematic lighting/ },
+    { source: '日系插畫的少女', style: 'anime', modifier: /anime style/ },
+    { source: '白底商品主圖去背', style: 'product', modifier: /studio product photography/ },
+    { source: '超寫實真人肖像', style: 'realistic', modifier: /photorealistic/ },
+  ];
+
+  for (const item of cases) {
+    const result = transformPlainPrompt(item.source);
+    assert.equal(result.style, item.style, item.source);
+    assert.match(result.prompt, item.modifier, item.source);
+  }
+});
+
+test('auto style detection follows priority order and defaults to auto', () => {
+  // cute is evaluated before cinematic, so a mixed description keeps cute.
+  assert.equal(transformPlainPrompt('電影感的可愛柴犬').style, 'cute');
+  assert.equal(transformPlainPrompt('一個紅色杯子放在木桌上').style, 'auto');
+});
+
 test('POST /prompt/transform returns the frontend contract', async () => {
   const response = await worker.fetch(
     jsonRequest('/prompt/transform', { source: '一隻可愛柴犬在月球上吃拉麵', style: 'auto' }),

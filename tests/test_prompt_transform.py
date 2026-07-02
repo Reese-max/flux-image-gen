@@ -60,3 +60,34 @@ def test_transform_unknown_chinese_fallback_uses_generic_english_with_warning():
 
     assert_no_cjk(result.prompt)
     assert any("部分詞彙未能精準翻譯" in warning for warning in result.warnings)
+
+
+@pytest.mark.parametrize(
+    "source, expected_style, expected_modifier",
+    [
+        ("卡哇伊的吉祥物娃娃", "cute", "adorable"),
+        ("霓虹招牌的巷子逆光", "cinematic", "cinematic lighting"),
+        ("日系插畫的少女", "anime", "anime style"),
+        ("白底商品主圖去背", "product", "studio product photography"),
+        ("超寫實真人肖像", "realistic", "photorealistic"),
+    ],
+)
+def test_auto_style_detection_picks_expected_style(source, expected_style, expected_modifier):
+    result = transform_plain_prompt(source)
+
+    assert result.style == expected_style
+    assert expected_modifier in result.prompt
+
+
+def test_auto_style_detection_respects_priority_cute_over_cinematic():
+    # cute is evaluated before cinematic, so a description hitting both keeps cute.
+    result = transform_plain_prompt("電影感的可愛柴犬")
+
+    assert result.style == "cute"
+
+
+def test_auto_style_detection_returns_auto_when_no_keyword_matches():
+    result = transform_plain_prompt("一個紅色杯子放在木桌上")
+
+    assert result.style == "auto"
+    assert "clean composition" in result.prompt

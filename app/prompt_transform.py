@@ -83,6 +83,39 @@ CHINESE_FILLER_TERMS = (
     "名",
 )
 
+# Ordered auto-detect rules for style="auto". The first matching style wins, so
+# the order encodes priority (cute > cinematic > anime > product > realistic).
+# Keep in sync with STYLE_KEYWORD_RULES / resolveStyle() in cloudflare/src.
+STYLE_KEYWORD_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "cute",
+        ("可愛", "萌", "療癒", "卡哇伊", "Q版", "軟萌", "粉嫩", "童趣",
+         "童話", "溫馨", "甜美", "圓滾滾", "吉祥物", "貼圖", "娃娃"),
+    ),
+    (
+        "cinematic",
+        ("電影", "鏡頭", "夜景", "街景", "電影感", "電影海報", "戲劇",
+         "景深", "逆光", "霓虹", "賽博龐克", "賽博", "末日", "史詩",
+         "氛圍", "膠捲", "底片", "黑色電影", "光影"),
+    ),
+    (
+        "anime",
+        ("動畫", "動漫", "二次元", "漫畫", "插畫", "日系", "日漫",
+         "少女漫", "少年漫", "賽璐璐", "動漫風", "ACG", "番劇"),
+    ),
+    (
+        "product",
+        ("商品", "產品", "包裝", "電商", "開箱", "攝影棚", "棚拍",
+         "商業攝影", "廣告照", "型錄", "目錄", "白底", "去背", "主圖",
+         "精品", "商業"),
+    ),
+    (
+        "realistic",
+        ("寫實", "真實", "照片", "寫真", "攝影", "實拍", "逼真", "擬真",
+         "紀實", "相片", "真人", "超寫實", "4K", "8K", "高清"),
+    ),
+)
+
 
 @dataclass(frozen=True)
 class PromptTransformResult:
@@ -163,16 +196,9 @@ def _resolve_style(source_text: str, style: str) -> str:
     if style != "auto":
         return style
 
-    if any(keyword in source_text for keyword in ("可愛", "萌", "療癒")):
-        return "cute"
-    if any(keyword in source_text for keyword in ("電影", "鏡頭", "夜景", "街景")):
-        return "cinematic"
-    if any(keyword in source_text for keyword in ("動畫", "動漫", "二次元")):
-        return "anime"
-    if any(keyword in source_text for keyword in ("商品", "產品", "包裝")):
-        return "product"
-    if any(keyword in source_text for keyword in ("寫實", "真實", "照片")):
-        return "realistic"
+    for resolved_style, keywords in STYLE_KEYWORD_RULES:
+        if any(keyword in source_text for keyword in keywords):
+            return resolved_style
     return "auto"
 
 

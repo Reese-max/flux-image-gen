@@ -97,6 +97,24 @@ export const STYLE_MODIFIERS = Object.freeze({
   auto: ["clean composition"],
 });
 
+// Ordered auto-detect rules for style="auto". The first matching style wins, so
+// the order encodes priority (cute > cinematic > anime > product > realistic).
+// Keep in sync with STYLE_KEYWORD_RULES in app/prompt_transform.py.
+export const STYLE_KEYWORD_RULES = Object.freeze([
+  ["cute", ["可愛", "萌", "療癒", "卡哇伊", "Q版", "軟萌", "粉嫩", "童趣",
+    "童話", "溫馨", "甜美", "圓滾滾", "吉祥物", "貼圖", "娃娃"]],
+  ["cinematic", ["電影", "鏡頭", "夜景", "街景", "電影感", "電影海報", "戲劇",
+    "景深", "逆光", "霓虹", "賽博龐克", "賽博", "末日", "史詩",
+    "氛圍", "膠捲", "底片", "黑色電影", "光影"]],
+  ["anime", ["動畫", "動漫", "二次元", "漫畫", "插畫", "日系", "日漫",
+    "少女漫", "少年漫", "賽璐璐", "動漫風", "ACG", "番劇"]],
+  ["product", ["商品", "產品", "包裝", "電商", "開箱", "攝影棚", "棚拍",
+    "商業攝影", "廣告照", "型錄", "目錄", "白底", "去背", "主圖",
+    "精品", "商業"]],
+  ["realistic", ["寫實", "真實", "照片", "寫真", "攝影", "實拍", "逼真", "擬真",
+    "紀實", "相片", "真人", "超寫實", "4K", "8K", "高清"]],
+]);
+
 // --- Gemini (Gemma) LLM prompt transform: mirrors app/prompt_llm.py ---
 export const GEMINI_DEFAULT_MODEL = sharedConstants.geminiDefaultModel;
 export const GEMINI_COMPLETE_DEFAULT_MODEL = sharedConstants.geminiCompleteDefaultModel;
