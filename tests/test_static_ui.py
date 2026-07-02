@@ -17,7 +17,7 @@ def test_pwa_and_mobile_ui_are_wired():
 
     assert 'rel="manifest"' in html
     assert 'href="/manifest.webmanifest"' in html
-    assert 'rel="apple-touch-icon"' not in html
+    assert 'rel="apple-touch-icon"' in html
     assert 'id="mobileGenerateBar"' in html
     assert 'id="pwaUpdateNotice"' in html
     assert 'id="reloadPwa"' in html
@@ -36,11 +36,11 @@ def test_pwa_and_mobile_ui_are_wired():
 def test_service_worker_static_cache_is_safe():
     service_worker_js = read_static("service-worker.js")
 
-    assert "event.request.method !== 'GET'" in service_worker_js
+    assert "request.method !== 'GET'" in service_worker_js
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v2" in service_worker_js
+    assert "ai-image-generator-pwa-v3" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
@@ -321,11 +321,13 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "app.js",
         "failure-advice.js",
         "generation-settings.js",
+        "hf-ideas.js",
         "history-store.js",
         "history-wall.js",
         "idea-cards.js",
         "idea-store.js",
         "prompt-enhancer.js",
+        "prompt-pack.js",
         "prompt-transform.js",
         "service-worker.js",
         "tutorial.js",

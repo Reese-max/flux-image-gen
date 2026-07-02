@@ -87,7 +87,13 @@
       cards.forEach(function (card) {
         var withEmoji = card;
         if (!card.emoji && category.emoji) {
-          withEmoji = Object.assign({}, card, { emoji: category.emoji });
+          withEmoji = {};
+          for (var key in card) {
+            if (Object.prototype.hasOwnProperty.call(card, key)) {
+              withEmoji[key] = card[key];
+            }
+          }
+          withEmoji.emoji = category.emoji;
         }
         grid.appendChild(buildCard(withEmoji));
       });
