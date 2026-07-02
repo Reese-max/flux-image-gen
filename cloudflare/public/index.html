@@ -123,8 +123,9 @@
             <span class="field-label">模型</span>
             <div class="select-wrap">
               <select id="model">
-                <option value="schnell">快速 · FLUX.1-schnell</option>
-                <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
+                <!-- 暫時預設 dev：NVIDIA flux.1-schnell 端點故障中（2026-07），恢復後把 selected 移回 schnell -->
+                <option value="schnell">快速 · FLUX.1-schnell（暫時故障）</option>
+                <option value="dev" selected>高品質 · FLUX.1-dev</option>
               </select>
               <span class="chevron" aria-hidden="true">▾</span>
             </div>
