@@ -88,14 +88,12 @@
       <textarea id="prompt" rows="3" placeholder="按上方「② 轉成英文提示詞」會自動填這裡；你也可以直接打或貼英文，或點下方的靈感卡。"></textarea>
 
       <div id="promptEnhancer" class="prompt-enhancer" aria-label="Prompt 強化器">
-        <span class="field-label">一鍵加效果（選填）</span>
+        <label class="field-label" for="effectPrompt">加效果（選填）</label>
+        <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
         <div class="enhance-actions">
-          <button class="btn mini secondary" type="button" data-enhance-mode="realistic">更寫實</button>
-          <button class="btn mini secondary" type="button" data-enhance-mode="cinematic">電影感</button>
-          <button class="btn mini secondary" type="button" data-enhance-mode="product">產品照</button>
-          <button class="btn mini secondary" type="button" data-enhance-mode="cute">更可愛</button>
-          <button class="btn mini secondary" type="button" data-enhance-mode="clean">乾淨構圖</button>
-          <button class="btn mini secondary" type="button" data-enhance-mode="fix_artifacts">修正常見瑕疵</button>
+          <input id="effectPrompt" class="text-input" type="text"
+            placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
+          <button class="btn mini secondary" id="applyEffect" type="button">用 AI 套用效果</button>
         </div>
       </div>
 

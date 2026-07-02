@@ -76,9 +76,13 @@ async function main() {
   checks.push('首次教學 modal 可關閉');
 
   await page.fill('#prompt', 'a cat portrait');
-  await page.click('[data-enhance-mode="cinematic"]');
-  const enhancedPrompt = await page.inputValue('#prompt');
-  ok('Prompt 強化器 click', enhancedPrompt.includes('cinematic lighting') && enhancedPrompt.includes('film still'), enhancedPrompt);
+  ok(
+    '效果優化欄位存在',
+    (await page.locator('#effectPrompt').count()) === 1 && (await page.locator('#applyEffect').count()) === 1
+  );
+  // 效果優化改為 Gemini 後端，改寫結果視部署金鑰而定；此處只驗證控制項可觸發，不斷言輸出內容。
+  await page.fill('#effectPrompt', '更夢幻');
+  await page.click('#applyEffect');
 
   await page.evaluate((tinyPngValue) => {
     const records = [

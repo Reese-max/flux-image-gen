@@ -269,6 +269,63 @@ test('POST /prompt/complete requires Gemini key', async () => {
   assert.equal(data.code, 'missing_api_key');
 });
 
+test('POST /prompt/enhance requires Gemini key', async () => {
+  const response = await worker.fetch(
+    jsonRequest('/prompt/enhance', { prompt: 'a cat on a windowsill', effect: '更夢幻' }),
+    fakeEnv()
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(data.code, 'missing_api_key');
+});
+
+test('POST /prompt/enhance validates blank prompt and blank effect', async () => {
+  const blankPrompt = await worker.fetch(
+    jsonRequest('/prompt/enhance', { prompt: '   ', effect: '更夢幻' }),
+    fakeEnv({ GEMINI_API_KEY: 'test-key' })
+  );
+  assert.equal(blankPrompt.status, 400);
+  assert.equal((await blankPrompt.json()).code, 'bad_request');
+
+  const blankEffect = await worker.fetch(
+    jsonRequest('/prompt/enhance', { prompt: 'a cat', effect: '   ' }),
+    fakeEnv({ GEMINI_API_KEY: 'test-key' })
+  );
+  assert.equal(blankEffect.status, 400);
+  assert.equal((await blankEffect.json()).code, 'bad_request');
+});
+
+test('POST /prompt/enhance rewrites the prompt via Gemini and echoes the effect', async () => {
+  const originalFetch = globalThis.fetch;
+  let userText = '';
+  globalThis.fetch = async (_url, init) => {
+    userText = JSON.parse(init.body).contents[0].parts[0].text;
+    return new Response(
+      JSON.stringify({
+        candidates: [{ content: { parts: [{ text: '{"prompt": "a dreamy misty cat on a windowsill"}' }] } }],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/enhance', { prompt: 'a cat on a windowsill', effect: '更夢幻' }),
+      fakeEnv({ GEMINI_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'gemini');
+    assert.equal(data.prompt, 'a dreamy misty cat on a windowsill');
+    assert.equal(data.effect, '更夢幻');
+    assert.match(userText, /Requested effect/);
+    assert.match(userText, /a cat on a windowsill/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate still validates empty prompt before provider access', async () => {
   const response = await worker.fetch(jsonRequest('/generate', { prompt: '   ' }), fakeEnv());
   const data = await response.json();

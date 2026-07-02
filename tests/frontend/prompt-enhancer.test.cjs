@@ -4,39 +4,61 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function loadPromptEnhancer() {
+function loadPromptEnhancer(fetchImpl) {
   const sourcePath = path.resolve(__dirname, '../../app/static/prompt-enhancer.js');
   const source = fs.readFileSync(sourcePath, 'utf8');
-  const context = { console };
+  const context = { console: console, fetch: fetchImpl, Promise: Promise, JSON: JSON };
   vm.createContext(context);
   vm.runInContext(source, context, { filename: sourcePath });
   return context.PromptEnhancer;
 }
 
-test('enhancePrompt appends cinematic modifiers without duplicating', () => {
-  const enhancer = loadPromptEnhancer();
-  const result = enhancer.enhancePrompt('a cat portrait', 'cinematic');
-  assert.match(result.prompt, /a cat portrait/);
-  assert.match(result.prompt, /cinematic lighting/);
-  assert.match(result.prompt, /film still/);
-  assert.equal(result.mode, 'cinematic');
+test('applyEffect posts prompt and effect to /prompt/enhance and returns the refined prompt', async () => {
+  let calledUrl = '';
+  let sentBody = null;
+  const enhancer = loadPromptEnhancer(function (url, init) {
+    calledUrl = url;
+    sentBody = JSON.parse(init.body);
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: function () {
+        return Promise.resolve({ prompt: 'a dreamy misty cat', provider: 'gemini', effect: '更夢幻' });
+      },
+    });
+  });
+
+  const result = await enhancer.applyEffect('a cat', '更夢幻');
+  assert.equal(calledUrl, '/prompt/enhance');
+  assert.deepEqual(sentBody, { prompt: 'a cat', effect: '更夢幻' });
+  assert.equal(result.prompt, 'a dreamy misty cat');
+  assert.equal(result.provider, 'gemini');
 });
 
-test('enhancePrompt supports artifact repair mode', () => {
-  const enhancer = loadPromptEnhancer();
-  const result = enhancer.enhancePrompt('a hand holding a cup', 'fix_artifacts');
-  assert.match(result.prompt, /avoid extra fingers/);
-  assert.match(result.prompt, /sharp details/);
+test('applyEffect surfaces the server error message when the response is not ok', async () => {
+  const enhancer = loadPromptEnhancer(function () {
+    return Promise.resolve({
+      ok: false,
+      status: 503,
+      json: function () {
+        return Promise.resolve({ error: '效果優化需要 Gemini（缺少 GEMINI_API_KEY）', code: 'missing_api_key' });
+      },
+    });
+  });
+
+  await assert.rejects(() => enhancer.applyEffect('a cat', '更夢幻'), /Gemini/);
 });
 
-test('enhancePrompt rejects blank prompt', () => {
-  const enhancer = loadPromptEnhancer();
-  assert.throws(() => enhancer.enhancePrompt('   ', 'realistic'), /請先輸入提示詞/);
-});
+test('applyEffect throws when the response lacks a prompt', async () => {
+  const enhancer = loadPromptEnhancer(function () {
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: function () {
+        return Promise.resolve({ provider: 'gemini' });
+      },
+    });
+  });
 
-test('listModes exposes user-facing labels', () => {
-  const enhancer = loadPromptEnhancer();
-  const modes = enhancer.listModes();
-  assert.ok(modes.some((mode) => mode.id === 'realistic' && mode.label));
-  assert.ok(modes.some((mode) => mode.id === 'clean'));
+  await assert.rejects(() => enhancer.applyEffect('a cat', '更夢幻'), /缺少提示詞/);
 });

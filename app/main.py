@@ -19,6 +19,7 @@ from .image_service import (
     validate_seed,
 )
 from .prompt_complete import complete_plain_prompt
+from .prompt_enhance import enhance_prompt
 from .prompt_llm import PromptLLMError
 from .prompt_transform import transform_plain_prompt
 from .settings import get_settings
@@ -66,6 +67,11 @@ class BatchGeneratePayload(BaseModel):
 class PromptTransformPayload(BaseModel):
     source: str
     style: str = "auto"
+
+
+class PromptEnhancePayload(BaseModel):
+    prompt: str
+    effect: str = ""
 
 
 @app.get("/")
@@ -162,6 +168,32 @@ def prompt_transform(payload: PromptTransformPayload):
         "prompt": result.prompt,
         "provider": result.provider,
         "warnings": result.warnings,
+    }
+
+
+@app.post("/prompt/enhance")
+def prompt_enhance(payload: PromptEnhancePayload):
+    try:
+        result = enhance_prompt(payload.prompt, payload.effect)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    except PromptLLMError as exc:
+        if "missing GEMINI_API_KEY" in str(exc):
+            return JSONResponse(
+                {
+                    "error": "效果優化需要 Gemini（缺少 GEMINI_API_KEY）",
+                    "code": "missing_api_key",
+                },
+                status_code=503,
+            )
+        return JSONResponse(
+            {"error": "效果優化失敗，請稍後再試", "code": "prompt_enhance_failed"},
+            status_code=502,
+        )
+    return {
+        "prompt": result.prompt,
+        "provider": result.provider,
+        "effect": result.effect,
     }
 
 

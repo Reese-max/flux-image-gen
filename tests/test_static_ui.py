@@ -295,18 +295,17 @@ def test_app_validates_image_url_and_renders_errors_as_text():
 def test_prompt_enhancer_and_failure_advice_are_wired():
     html = read_static("index.html")
     app_js = read_static("app.js")
+    enhancer_js = read_static("prompt-enhancer.js")
     styles = read_static("styles.css")
 
     assert 'id="promptEnhancer"' in html
-    assert 'data-enhance-mode="realistic"' in html
-    assert 'data-enhance-mode="cinematic"' in html
-    assert 'data-enhance-mode="product"' in html
-    assert 'data-enhance-mode="cute"' in html
-    assert 'data-enhance-mode="clean"' in html
-    assert 'data-enhance-mode="fix_artifacts"' in html
+    assert 'id="effectPrompt"' in html
+    assert 'id="applyEffect"' in html
+    assert "data-enhance-mode" not in html
     assert 'src="/static/prompt-enhancer.js"' in html
     assert 'src="/static/failure-advice.js"' in html
-    assert 'PromptEnhancer.enhancePrompt' in app_js
+    assert 'PromptEnhancer.applyEffect' in app_js
+    assert "'/prompt/enhance'" in enhancer_js
     assert 'FailureAdvice.getAdvice' in app_js
     assert 'renderFailureAdvice' in app_js
     assert '.prompt-enhancer' in styles

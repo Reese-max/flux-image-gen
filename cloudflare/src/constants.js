@@ -127,6 +127,8 @@ export const GEMINI_STYLE_HINTS = sharedConstants.styleHints;
 export const GEMINI_COMPLETION_SYSTEM_INSTRUCTION = sharedConstants.completionSystemInstruction;
 export const GEMINI_COMPLETION_RESPONSE_SCHEMA = sharedConstants.completionResponseSchema;
 export const GEMINI_COMPLETION_STYLE_HINTS = sharedConstants.completionStyleHints;
+export const GEMINI_ENHANCE_SYSTEM_INSTRUCTION = sharedConstants.enhanceSystemInstruction;
+export const GEMINI_ENHANCE_RESPONSE_SCHEMA = sharedConstants.enhanceResponseSchema;
 
 // Image generation retry policy — mirrors app/image_service.py. Retry transient
 // failures (network / 5xx); 429 is surfaced immediately so the client honours retry_after.

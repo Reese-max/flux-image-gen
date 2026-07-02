@@ -9,6 +9,8 @@ import {
   GEMINI_COMPLETION_SYSTEM_INSTRUCTION,
   GEMINI_DEFAULT_BASE_URL,
   GEMINI_DEFAULT_MODEL,
+  GEMINI_ENHANCE_RESPONSE_SCHEMA,
+  GEMINI_ENHANCE_SYSTEM_INSTRUCTION,
   GEMINI_MAX_ATTEMPTS,
   GEMINI_RESPONSE_SCHEMA,
   GEMINI_RETRYABLE_STATUS,
@@ -31,6 +33,10 @@ function buildGeminiUserText(source, style) {
 function buildGeminiCompletionUserText(source, style) {
   const hint = GEMINI_COMPLETION_STYLE_HINTS[style] || GEMINI_COMPLETION_STYLE_HINTS.auto;
   return `${hint}\n\n原始描述：\n${String(source).trim()}`;
+}
+
+function buildGeminiEnhanceUserText(prompt, effect) {
+  return `Existing prompt:\n${String(prompt).trim()}\n\nRequested effect:\n${String(effect).trim()}`;
 }
 
 function stripWrapping(text) {
@@ -192,6 +198,66 @@ export async function geminiCompletePrompt(source, style, env) {
     return parseGeminiResponse(data);
   }
   throw lastError || new Error("gemini completion request failed");
+}
+
+async function geminiEnhancePrompt(prompt, effect, env) {
+  const apiKey = String(env.GEMINI_API_KEY || "").trim();
+  if (!apiKey) throw new HttpError("效果優化需要 Gemini（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
+
+  const model = env.GEMINI_PROMPT_MODEL || GEMINI_DEFAULT_MODEL;
+  const base = (env.GEMINI_BASE_URL || GEMINI_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const url = `${base}/models/${model}:generateContent`;
+  const payload = {
+    system_instruction: { parts: [{ text: GEMINI_ENHANCE_SYSTEM_INSTRUCTION }] },
+    contents: [{ role: "user", parts: [{ text: buildGeminiEnhanceUserText(prompt, effect) }] }],
+    generationConfig: {
+      temperature: 0.6,
+      maxOutputTokens: 700,
+      responseMimeType: "application/json",
+      responseSchema: GEMINI_ENHANCE_RESPONSE_SCHEMA,
+    },
+  };
+
+  let lastError;
+  for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
+    let resp;
+    try {
+      resp = await fetch(url, {
+        method: "POST",
+        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      lastError = new Error(`gemini enhance network error: ${e}`);
+      continue;
+    }
+    if (GEMINI_RETRYABLE_STATUS.has(resp.status)) {
+      lastError = new Error(`gemini enhance returned HTTP ${resp.status}`);
+      continue;
+    }
+    if (resp.status !== 200) throw new Error(`gemini enhance returned HTTP ${resp.status}`);
+
+    let data;
+    try {
+      data = await resp.json();
+    } catch {
+      throw new Error("gemini enhance returned non-JSON response");
+    }
+    return parseGeminiResponse(data);
+  }
+  throw lastError || new Error("gemini enhance request failed");
+}
+
+// Effect optimisation is Gemini-only (no offline fallback): describe an effect in
+// Chinese and the model rewrites the English prompt to incorporate it.
+export async function enhancePrompt(prompt, effect, env = {}) {
+  const base = String(prompt || "").trim();
+  if (!base) throw new HttpError("請先輸入提示詞", 400, "bad_request");
+  const wanted = String(effect || "").trim();
+  if (!wanted) throw new HttpError("請說明想要的效果", 400, "bad_request");
+
+  const refined = await geminiEnhancePrompt(base, wanted, env);
+  return { prompt: refined, provider: "gemini", effect: wanted };
 }
 
 export function normalizeStyle(style) {

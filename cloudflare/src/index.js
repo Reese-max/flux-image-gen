@@ -11,7 +11,7 @@ import {
   readJsonPayload,
   sanitizeClientErrorReport,
 } from "./http.js";
-import { completePlainPrompt, geminiTransformPrompt, normalizeStyle, resolveStyle, transformPlainPrompt } from "./prompt.js";
+import { completePlainPrompt, enhancePrompt, geminiTransformPrompt, normalizeStyle, resolveStyle, transformPlainPrompt } from "./prompt.js";
 import {
   generateOneImage,
   getNvidiaApiKey,
@@ -255,7 +255,30 @@ async function handlePromptComplete(request, env) {
   }
 }
 
-export { completePlainPrompt, transformPlainPrompt };
+async function handlePromptEnhance(request, env) {
+  // Effect optimisation hits Gemini; throttle like /prompt/transform.
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
+  let payload;
+  try {
+    payload = await readJsonPayload(request);
+  } catch (e) {
+    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
+    throw e;
+  }
+
+  try {
+    const result = await enhancePrompt(payload.prompt, payload.effect, env);
+    return json({ prompt: result.prompt, provider: result.provider, effect: result.effect });
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    console.error(JSON.stringify({ event: "gemini_enhance_failed", error: String(e) }));
+    return json({ error: "效果優化失敗，請稍後再試", code: "prompt_enhance_failed" }, 502);
+  }
+}
+
+export { completePlainPrompt, enhancePrompt, transformPlainPrompt };
 
 export default {
   async fetch(request, env) {
@@ -268,6 +291,9 @@ export default {
     }
     if (url.pathname === "/prompt/complete" && request.method === "POST") {
       return handlePromptComplete(request, env);
+    }
+    if (url.pathname === "/prompt/enhance" && request.method === "POST") {
+      return handlePromptEnhance(request, env);
     }
     if (url.pathname === "/generate" && request.method === "POST") {
       return handleGenerate(request, env);

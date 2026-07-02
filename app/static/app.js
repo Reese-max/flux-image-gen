@@ -382,17 +382,28 @@ function setGenerationSettings(settings){
 function setNextGenerationSourceRecord(id){
   pendingSourceRecordId = id || '';
 }
-function applyPromptEnhancement(mode){
+function applyPromptEnhancement(){
   var promptField = el('prompt');
-  var result;
-  if(!window.PromptEnhancer || !promptField){ return; }
-  try{
-    result = window.PromptEnhancer.enhancePrompt(promptField.value, mode);
-    promptField.value = result.prompt;
-    setStatus('已套用：' + result.label, 'done');
-  }catch(error){
-    setStatus(error.message, 'fail');
+  var effectField = el('effectPrompt');
+  if(!window.PromptEnhancer || !promptField || !effectField){ return; }
+  var base = promptField.value.trim();
+  var effect = effectField.value.trim();
+  if(!base){
+    setStatus('請先輸入或轉出英文提示詞', 'fail');
+    return;
   }
+  if(!effect){
+    setStatus('請先說明想要的效果', 'fail');
+    if(effectField.focus){ effectField.focus(); }
+    return;
+  }
+  setStatus('AI 套用效果中…', 'busy');
+  window.PromptEnhancer.applyEffect(base, effect).then(function(result){
+    promptField.value = result.prompt;
+    setStatus('已用 AI 套用效果', 'done');
+  }, function(error){
+    setStatus('套用效果失敗：' + error.message, 'fail');
+  });
 }
 function progressCopy(model, seconds){
   if(model === 'dev'){
@@ -930,11 +941,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if(el('seed')){ el('seed').addEventListener('input', onSeedManualInput); }
   if(el('useComposition')){ el('useComposition').addEventListener('click', useComposition); }
   updateSeedModeUi();
-  Array.prototype.forEach.call(document.querySelectorAll('[data-enhance-mode]'), function(button){
-    button.addEventListener('click', function(){
-      applyPromptEnhancement(button.getAttribute('data-enhance-mode'));
-    });
-  });
+  if(el('applyEffect')){ el('applyEffect').addEventListener('click', applyPromptEnhancement); }
   el('random').addEventListener('click', function(){
     el('prompt').value = randomPrompt();
     generate();

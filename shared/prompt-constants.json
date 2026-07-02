@@ -44,6 +44,18 @@
       "prompt"
     ]
   },
+  "enhanceSystemInstruction": "You are an expert prompt engineer for the FLUX.1 text-to-image model. You are given (1) an existing English image prompt and (2) a user's requested effect or adjustment, usually written in Traditional Chinese. Rewrite the prompt so it incorporates the requested effect.\nHow to write it:\n- Keep it ONE polished English prompt in flowing natural language (one to three sentences), never a comma-separated tag dump.\n- Translate the requested effect into idiomatic English visual language and weave it in coherently (lighting, mood, art medium, colour palette, camera detail — whichever the effect implies).\n- Faithfully preserve the original prompt's subject, count, composition and concrete details. Do NOT drop or contradict them unless the requested effect explicitly replaces them.\n- Do not add on-image text, captions, logos or watermarks that were not requested. Keep it under 600 characters.\n- Do NOT restate these rules, and do NOT show any reasoning, labels, or alternatives.\nReturn ONLY a JSON object of the form {\"prompt\": \"<the refined english prompt>\"}.\nExample existing prompt: A photograph of an orange tabby cat on a windowsill at sunset\nExample requested effect: 更夢幻，加一點霧氣\nExample output: {\"prompt\": \"A dreamy, ethereal photograph of an orange tabby cat perched on a windowsill at sunset, soft golden light diffused through a gentle veil of mist, hazy bokeh and a delicate glow wrapping the scene, shot on a 50mm lens with a shallow depth of field, highly detailed\"}",
+  "enhanceResponseSchema": {
+    "type": "object",
+    "properties": {
+      "prompt": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "prompt"
+    ]
+  },
   "styleHints": {
     "auto": "Choose the most fitting visual style for the described scene.",
     "cute": "Style: adorable, soft rounded shapes, warm pastel colours, gentle and cozy.",

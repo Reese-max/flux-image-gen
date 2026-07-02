@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, patch
 from app.image_service import GenerationResult
 from app.main import app
 from app.prompt_complete import PromptCompleteResult
+from app.prompt_enhance import PromptEnhanceResult
+from app.prompt_llm import PromptLLMError
 from fastapi.testclient import TestClient
 
 
@@ -173,6 +175,45 @@ class AppRouteTests(unittest.TestCase):
         response = self.client.post("/prompt/complete", json={"source": "   ", "style": "cute"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "bad_request")
+
+    def test_prompt_enhance_route_returns_refined_prompt(self):
+        with patch("app.main.enhance_prompt") as mocked_enhance:
+            mocked_enhance.return_value = PromptEnhanceResult(
+                provider="gemini",
+                prompt="A dreamy photograph of a cat on a windowsill, misty golden glow, highly detailed",
+                effect="更夢幻",
+            )
+            response = self.client.post(
+                "/prompt/enhance",
+                json={"prompt": "a cat on a windowsill", "effect": "更夢幻"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["provider"], "gemini")
+        self.assertIn("dreamy", data["prompt"])
+        self.assertEqual(data["effect"], "更夢幻")
+        mocked_enhance.assert_called_once_with("a cat on a windowsill", "更夢幻")
+
+    def test_prompt_enhance_route_rejects_blank_prompt(self):
+        response = self.client.post("/prompt/enhance", json={"prompt": "   ", "effect": "更夢幻"})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "bad_request")
+
+    def test_prompt_enhance_route_rejects_blank_effect(self):
+        response = self.client.post("/prompt/enhance", json={"prompt": "a cat", "effect": "   "})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "bad_request")
+
+    def test_prompt_enhance_route_requires_gemini_key(self):
+        with patch("app.main.enhance_prompt") as mocked_enhance:
+            mocked_enhance.side_effect = PromptLLMError("missing GEMINI_API_KEY")
+            response = self.client.post(
+                "/prompt/enhance",
+                json={"prompt": "a cat on a windowsill", "effect": "更夢幻"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], "missing_api_key")
 
 
 if __name__ == "__main__":

@@ -32,6 +32,8 @@ RETRYABLE_STATUS = frozenset(_CONSTANTS["geminiRetryableStatus"])
 SYSTEM_INSTRUCTION = _CONSTANTS["systemInstruction"]
 RESPONSE_SCHEMA = _CONSTANTS["responseSchema"]
 STYLE_HINTS = _CONSTANTS["styleHints"]
+ENHANCE_SYSTEM_INSTRUCTION = _CONSTANTS["enhanceSystemInstruction"]
+ENHANCE_RESPONSE_SCHEMA = _CONSTANTS["enhanceResponseSchema"]
 COMPLETION_SYSTEM_INSTRUCTION = _CONSTANTS["completionSystemInstruction"]
 COMPLETION_RESPONSE_SCHEMA = _CONSTANTS["completionResponseSchema"]
 COMPLETION_STYLE_HINTS = _CONSTANTS["completionStyleHints"]
@@ -121,6 +123,47 @@ def llm_complete_prompt(source: str, style: str, settings: Settings | None = Non
                 break
             time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("gemini completion request failed")
+
+
+def llm_enhance_prompt(prompt: str, effect: str, settings: Settings | None = None) -> str:
+    """Call Gemini to rewrite an English prompt so it incorporates a requested effect.
+
+    Raises PromptLLMError when the key is missing or the request fails; callers map
+    that to an HTTP error (there is no offline fallback for effect optimisation).
+    """
+    resolved_settings = settings or get_settings()
+    api_key = resolved_settings.gemini_api_key.strip()
+    if not api_key:
+        raise PromptLLMError("missing GEMINI_API_KEY")
+
+    user_text = _build_enhance_user_text(prompt, effect)
+    payload = {
+        "system_instruction": {"parts": [{"text": ENHANCE_SYSTEM_INSTRUCTION}]},
+        "contents": [{"role": "user", "parts": [{"text": user_text}]}],
+        "generationConfig": {
+            "temperature": 0.6,
+            "maxOutputTokens": 700,
+            "responseMimeType": "application/json",
+            "responseSchema": ENHANCE_RESPONSE_SCHEMA,
+        },
+    }
+    url = (
+        f"{resolved_settings.gemini_base_url.rstrip('/')}"
+        f"/models/{resolved_settings.gemini_prompt_model}:generateContent"
+    )
+    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
+    timeout = resolved_settings.prompt_llm_timeout_seconds
+
+    last_error: PromptLLMError | None = None
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            return _request_prompt(url, headers, payload, timeout)
+        except _RetryableError as exc:
+            last_error = PromptLLMError(str(exc))
+            if attempt + 1 >= MAX_ATTEMPTS:
+                break
+            time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+    raise last_error or PromptLLMError("gemini enhance request failed")
 
 
 def codex_transform_prompt(source: str, style: str, settings: Settings | None = None) -> str:
@@ -221,6 +264,10 @@ def _request_prompt(url: str, headers: dict, payload: dict, timeout: float) -> s
 def _build_user_text(source: str, style: str) -> str:
     style_hint = STYLE_HINTS.get(style, STYLE_HINTS["auto"])
     return f"{style_hint}\n\nDescription:\n{source.strip()}"
+
+
+def _build_enhance_user_text(prompt: str, effect: str) -> str:
+    return f"Existing prompt:\n{prompt.strip()}\n\nRequested effect:\n{effect.strip()}"
 
 
 def _build_complete_user_text(source: str, style: str) -> str:
