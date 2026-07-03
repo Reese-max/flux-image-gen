@@ -921,6 +921,8 @@ test('POST /generate/batch rejects an out-of-range count', async () => {
 
 function fakeAi(result) {
   const calls = [];
+  // Pass an array to script one outcome per call (e.g. fail once, then succeed).
+  const queue = Array.isArray(result) ? [...result] : null;
   return {
     calls,
     async run(model, args) {
@@ -934,8 +936,9 @@ function fakeAi(result) {
       });
       const form = await req.formData();
       calls.push({ model, fields: Object.fromEntries(form.entries()) });
-      if (result instanceof Error) throw result;
-      return result;
+      const outcome = queue ? queue.shift() : result;
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
     },
   };
 }
@@ -974,7 +977,7 @@ test('POST /generate model=schnell keeps an explicit seed on Workers AI', async 
 });
 
 test('POST /generate model=schnell maps a Workers AI failure to a clean 502', async () => {
-  const ai = fakeAi(new Error('model overloaded'));
+  const ai = fakeAi(new Error('model overloaded: internal binding rpc detail'));
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
     fakeEnv({ AI: ai })
@@ -982,6 +985,68 @@ test('POST /generate model=schnell maps a Workers AI failure to a clean 502', as
   const data = await response.json();
   assert.equal(response.status, 502);
   assert.equal(data.code, 'workers_ai_error');
+  // The raw provider error must stay server-side, not leak to the client.
+  assert.ok(!data.error.includes('internal binding rpc detail'), 'raw error must not leak');
+  assert.equal(ai.calls.length, 2, 'a transient failure should be retried once');
+});
+
+test('POST /generate model=schnell retries once and succeeds on Workers AI', async () => {
+  const ai = fakeAi([new Error('model overloaded'), { image: 'iVBORw0KGgo=' }]);
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 42 }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'workers-ai');
+  assert.equal(data.seed, 42);
+  assert.equal(ai.calls.length, 2);
+  // Streams cannot be replayed: the retry must rebuild the multipart form.
+  assert.equal(ai.calls[1].fields.prompt, 'a cat');
+  assert.equal(ai.calls[1].fields.seed, '42');
+});
+
+test('POST /generate model=schnell maps a Workers AI timeout to a clean 504', async () => {
+  const ai = fakeAi(Object.assign(new Error('hang'), { name: 'TimeoutError' }));
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 504);
+  assert.equal(data.code, 'timeout');
+});
+
+test('POST /generate/batch model=schnell runs every image on Workers AI', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 3 }),
+    fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.images.length, 3);
+  assert.equal(ai.calls.length, 3);
+  for (const item of data.images) {
+    assert.equal(item.provider, 'workers-ai');
+    assert.ok(item.seed >= 1, 'batch variation seeds must be real random seeds');
+  }
+  // Each call must carry the seed it reported back (reproducibility contract).
+  const sentSeeds = ai.calls.map((c) => c.fields.seed).sort();
+  const returnedSeeds = data.images.map((i) => String(i.seed)).sort();
+  assert.deepEqual(sentSeeds, returnedSeeds);
+});
+
+test('POST /generate/batch model=schnell keeps the explicit seed on the first image', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2, seed: 777 }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.images[0].seed, 777);
+  assert.ok(data.images[1].seed >= 1);
 });
 
 test('POST /generate model=dev still uses NVIDIA even when Workers AI is bound', async () => {

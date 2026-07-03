@@ -123,33 +123,63 @@ export function randomImageSeed() {
   return Math.floor(Math.random() * MAX_SEED) + 1;
 }
 
+// One AI.run attempt. The multipart body is a stream and cannot be replayed,
+// so every retry must rebuild the form from scratch.
+function runWorkersAiOnce(env, { prompt, width, height, seed }) {
+  // klein takes multipart form input even for a text-only prompt.
+  const form = new FormData();
+  form.append("prompt", prompt);
+  form.append("width", String(width));
+  form.append("height", String(height));
+  form.append("seed", String(seed));
+  const formResponse = new Response(form);
+  return env.AI.run(WORKERS_AI_FAST_MODEL, {
+    multipart: {
+      body: formResponse.body,
+      contentType: formResponse.headers.get("content-type"),
+    },
+  });
+}
+
 // The "fast" tier runs on Workers AI (FLUX.2 klein 4B) — NVIDIA's hosted
 // flux.1-schnell accepts requests but never responds (2026-07 outage).
 // Kept behind an env.AI check so tests and AI-less deploys fall back to NVIDIA.
+// Mirrors the NVIDIA path's availability contract: bounded wait + one retry.
 async function generateWithWorkersAi(env, { prompt, model, width, height, seed }) {
   // UI contract: seed 0 (or blank) means "random variation". klein treats every
   // seed literally, so 0 would pin the output; substitute a real random seed
   // and return it for reproducibility.
   const effectiveSeed = seed === 0 ? randomImageSeed() : seed;
 
-  // klein takes multipart form input even for a text-only prompt.
-  const form = new FormData();
-  form.append("prompt", prompt);
-  form.append("width", String(width));
-  form.append("height", String(height));
-  form.append("seed", String(effectiveSeed));
-  const formResponse = new Response(form);
-
   let data;
-  try {
-    data = await env.AI.run(WORKERS_AI_FAST_MODEL, {
-      multipart: {
-        body: formResponse.body,
-        contentType: formResponse.headers.get("content-type"),
-      },
+  for (let attempt = 0; attempt < IMAGE_MAX_ATTEMPTS; attempt++) {
+    // AI.run has no AbortSignal support, so race it against a clearable timer.
+    // A lost run keeps executing in the background; the client still gets a
+    // fast 504 instead of hanging until the edge kills the request.
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(Object.assign(new Error("workers ai timeout"), { name: "TimeoutError" })),
+        IMAGE_FETCH_TIMEOUT_MS
+      );
     });
-  } catch (e) {
-    throw new HttpError(`Workers AI 生圖失敗：${e}`, 502, "workers_ai_error");
+    try {
+      const run = runWorkersAiOnce(env, { prompt, width, height, seed: effectiveSeed });
+      run.catch(() => {}); // the loser of the race must not become an unhandled rejection
+      data = await Promise.race([run, timeout]);
+      break;
+    } catch (e) {
+      // Details stay server-side; the client gets a stable, non-leaky message.
+      console.error(`Workers AI 生圖失敗（attempt ${attempt + 1}/${IMAGE_MAX_ATTEMPTS}）`, e);
+      const lastError =
+        e && (e.name === "TimeoutError" || e.name === "AbortError")
+          ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
+          : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+      if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) throw lastError;
+      await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   const b64 = data && typeof data.image === "string" && data.image.trim() ? data.image.trim() : null;
