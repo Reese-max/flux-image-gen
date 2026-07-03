@@ -353,6 +353,7 @@ test('POST /generate returns demo image when NVIDIA key is missing', async () =>
 
     assert.equal(health.status, 200);
     assert.equal(healthData.provider, 'demo');
+    assert.deepEqual(healthData.providers, []);
     assert.equal(response.status, 200);
     assert.equal(data.provider, 'demo');
     assert.equal(data.model, 'schnell');
@@ -365,6 +366,30 @@ test('POST /generate returns demo image when NVIDIA key is missing', async () =>
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('GET /health reports workers-ai when only the AI binding is present', async () => {
+  const response = await worker.fetch(
+    new Request('https://example.test/health'),
+    fakeEnv({ AI: { run() {} } })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'workers-ai');
+  assert.deepEqual(data.providers, ['workers-ai']);
+});
+
+test('GET /health lists both providers when NVIDIA key and AI binding are present', async () => {
+  const response = await worker.fetch(
+    new Request('https://example.test/health'),
+    fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: { run() {} } })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'nvidia');
+  assert.deepEqual(data.providers, ['nvidia', 'workers-ai']);
 });
 
 test('POST /generate forwards explicit seed to NVIDIA and returns it', async () => {

@@ -773,7 +773,7 @@ function generate(){
         renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size });
         setResultActionsVisible(false);
         pendingSourceRecordId = '';
-        note = (images[0] && images[0].provider === 'demo') ? '（Demo 圖，設定 NVIDIA_API_KEY 後可真實產圖）' : '（NVIDIA FLUX）';
+        note = providerNoteFor(images[0] && images[0].provider);
         setStatus('✅ 生成 ' + images.length + ' 張變體，耗時 ' + secs + ' 秒 ' + note, 'done');
       });
     }).then(function(result){
@@ -862,7 +862,7 @@ function generate(){
       setResultActionsVisible(true);
       document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: shallowClone(generatedRecord) }));
       pendingSourceRecordId = '';
-      providerNote = generatedRecord.provider === 'demo' ? '（Demo 圖，設定 NVIDIA_API_KEY 後可真實產圖）' : '（NVIDIA FLUX）';
+      providerNote = providerNoteFor(generatedRecord.provider);
       setStatus('✅ 完成，耗時 ' + secs + ' 秒 ' + providerNote, 'done');
     });
   }).then(function(result){
@@ -902,6 +902,16 @@ function showDemoNotice(on){
   var notice = el('demo-notice');
   if(notice){ notice.hidden = !on; }
 }
+function providerDisplayName(provider){
+  if(provider === 'workers-ai'){ return 'Workers AI'; }
+  if(provider === 'nvidia'){ return 'NVIDIA FLUX'; }
+  return provider;
+}
+function providerNoteFor(provider){
+  if(provider === 'demo'){ return '（Demo 圖，設定 NVIDIA_API_KEY 後可真實產圖）'; }
+  if(provider === 'workers-ai'){ return '（Workers AI FLUX）'; }
+  return '（NVIDIA FLUX）';
+}
 function refreshProvider(){
   var pill = el('provider-pill');
   var text = el('provider-text');
@@ -909,9 +919,13 @@ function refreshProvider(){
   return fetch('/health').then(function(res){
     return res.json();
   }).then(function(data){
-    if(data.provider === 'nvidia'){
+    // FastAPI /health has no providers array — fall back to the single provider field.
+    var providers = Array.isArray(data.providers)
+      ? data.providers
+      : (data.provider && data.provider !== 'demo' ? [data.provider] : []);
+    if(providers.length){
       pill.className = 'pill online';
-      text.textContent = '真實出圖 · NVIDIA FLUX';
+      text.textContent = '真實出圖 · ' + providers.map(providerDisplayName).join(' + ');
       showDemoNotice(false);
     }else{
       pill.className = 'pill demo';

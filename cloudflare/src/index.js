@@ -286,7 +286,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health") {
-      return json({ status: "ok", provider: getNvidiaApiKey(env) ? "nvidia" : "demo" });
+      const providers = [];
+      if (getNvidiaApiKey(env)) providers.push("nvidia");
+      if (env.AI) providers.push("workers-ai");
+      return json({ status: "ok", provider: providers[0] || "demo", providers });
     }
     if (url.pathname === "/prompt/transform" && request.method === "POST") {
       return handlePromptTransform(request, env);
