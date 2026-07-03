@@ -1031,6 +1031,42 @@ test('POST /generate model=schnell retries once and succeeds on Workers AI', asy
   assert.equal(ai.calls[1].fields.seed, '42');
 });
 
+test('POST /generate model=schnell extracts alternate Workers AI response shapes', async () => {
+  const longB64 = 'iVBORw0KGgoAAAANSUhEUg'.repeat(6);
+  const ai = fakeAi({ images: [longB64] });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'workers-ai');
+  assert.match(data.image, /^data:image\/png;base64,/);
+});
+
+test('POST /generate model=schnell maps a Workers AI safety rejection to 422 without retry', async () => {
+  const ai = fakeAi(new Error('InferenceUpstreamError: NSFW content detected in prompt'));
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 422);
+  assert.equal(data.code, 'content_filtered');
+  assert.equal(ai.calls.length, 1, 'a deterministic safety rejection must not be retried');
+});
+
+test('POST /generate model=schnell maps a CONTENT_FILTERED artifact from Workers AI to 422', async () => {
+  const ai = fakeAi({ artifacts: [{ finishReason: 'CONTENT_FILTERED', base64: 'iVBORw0KGgo=' }] });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 422);
+  assert.equal(data.code, 'content_filtered');
+});
+
 test('POST /generate model=schnell maps a Workers AI timeout to a clean 504', async () => {
   const ai = fakeAi(Object.assign(new Error('hang'), { name: 'TimeoutError' }));
   const response = await worker.fetch(

@@ -79,13 +79,19 @@ function detectMimeFromBase64(b64) {
   return "image/png";
 }
 
-function extractImage(data) {
+function extractImage(data, providerLabel = "NVIDIA") {
   const candidate = findImageCandidate(data);
-  if (!candidate) throw new HttpError("NVIDIA 回應中找不到圖片資料", 502, "bad_provider_response");
+  if (!candidate) throw new HttpError(`${providerLabel} 回應中找不到圖片資料`, 502, "bad_provider_response");
   if (candidate.startsWith("data:image/") || candidate.startsWith("http://") || candidate.startsWith("https://")) {
     return candidate;
   }
   return `data:${detectMimeFromBase64(candidate)};base64,` + candidate;
+}
+
+// Workers AI has no artifacts/finishReason on the error path; a flagged prompt
+// surfaces as a thrown AiError whose message mentions the safety filter.
+function isWorkersAiContentFilterError(e) {
+  return /nsfw|content[ _-]?(safety|filter|moderat)|flagged/i.test(String((e && e.message) || e));
 }
 
 function makeDemoImageDataUrl() {
@@ -171,6 +177,10 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     } catch (e) {
       // Details stay server-side; the client gets a stable, non-leaky message.
       console.error(`Workers AI 生圖失敗（attempt ${attempt + 1}/${IMAGE_MAX_ATTEMPTS}）`, e);
+      if (isWorkersAiContentFilterError(e)) {
+        // Deterministic safety rejection: retrying the same prompt cannot succeed.
+        throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
+      }
       const lastError =
         e && (e.name === "TimeoutError" || e.name === "AbortError")
           ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
@@ -182,10 +192,17 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     }
   }
 
-  const b64 = data && typeof data.image === "string" && data.image.trim() ? data.image.trim() : null;
-  if (!b64) throw new HttpError("Workers AI 回應中找不到圖片資料", 502, "bad_provider_response");
+  if (isContentFiltered(data)) {
+    throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
+  }
+  // Documented binding shape is { image: "<base64>" }; short images fail the
+  // shared length heuristic, so keep this direct path before extractImage.
+  const direct = data && typeof data.image === "string" ? data.image.trim() : "";
+  const image = direct && isValidBase64(direct)
+    ? `data:${detectMimeFromBase64(direct)};base64,` + direct
+    : extractImage(data, "Workers AI");
   return {
-    image: `data:${detectMimeFromBase64(b64)};base64,` + b64,
+    image,
     provider: "workers-ai",
     model,
     width,
