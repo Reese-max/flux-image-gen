@@ -34,6 +34,16 @@ class Settings:
     nvidia_dev_cfg_scale: float = _float_env("NVIDIA_DEV_CFG_SCALE", 5.0)
     nvidia_schnell_seed: int = _int_env("NVIDIA_SCHNELL_SEED", 0)
     nvidia_dev_seed: int = _int_env("NVIDIA_DEV_SEED", 0)
+    # Fast-tier ("schnell") backend. NVIDIA's hosted flux.1-schnell went dark in
+    # 2026-07 (accepts requests, never responds), so the fast tier runs on
+    # Cloudflare Workers AI instead — mirroring the Worker deploy. Set both
+    # CF_ACCOUNT_ID and CF_API_TOKEN to enable; otherwise schnell auto-falls back
+    # to NVIDIA dev (see image_service._resolve_provider_and_request).
+    cf_account_id: str = os.getenv("CF_ACCOUNT_ID", "")
+    cf_api_token: str = os.getenv("CF_API_TOKEN", "")
+    workers_ai_fast_model: str = os.getenv(
+        "WORKERS_AI_FAST_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"
+    )
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
     gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-26b-a4b-it")

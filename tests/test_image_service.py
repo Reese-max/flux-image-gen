@@ -344,5 +344,79 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(image.startswith("data:image/jpeg;base64,"))
 
 
+class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
+    """schnell must never hit NVIDIA's dark flux.1-schnell endpoint (2026-07
+    outage). It routes to Workers AI when configured, else auto-falls back to
+    NVIDIA dev; demo mode is untouched."""
+
+    def test_schnell_with_nvidia_key_and_no_workers_ai_falls_back_to_dev(self):
+        from app.image_service import NvidiaProvider, _resolve_provider_and_request
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia", cf_account_id="", cf_api_token="")
+        provider, request = _resolve_provider_and_request(
+            GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
+        )
+        self.assertIsInstance(provider, NvidiaProvider)
+        self.assertEqual(request.model, "dev")
+
+    def test_schnell_with_workers_ai_configured_uses_workers_ai(self):
+        from app.image_service import WorkersAiProvider, _resolve_provider_and_request
+
+        settings = Settings(
+            nvidia_api_key="dummy-key", image_provider="nvidia", cf_account_id="acct", cf_api_token="tok"
+        )
+        provider, request = _resolve_provider_and_request(
+            GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
+        )
+        self.assertIsInstance(provider, WorkersAiProvider)
+        self.assertEqual(request.model, "schnell")
+
+    def test_schnell_in_demo_mode_is_left_untouched(self):
+        from app.image_service import DemoProvider, _resolve_provider_and_request
+
+        settings = Settings(nvidia_api_key="", image_provider="auto", cf_account_id="", cf_api_token="")
+        provider, request = _resolve_provider_and_request(
+            GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
+        )
+        self.assertIsInstance(provider, DemoProvider)
+        self.assertEqual(request.model, "schnell")
+
+    def test_dev_is_never_rerouted(self):
+        from app.image_service import NvidiaProvider, _resolve_provider_and_request
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia")
+        provider, request = _resolve_provider_and_request(
+            GenerationRequest(prompt="a corgi", model="dev", size="square"), settings
+        )
+        self.assertIsInstance(provider, NvidiaProvider)
+        self.assertEqual(request.model, "dev")
+
+    async def test_generate_image_schnell_fallback_reports_dev_model(self):
+        # End-to-end through generate_image with a demo NVIDIA response: the
+        # result must reflect dev (what actually ran), not the requested schnell.
+        from unittest.mock import patch
+
+        from app import image_service
+
+        async def fake_generate(self, request):  # noqa: ANN001
+            width, height = image_service.map_size(request.size)
+            return image_service.GenerationResult(
+                image="data:image/png;base64,AAAA",
+                provider="nvidia",
+                model=request.model,
+                width=width,
+                height=height,
+                seed=request.seed or 0,
+            )
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia", cf_account_id="", cf_api_token="")
+        with patch.object(image_service.NvidiaProvider, "generate", fake_generate):
+            result = await image_service.generate_image(
+                GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
+            )
+        self.assertEqual(result.provider, "nvidia")
+        self.assertEqual(result.model, "dev")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import httpx
@@ -196,6 +196,86 @@ class NvidiaProvider:
         return f"{base}/{MODEL_ENDPOINTS[model]}"
 
 
+class WorkersAiProvider:
+    """Fast-tier ("schnell") backend on Cloudflare Workers AI (FLUX.2 klein 4B),
+    replacing NVIDIA's dark flux.1-schnell. This is the REST-API twin of the
+    Worker's ``env.AI.run`` path (cloudflare/src/image.js). Active only when
+    CF_ACCOUNT_ID + CF_API_TOKEN are set.
+
+    NOTE: the request/response shape follows Cloudflare's documented Workers AI
+    REST contract but is unverified end-to-end pending a Workers-AI-scoped token;
+    without one the caller uses the NVIDIA-dev fallback instead."""
+
+    provider_name = "workers-ai"
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    async def generate(self, request: GenerationRequest) -> GenerationResult:
+        if not (self.settings.cf_account_id.strip() and self.settings.cf_api_token.strip()):
+            raise ProviderError("缺少 Cloudflare Workers AI 設定", status_code=503, code="missing_api_key")
+
+        prompt = validate_prompt(request.prompt)
+        model = validate_model(request.model)
+        width, height = map_size(request.size)
+        seed = resolve_seed(request.seed, model, self.settings)
+        # UI contract: seed 0 (or blank) means "random variation". klein treats
+        # every seed literally, so 0 would pin the output; substitute a real
+        # random seed and return it for reproducibility (mirrors the Worker).
+        effective_seed = _random_seed() if seed == 0 else seed
+
+        endpoint = (
+            f"https://api.cloudflare.com/client/v4/accounts/"
+            f"{self.settings.cf_account_id.strip()}/ai/run/{self.settings.workers_ai_fast_model}"
+        )
+        headers = {
+            "Authorization": f"Bearer {self.settings.cf_api_token.strip()}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, Any] = {"prompt": prompt, "width": width, "height": height, "seed": effective_seed}
+
+        last_error: ProviderError | None = None
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            for attempt in range(IMAGE_MAX_ATTEMPTS):
+                try:
+                    response = await client.post(endpoint, headers=headers, json=payload)
+                except httpx.TimeoutException:
+                    last_error = ProviderError("Workers AI 產圖逾時，請稍後再試", status_code=504, code="timeout")
+                except httpx.HTTPError as exc:
+                    last_error = ProviderError(f"Workers AI 連線失敗：{exc}", status_code=502, code="network_error")
+                else:
+                    if response.status_code not in RETRYABLE_IMAGE_STATUS:
+                        break
+                    last_error = ProviderError(
+                        _response_error_message(response), status_code=response.status_code, code="workers_ai_error"
+                    )
+                if attempt + 1 >= IMAGE_MAX_ATTEMPTS:
+                    raise last_error
+                await asyncio.sleep(IMAGE_RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+        if response.status_code == 429:
+            retry_after = _parse_retry_after(response.headers.get("retry-after"))
+            raise ProviderError("叫用太頻繁，請稍後再試", status_code=429, code="rate_limited", retry_after=retry_after)
+        if response.status_code >= 400:
+            raise ProviderError(_response_error_message(response), status_code=response.status_code, code="workers_ai_error")
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise ProviderError("Workers AI 回應不是有效 JSON", status_code=502, code="bad_provider_response") from exc
+        # Cloudflare wraps the payload as {"result": {...}, "success": bool}.
+        result_payload = data.get("result") if isinstance(data, dict) else None
+        image = extract_image(result_payload if result_payload is not None else data)
+        return GenerationResult(
+            image=image, provider=self.provider_name, model=model, width=width, height=height, seed=effective_seed
+        )
+
+
+def _workers_ai_configured(settings: Settings) -> bool:
+    return bool(settings.cf_account_id.strip() and settings.cf_api_token.strip())
+
+
 def choose_provider(settings: Settings | None = None):
     settings = settings or get_settings()
     provider = settings.image_provider.strip().lower()
@@ -210,9 +290,30 @@ def choose_provider(settings: Settings | None = None):
     return DemoProvider(settings)
 
 
-async def generate_image(request: GenerationRequest, settings: Settings | None = None) -> GenerationResult:
+def _resolve_provider_and_request(
+    request: GenerationRequest, settings: Settings
+) -> tuple[Any, GenerationRequest]:
+    """Route the fast tier away from NVIDIA's dark flux.1-schnell endpoint.
+
+    - Workers AI configured  -> use it for schnell (matches the Worker deploy).
+    - Otherwise, only the *real* NVIDIA schnell endpoint hangs, so transparently
+      rewrite schnell -> dev so the user still gets an image (5s) instead of a
+      ~240s hang. The result's model/provider reflect what actually ran.
+    - Demo provider renders schnell fine and is left untouched.
+    """
     provider = choose_provider(settings)
-    return await provider.generate(request)
+    if request.model == "schnell":
+        if _workers_ai_configured(settings):
+            return WorkersAiProvider(settings), request
+        if isinstance(provider, NvidiaProvider):
+            return provider, replace(request, model="dev")
+    return provider, request
+
+
+async def generate_image(request: GenerationRequest, settings: Settings | None = None) -> GenerationResult:
+    settings = settings or get_settings()
+    provider, effective_request = _resolve_provider_and_request(request, settings)
+    return await provider.generate(effective_request)
 
 
 def validate_batch_count(count: Any) -> int:
@@ -234,23 +335,19 @@ async def generate_batch(
     explicit seed (so users can vary a locked composition); the rest get fresh
     random seeds so the batch shows genuine variety."""
     count = validate_batch_count(count)
-    provider = choose_provider(settings)
+    settings = settings or get_settings()
+    # Resolve the fast-tier routing once (schnell -> Workers AI or NVIDIA dev) so
+    # every variation in the batch uses the same provider/model.
+    provider, effective_request = _resolve_provider_and_request(request, settings)
     # The variations are independent network calls; run them concurrently so a
     # 4-image batch costs one round-trip of latency, not four. The first image
     # honours an explicit seed; the rest get fresh random seeds for variety.
     seeds = [
-        request.seed if (index == 0 and request.seed is not None) else _random_seed()
+        effective_request.seed if (index == 0 and effective_request.seed is not None) else _random_seed()
         for index in range(count)
     ]
-    tasks = [
-        provider.generate(
-            GenerationRequest(
-                prompt=request.prompt, model=request.model, size=request.size, seed=seed
-            )
-        )
-        for seed in seeds
-    ]
-    return list(await asyncio.gather(*tasks))
+    tasks = [replace(effective_request, seed=seed) for seed in seeds]
+    return list(await asyncio.gather(*(provider.generate(task) for task in tasks)))
 
 
 def to_http_error(err: ProviderError) -> tuple[dict[str, Any], int]:
