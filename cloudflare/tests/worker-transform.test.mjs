@@ -561,6 +561,8 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /class="tabs" role="tablist"/);
   assert.match(html, /id="tab-generate"[\s\S]*?data-tab="generate"/);
   assert.match(html, /id="panel-generate"/);
+  assert.match(html, /id="tab-ideas"[\s\S]*?data-tab="ideas"/);
+  assert.match(html, /id="panel-ideas"/);
   assert.match(html, /id="panel-edit"/);
   assert.match(html, /id="panel-history"/);
   assert.match(html, /id="copySettings"/);

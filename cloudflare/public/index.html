@@ -58,6 +58,9 @@
       <button class="tab is-active" id="tab-generate" role="tab" type="button" aria-selected="true" aria-controls="panel-generate" data-tab="generate">
         <span class="tab-ico" aria-hidden="true">✨</span><span class="tab-label">生成圖片</span>
       </button>
+      <button class="tab" id="tab-ideas" role="tab" type="button" aria-selected="false" aria-controls="panel-ideas" tabindex="-1" data-tab="ideas">
+        <span class="tab-ico" aria-hidden="true">💡</span><span class="tab-label">靈感</span>
+      </button>
       <button class="tab" id="tab-edit" role="tab" type="button" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
         <span class="tab-ico" aria-hidden="true">🖌️</span><span class="tab-label">AI 改圖</span>
       </button>
@@ -185,7 +188,9 @@
       <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
       <button id="saveToCloud" class="btn secondary" type="button">☁️ 存到雲端</button>
     </div>
+    </div><!-- /panel-generate -->
 
+    <div class="tabpanel" id="panel-ideas" role="tabpanel" aria-labelledby="tab-ideas" hidden>
     <section class="ideas" aria-label="提示詞靈感">
       <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下直接出圖）</span></div>
       <div class="idea-grid">
@@ -219,8 +224,7 @@
         <div id="customIdeaGrid" class="idea-grid custom-grid" aria-live="polite"></div>
       </div>
     </section>
-
-    </div><!-- /panel-generate -->
+    </div><!-- /panel-ideas -->
 
     <div class="tabpanel" id="panel-edit" role="tabpanel" aria-labelledby="tab-edit" hidden>
     <section class="composer glass" id="editPanel" aria-label="AI 改圖">

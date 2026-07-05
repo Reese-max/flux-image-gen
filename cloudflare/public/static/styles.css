@@ -882,11 +882,18 @@ select option { background: #15171d; color: var(--text); }
   .tab { transition: none; }
 }
 
-/* 手機版：分頁列滿版、等分 */
-@media (max-width: 560px) {
-  .tabs { width: 100%; gap: 3px; }
-  .tab { flex: 1 1 0; justify-content: center; padding: 11px 6px; }
-  .tab-label { font-size: 13px; }
+/* 手機版：分頁列滿版、四等分 */
+@media (max-width: 620px) {
+  .tabs { width: 100%; gap: 3px; padding: 4px; }
+  .tab { flex: 1 1 0; justify-content: center; padding: 10px 4px; gap: 5px; }
+  .tab-label { font-size: 12.5px; }
+  .tab-ico { font-size: 15px; }
+}
+/* 極窄螢幕：進一步縮字級，保留文字（不隱藏，維持可讀與無障礙） */
+@media (max-width: 380px) {
+  .tab { padding: 10px 3px; gap: 3px; }
+  .tab-label { font-size: 11px; }
+  .tab-ico { font-size: 14px; }
 }
 
 /* 手機底部生成列只在「生成」分頁有意義，其他分頁隱藏 */

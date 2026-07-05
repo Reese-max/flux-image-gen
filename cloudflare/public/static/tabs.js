@@ -51,6 +51,24 @@
     });
   });
 
+  // 靈感分頁的卡片是「點一下直接出圖」，但結果/狀態顯示在生成分頁；因此點到任何
+  // 會生成的靈感卡（內建 .idea、客製 .idea.custom-idea、精選 .idea）就自動切回
+  // 生成分頁，讓使用者看得到產圖進度與結果。用事件委派，涵蓋動態插入的卡片；
+  // 編輯鈕(.card-edit)與新增/匯出等工具鈕沒有 .idea class，不會誤觸切頁。
+  var ideasPanel = document.getElementById('panel-ideas');
+  if (ideasPanel) {
+    ideasPanel.addEventListener('click', function (e) {
+      var node = e.target;
+      while (node && node !== ideasPanel) {
+        if (node.classList && node.classList.contains('idea')) {
+          activate('generate', false);
+          return;
+        }
+        node = node.parentNode;
+      }
+    });
+  }
+
   // 還原上次選的分頁；失敗（或沒存過）就回到第一個「生成」。
   var saved = null;
   try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { saved = null; }
