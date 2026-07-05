@@ -345,11 +345,15 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
-    """schnell must never hit NVIDIA's dark flux.1-schnell endpoint (2026-07
-    outage). It routes to Workers AI when configured, else auto-falls back to
-    NVIDIA dev; demo mode is untouched."""
+    """The fast tier ("schnell") runs on flux.2-klein-4b via NVIDIA (flux.1-schnell
+    went dark 2026-07), or Workers AI when configured. Demo mode is untouched."""
 
-    def test_schnell_with_nvidia_key_and_no_workers_ai_falls_back_to_dev(self):
+    def test_schnell_endpoint_maps_to_flux2_klein(self):
+        from app.image_service import MODEL_ENDPOINTS
+
+        self.assertEqual(MODEL_ENDPOINTS["schnell"], "black-forest-labs/flux.2-klein-4b")
+
+    def test_schnell_with_nvidia_key_and_no_workers_ai_stays_on_nvidia_klein(self):
         from app.image_service import NvidiaProvider, _resolve_provider_and_request
 
         settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia", cf_account_id="", cf_api_token="")
@@ -357,7 +361,8 @@ class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
             GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
         )
         self.assertIsInstance(provider, NvidiaProvider)
-        self.assertEqual(request.model, "dev")
+        # No rewrite: schnell hits klein directly (see MODEL_ENDPOINTS).
+        self.assertEqual(request.model, "schnell")
 
     def test_schnell_with_workers_ai_configured_uses_workers_ai(self):
         from app.image_service import WorkersAiProvider, _resolve_provider_and_request
@@ -391,31 +396,41 @@ class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(provider, NvidiaProvider)
         self.assertEqual(request.model, "dev")
 
-    async def test_generate_image_schnell_fallback_reports_dev_model(self):
-        # End-to-end through generate_image with a demo NVIDIA response: the
-        # result must reflect dev (what actually ran), not the requested schnell.
+    async def test_generate_image_schnell_hits_klein_endpoint_via_nvidia(self):
+        # End-to-end through generate_image (NVIDIA, no Workers AI): schnell must
+        # POST to the flux.2-klein-4b endpoint and report provider/model as-is.
+        import base64
         from unittest.mock import patch
+
+        import httpx
 
         from app import image_service
 
-        async def fake_generate(self, request):  # noqa: ANN001
-            width, height = image_service.map_size(request.size)
-            return image_service.GenerationResult(
-                image="data:image/png;base64,AAAA",
-                provider="nvidia",
-                model=request.model,
-                width=width,
-                height=height,
-                seed=request.seed or 0,
-            )
+        captured = {}
+        png_b64 = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 60).decode("ascii")
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                captured["endpoint"] = endpoint
+                return httpx.Response(200, json={"artifacts": [{"base64": png_b64}]})
 
         settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia", cf_account_id="", cf_api_token="")
-        with patch.object(image_service.NvidiaProvider, "generate", fake_generate):
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
             result = await image_service.generate_image(
                 GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
             )
+        self.assertTrue(captured["endpoint"].endswith("black-forest-labs/flux.2-klein-4b"))
         self.assertEqual(result.provider, "nvidia")
-        self.assertEqual(result.model, "dev")
+        self.assertEqual(result.model, "schnell")
 
 
 class WorkersAiProviderTests(unittest.IsolatedAsyncioTestCase):

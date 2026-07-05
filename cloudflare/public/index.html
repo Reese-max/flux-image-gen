@@ -123,7 +123,7 @@
             <span class="field-label">模型</span>
             <div class="select-wrap">
               <select id="model">
-                <!-- 快速檔自 2026-07 起由 Cloudflare Workers AI 的 FLUX.2 klein 4B 供圖（NVIDIA schnell 故障期間） -->
+                <!-- 快速檔自 2026-07 起改用 FLUX.2 klein 4B（NVIDIA schnell 故障期間）：本機 FastAPI 走 NVIDIA flux.2-klein-4b，Cloudflare 版走 Workers AI 同名模型 -->
                 <option value="schnell" selected>快速 · FLUX.2 Klein</option>
                 <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
               </select>

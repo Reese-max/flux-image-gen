@@ -17,8 +17,12 @@ SIZE_MAP: dict[str, tuple[int, int]] = {
     "portrait": (768, 1344),
 }
 
+# The fast tier ("schnell") runs on FLUX.2 klein 4B: NVIDIA's hosted
+# flux.1-schnell went dark in 2026-07 (accepts requests, never responds), while
+# flux.2-klein-4b is a live text-to-image model on the same hosted API — no
+# Cloudflare token required. The UI already labels this option "快速 · FLUX.2 Klein".
 MODEL_ENDPOINTS: dict[str, str] = {
-    "schnell": "black-forest-labs/flux.1-schnell",
+    "schnell": "black-forest-labs/flux.2-klein-4b",
     "dev": "black-forest-labs/flux.1-dev",
 }
 
@@ -293,20 +297,16 @@ def choose_provider(settings: Settings | None = None):
 def _resolve_provider_and_request(
     request: GenerationRequest, settings: Settings
 ) -> tuple[Any, GenerationRequest]:
-    """Route the fast tier away from NVIDIA's dark flux.1-schnell endpoint.
+    """Pick the backend for the fast tier ("schnell").
 
-    - Workers AI configured  -> use it for schnell (matches the Worker deploy).
-    - Otherwise, only the *real* NVIDIA schnell endpoint hangs, so transparently
-      rewrite schnell -> dev so the user still gets an image (5s) instead of a
-      ~240s hang. The result's model/provider reflect what actually ran.
-    - Demo provider renders schnell fine and is left untouched.
+    - Workers AI configured -> use it (matches the Cloudflare Worker deploy).
+    - Otherwise the chosen provider handles schnell directly: NVIDIA maps schnell
+      to the live flux.2-klein-4b endpoint (flux.1-schnell went dark 2026-07),
+      and Demo renders it locally. No model rewrite needed.
     """
     provider = choose_provider(settings)
-    if request.model == "schnell":
-        if _workers_ai_configured(settings):
-            return WorkersAiProvider(settings), request
-        if isinstance(provider, NvidiaProvider):
-            return provider, replace(request, model="dev")
+    if request.model == "schnell" and _workers_ai_configured(settings):
+        return WorkersAiProvider(settings), request
     return provider, request
 
 
