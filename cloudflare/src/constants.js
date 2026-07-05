@@ -149,6 +149,12 @@ export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
 // distilled model (schnell-class speed) that, unlike @cf/...flux-1-schnell,
 // supports width/height (256-1920) and seed. Takes multipart form input.
 export const WORKERS_AI_FAST_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
+// AI 改圖（instruction edit）：FLUX.2 klein 吃 1-4 張自訂圖（multipart
+// input_image_0..3，每張 < 512x512），回 { image: base64 }。
+export const WORKERS_AI_EDIT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
+export const MAX_EDIT_IMAGES = 4;
+// 單張上傳上限（前端已縮到 <512，這是防濫用的硬上限）。
+export const MAX_EDIT_IMAGE_BYTES = 12 * 1024 * 1024;
 export const MAX_BATCH_COUNT = 4;
 
 // --- Cloud gallery (R2) ---

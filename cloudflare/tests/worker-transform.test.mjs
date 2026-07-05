@@ -536,6 +536,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
     '/static/prompt-enhancer.js',
     '/static/failure-advice.js',
     '/static/app.js',
+    '/static/image-edit.js',
     '/static/prompt-transform.js',
     '/static/idea-store.js',
     '/static/idea-cards.js',
@@ -552,6 +553,9 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="customIdeaGrid"/);
   assert.match(html, /id="historyGrid"/);
   assert.match(html, /id="resultActions"/);
+  assert.match(html, /id="editPanel"/);
+  assert.match(html, /id="editFiles"/);
+  assert.match(html, /id="editGo"/);
   assert.match(html, /id="copySettings"/);
   assert.match(html, /id="regenerate"/);
   assert.match(html, /id="tutorialModal"/);
@@ -1203,4 +1207,170 @@ test('POST /generate maps a CONTENT_FILTERED placeholder to a 422 error', async 
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+// ---- AI 改圖 /edit 路由 ----
+function tinyPngBlob() {
+  return new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])], { type: 'image/png' });
+}
+
+function editRequest(prompt, imageCount) {
+  const fd = new FormData();
+  if (prompt !== undefined) fd.append('prompt', prompt);
+  for (let i = 0; i < imageCount; i++) fd.append('images', tinyPngBlob(), `a${i}.png`);
+  return new Request('https://example.test/edit', { method: 'POST', body: fd });
+}
+
+function aiEnv(runImpl) {
+  return fakeEnv({ AI: { run: runImpl } });
+}
+
+// AI 綁定 stub：重建 AI.run 收到的 multipart body，記錄 model 與表單欄位，
+// 讓測試能斷言真正送給 Workers AI 的 input_image_0..N 與 prompt。
+function capturingEditAiEnv(captured, resultImageB64) {
+  return aiEnv(async (model, args) => {
+    captured.model = model;
+    const req = new Request('https://x/', {
+      method: 'POST',
+      body: args.multipart.body,
+      headers: { 'content-type': args.multipart.contentType },
+      duplex: 'half',
+    });
+    const form = await req.formData();
+    captured.fields = [...form.keys()].sort();
+    captured.prompt = form.get('prompt');
+    return { image: resultImageB64 };
+  });
+}
+
+// 造一個 header 帶指定寬高的最小 PNG（供伺服器端 <512 尺寸嗅探測試）。
+function pngBlobWithDims(width, height) {
+  const bytes = new Uint8Array(24);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0); // PNG signature
+  bytes.set([0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52], 8); // IHDR len + 'IHDR'
+  bytes[16] = (width >>> 24) & 0xff; bytes[17] = (width >>> 16) & 0xff; bytes[18] = (width >>> 8) & 0xff; bytes[19] = width & 0xff;
+  bytes[20] = (height >>> 24) & 0xff; bytes[21] = (height >>> 16) & 0xff; bytes[22] = (height >>> 8) & 0xff; bytes[23] = height & 0xff;
+  return new Blob([bytes], { type: 'image/png' });
+}
+
+function editRequestWithBlobs(prompt, blobs) {
+  const fd = new FormData();
+  fd.append('prompt', prompt);
+  blobs.forEach((b, i) => fd.append('images', b, `a${i}.png`));
+  return new Request('https://example.test/edit', { method: 'POST', body: fd });
+}
+
+test('POST /edit without a Workers AI binding returns a clean 503', async () => {
+  const response = await worker.fetch(editRequest('make it green', 1), fakeEnv());
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.code, 'missing_api_key');
+});
+
+test('POST /edit forwards prompt + input_image_0.. field names to Workers AI', async () => {
+  const captured = {};
+  const base64 = Buffer.from('\x89PNG\r\n\x1a\n' + '0'.repeat(60), 'binary').toString('base64');
+  const response = await worker.fetch(
+    editRequest('put the cat into image 1', 2),
+    capturingEditAiEnv(captured, base64)
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(captured.model, '@cf/black-forest-labs/flux-2-klein-4b');
+  // 核心契約：欄位名必須是 input_image_0/input_image_1（不是 images 或其他前綴），且帶 prompt。
+  assert.deepEqual(captured.fields, ['input_image_0', 'input_image_1', 'prompt']);
+  assert.equal(captured.prompt, 'put the cat into image 1');
+  assert.equal(body.provider, 'workers-ai');
+  assert.equal(body.image_count, 2);
+  assert.ok(body.image.startsWith('data:image/'));
+});
+
+test('POST /edit maps a Workers AI timeout to a clean 504', async () => {
+  const response = await worker.fetch(
+    editRequest('edit', 1),
+    aiEnv(async () => { throw Object.assign(new Error('hang'), { name: 'TimeoutError' }); })
+  );
+  assert.equal(response.status, 504);
+  assert.equal((await response.json()).code, 'timeout');
+});
+
+test('POST /edit maps a Workers AI content-filter error to 422 without retrying', async () => {
+  let calls = 0;
+  const response = await worker.fetch(
+    editRequest('edit', 1),
+    aiEnv(async () => { calls++; throw new Error('NSFW content detected'); })
+  );
+  assert.equal(response.status, 422);
+  assert.equal((await response.json()).code, 'content_filtered');
+  assert.equal(calls, 1); // deterministic safety rejection -> no retry
+});
+
+test('POST /edit retries a transient Workers AI error once then succeeds', async () => {
+  let calls = 0;
+  const base64 = Buffer.from('\x89PNG\r\n\x1a\n' + '0'.repeat(60), 'binary').toString('base64');
+  const response = await worker.fetch(
+    editRequest('edit', 1),
+    aiEnv(async () => { calls++; if (calls === 1) throw new Error('transient'); return { image: base64 }; })
+  );
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+});
+
+test('POST /edit rejects an oversized (>12MB) image with 400 and never calls AI', async () => {
+  let called = false;
+  const big = new Blob([new Uint8Array(12 * 1024 * 1024 + 1)], { type: 'image/png' });
+  const response = await worker.fetch(
+    editRequestWithBlobs('edit', [big]),
+    aiEnv(async () => { called = true; return { image: 'x' }; })
+  );
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'bad_request');
+  assert.equal(called, false);
+});
+
+test('POST /edit rejects an empty (size 0) image with 400', async () => {
+  const empty = new Blob([], { type: 'image/png' });
+  const response = await worker.fetch(
+    editRequestWithBlobs('edit', [empty]),
+    aiEnv(async () => ({ image: 'x' }))
+  );
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'bad_request');
+});
+
+test('POST /edit rejects an image whose header dimensions are >= 512 (server-side <512 contract)', async () => {
+  let called = false;
+  const response = await worker.fetch(
+    editRequestWithBlobs('edit', [pngBlobWithDims(600, 400)]),
+    aiEnv(async () => { called = true; return { image: 'x' }; })
+  );
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'bad_request');
+  assert.equal(called, false);
+});
+
+test('POST /edit rejects a non-image provider response instead of wrapping it as success', async () => {
+  const response = await worker.fetch(
+    editRequest('edit', 1),
+    aiEnv(async () => ({ image: 'error' })) // short non-base64 token, not a real image
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, 'bad_provider_response');
+});
+
+test('POST /edit rejects a blank prompt with 400', async () => {
+  const response = await worker.fetch(editRequest('   ', 1), aiEnv(() => ({ image: 'x' })));
+  assert.equal(response.status, 400);
+});
+
+test('POST /edit rejects more than 4 images with 400', async () => {
+  const response = await worker.fetch(editRequest('edit', 5), aiEnv(() => ({ image: 'x' })));
+  assert.equal(response.status, 400);
+  const body = await response.json();
+  assert.equal(body.code, 'bad_request');
+});
+
+test('POST /edit rejects zero images with 400', async () => {
+  const response = await worker.fetch(editRequest('edit', 0), aiEnv(() => ({ image: 'x' })));
+  assert.equal(response.status, 400);
 });

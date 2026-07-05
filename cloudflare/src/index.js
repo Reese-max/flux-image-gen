@@ -13,10 +13,12 @@ import {
 } from "./http.js";
 import { completePlainPrompt, enhancePrompt, geminiTransformPrompt, normalizeStyle, resolveStyle, transformPlainPrompt } from "./prompt.js";
 import {
+  editImage,
   generateOneImage,
   getNvidiaApiKey,
   randomImageSeed,
   validateBatchCount,
+  validateEditImages,
   validatePrompt,
   validateSeed,
 } from "./image.js";
@@ -116,6 +118,37 @@ async function handleGenerateBatch(request, env) {
     const images = await Promise.all(tasks);
     const galleryToken = await issueGalleryToken(env);
     return json(galleryToken ? { images, galleryToken } : { images });
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+}
+
+async function handleEdit(request, env) {
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  if (limited) return limited;
+
+  let form;
+  try {
+    form = await request.formData();
+  } catch {
+    return json({ error: "上傳格式錯誤，請用 multipart/form-data", code: "bad_request" }, 400);
+  }
+
+  let prompt, images;
+  try {
+    prompt = validatePrompt(form.get("prompt"));
+    // Only keep real uploaded files (Blob-like with arrayBuffer); ignore stray text parts.
+    images = form.getAll("images").filter((f) => f && typeof f.arrayBuffer === "function");
+    validateEditImages(images);
+  } catch (e) {
+    if (e instanceof HttpError) return httpErrorJson(e);
+    throw e;
+  }
+
+  try {
+    const result = await editImage(env, { prompt, images });
+    return json(result);
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
     throw e;
@@ -305,6 +338,9 @@ export default {
     }
     if (url.pathname === "/generate/batch" && request.method === "POST") {
       return handleGenerateBatch(request, env);
+    }
+    if (url.pathname === "/edit" && request.method === "POST") {
+      return handleEdit(request, env);
     }
     if (url.pathname === "/gallery" && request.method === "POST") {
       return handleGallerySave(request, env);

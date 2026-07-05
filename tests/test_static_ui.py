@@ -325,6 +325,7 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "history-wall.js",
         "idea-cards.js",
         "idea-store.js",
+        "image-edit.js",
         "prompt-enhancer.js",
         "prompt-pack.js",
         "prompt-transform.js",

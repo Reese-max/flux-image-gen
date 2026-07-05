@@ -9,6 +9,7 @@
 
 ## 新功能
 
+- AI 改圖（`POST /edit`）：上傳 1–4 張自訂圖片＋文字指令，交給 Cloudflare Workers AI FLUX.2 klein 做指令式編輯（換色、換背景、多圖合成、風格轉移）。前端會先把每張圖等比縮到 <512×512 再上傳；需設定 `CF_ACCOUNT_ID` / `CF_API_TOKEN`，未設定時回乾淨 503。（NVIDIA hosted 的 flux.1-kontext-dev 只支援內建範例圖、無法上傳自訂圖，故改走 Workers AI。）
 - 白話中文轉專業英文提示詞：`POST /prompt/transform` 可把中文想法轉成更適合圖片模型的英文 prompt，並可搭配風格參數調整語氣。
 - Tab 中文補全：在白話中文輸入框按 `Tab` 會呼叫 Gemma（預設 `GEMINI_COMPLETE_MODEL=gemma-4-26b-a4b-it`）把短中文描述補成更完整的繁中畫面描述。
 - 客製梗卡：前端使用 `localStorage` 儲存使用者自己的點子卡，支援新增、編輯、刪除、匯出與匯入，重新整理頁面後仍會保留。

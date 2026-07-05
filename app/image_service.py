@@ -40,6 +40,16 @@ IMAGE_RETRY_BACKOFF_SECONDS = 0.5
 MAX_BATCH_COUNT = 4
 BATCH_COUNT_ERROR_MESSAGE = f"count 必須是 1 到 {MAX_BATCH_COUNT} 之間的整數"
 
+# AI 改圖（instruction edit）：FLUX.2 klein 吃 1-4 張自訂圖，每張須小於 512x512。
+MAX_EDIT_IMAGES = 4
+EDIT_IMAGE_MAX_DIM = 512
+# 上傳單檔上限（縮圖前）；擋掉超大檔案，避免記憶體/頻寬濫用。
+MAX_EDIT_IMAGE_BYTES = 12 * 1024 * 1024
+# 解碼前的像素上限：擋 decompression bomb（高壓縮卻宣告巨大尺寸的圖），
+# 縮到 <512 只需極少像素，50MP 已遠大於一般手機照片。
+EDIT_IMAGE_MAX_PIXELS = 50_000_000
+EDIT_IMAGE_COUNT_ERROR_MESSAGE = f"請上傳 1 到 {MAX_EDIT_IMAGES} 張圖片"
+
 
 @dataclass(frozen=True)
 class GenerationRequest:
@@ -57,6 +67,20 @@ class GenerationResult:
     width: int
     height: int
     seed: int
+
+
+@dataclass(frozen=True)
+class EditRequest:
+    prompt: str
+    images: tuple[bytes, ...]  # 1-4 張使用者上傳的原始 bytes
+
+
+@dataclass(frozen=True)
+class EditResult:
+    image: str
+    provider: str
+    model: str
+    image_count: int
 
 
 class ProviderError(Exception):
@@ -270,7 +294,7 @@ class WorkersAiProvider:
             raise ProviderError("Workers AI 回應不是有效 JSON", status_code=502, code="bad_provider_response") from exc
         # Cloudflare wraps the payload as {"result": {...}, "success": bool}.
         result_payload = data.get("result") if isinstance(data, dict) else None
-        image = extract_image(result_payload if result_payload is not None else data)
+        image = extract_image(result_payload if result_payload is not None else data, "Workers AI")
         return GenerationResult(
             image=image, provider=self.provider_name, model=model, width=width, height=height, seed=effective_seed
         )
@@ -350,6 +374,110 @@ async def generate_batch(
     return list(await asyncio.gather(*(provider.generate(task) for task in tasks)))
 
 
+def validate_edit_images(images: tuple[bytes, ...]) -> tuple[bytes, ...]:
+    if not images or len(images) > MAX_EDIT_IMAGES:
+        raise ValueError(EDIT_IMAGE_COUNT_ERROR_MESSAGE)
+    for raw in images:
+        if not raw:
+            raise ValueError("上傳的圖片是空的")
+        if len(raw) > MAX_EDIT_IMAGE_BYTES:
+            raise ValueError(f"單張圖片不可超過 {MAX_EDIT_IMAGE_BYTES // (1024 * 1024)}MB")
+    return images
+
+
+def _resize_for_edit(raw: bytes) -> bytes:
+    """FLUX.2 klein 要求每張輸入圖小於 512x512。等比縮到框內並轉成 PNG。
+    非法圖片 bytes 會拋 ValueError（讓上層回 400 而非 500）。"""
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(BytesIO(raw)) as opened:
+            # 先看宣告尺寸再解碼，擋 decompression bomb（避免 convert 前吃爆記憶體，
+            # 也把 PIL 的 DecompressionBombError/警告收斂成乾淨 400）。
+            width, height = opened.size
+            if width * height > EDIT_IMAGE_MAX_PIXELS:
+                raise ValueError("圖片尺寸過大，請改用較小的圖片")
+            rgb = opened.convert("RGB")
+            # thumbnail 只縮不放大；用 511 上限確保「小於 512」（嚴格小於）。
+            rgb.thumbnail((EDIT_IMAGE_MAX_DIM - 1, EDIT_IMAGE_MAX_DIM - 1))
+            buf = BytesIO()
+            rgb.save(buf, format="PNG", optimize=True)
+            return buf.getvalue()
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
+        raise ValueError("無法讀取圖片，請確認是有效的影像檔") from exc
+
+
+async def edit_image(request: EditRequest, settings: Settings | None = None) -> EditResult:
+    """指令式 AI 改圖：把 1-4 張自訂圖 + 文字指令送到 Cloudflare Workers AI 的
+    FLUX.2 klein（multipart input_image_0..3），回傳編輯後圖片的 data URL。
+
+    NOTE: 請求/回應格式依 Cloudflare Workers AI 官方文件；未取得 CF token 前無法
+    端到端實測，故無 token 時直接回乾淨 503（missing_api_key）。"""
+    settings = settings or get_settings()
+    prompt = validate_prompt(request.prompt)
+    images = validate_edit_images(request.images)
+
+    if not (settings.cf_account_id.strip() and settings.cf_api_token.strip()):
+        raise ProviderError(
+            "AI 改圖需要 Cloudflare Workers AI 設定（CF_ACCOUNT_ID / CF_API_TOKEN）",
+            status_code=503,
+            code="missing_api_key",
+        )
+
+    resized = [_resize_for_edit(raw) for raw in images]
+    endpoint = (
+        f"https://api.cloudflare.com/client/v4/accounts/"
+        f"{settings.cf_account_id.strip()}/ai/run/{settings.workers_ai_edit_model}"
+    )
+    # 走 multipart，Content-Type 交給 httpx 設定 boundary，這裡不可自帶。
+    headers = {"Authorization": f"Bearer {settings.cf_api_token.strip()}", "Accept": "application/json"}
+
+    last_error: ProviderError | None = None
+    async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+        for attempt in range(IMAGE_MAX_ATTEMPTS):
+            files = {
+                f"input_image_{i}": (f"input_image_{i}.png", data, "image/png")
+                for i, data in enumerate(resized)
+            }
+            try:
+                response = await client.post(endpoint, headers=headers, data={"prompt": prompt}, files=files)
+            except httpx.TimeoutException:
+                last_error = ProviderError("AI 改圖逾時，請稍後再試", status_code=504, code="timeout")
+            except httpx.HTTPError as exc:
+                last_error = ProviderError(f"Workers AI 連線失敗：{exc}", status_code=502, code="network_error")
+            else:
+                if response.status_code not in RETRYABLE_IMAGE_STATUS:
+                    break
+                last_error = ProviderError(
+                    _response_error_message(response, "Workers AI"),
+                    status_code=response.status_code,
+                    code="workers_ai_error",
+                )
+            if attempt + 1 >= IMAGE_MAX_ATTEMPTS:
+                raise last_error
+            await asyncio.sleep(IMAGE_RETRY_BACKOFF_SECONDS * (attempt + 1))
+
+    if response.status_code == 429:
+        retry_after = _parse_retry_after(response.headers.get("retry-after"))
+        raise ProviderError("叫用太頻繁，請稍後再試", status_code=429, code="rate_limited", retry_after=retry_after)
+    if response.status_code >= 400:
+        raise ProviderError(
+            _response_error_message(response, "Workers AI"), status_code=response.status_code, code="workers_ai_error"
+        )
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise ProviderError("Workers AI 回應不是有效 JSON", status_code=502, code="bad_provider_response") from exc
+    result_payload = payload.get("result") if isinstance(payload, dict) else None
+    image = extract_image(result_payload if result_payload is not None else payload, "Workers AI")
+    return EditResult(
+        image=image, provider="workers-ai", model=settings.workers_ai_edit_model, image_count=len(resized)
+    )
+
+
 def to_http_error(err: ProviderError) -> tuple[dict[str, Any], int]:
     payload: dict[str, Any] = {"error": err.message, "code": err.code}
     if err.retry_after is not None:
@@ -376,16 +504,18 @@ def is_content_filtered(data: Any) -> bool:
     return False
 
 
-def extract_image(data: Any) -> str:
+def extract_image(data: Any, provider_label: str = "NVIDIA") -> str:
     candidate = _find_image_candidate(data)
     if not candidate:
-        raise ProviderError("NVIDIA 回應中找不到圖片資料", status_code=502, code="bad_provider_response")
+        raise ProviderError(f"{provider_label} 回應中找不到圖片資料", status_code=502, code="bad_provider_response")
     if candidate.startswith("data:image/") or candidate.startswith("http://") or candidate.startswith("https://"):
         return candidate
     try:
         raw = base64.b64decode(candidate, validate=True)
     except Exception as exc:
-        raise ProviderError("NVIDIA 回應的圖片資料格式不正確", status_code=502, code="bad_provider_response") from exc
+        raise ProviderError(
+            f"{provider_label} 回應的圖片資料格式不正確", status_code=502, code="bad_provider_response"
+        ) from exc
     return f"data:{_detect_image_mime(raw)};base64," + candidate
 
 

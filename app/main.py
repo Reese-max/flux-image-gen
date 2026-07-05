@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
@@ -10,9 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, field_validator
 
 from .image_service import (
+    EDIT_IMAGE_COUNT_ERROR_MESSAGE,
+    MAX_EDIT_IMAGE_BYTES,
+    MAX_EDIT_IMAGES,
+    EditRequest,
     GenerationRequest,
     ProviderError,
     SEED_ERROR_MESSAGE,
+    edit_image,
     generate_batch,
     generate_image,
     to_http_error,
@@ -147,6 +152,33 @@ async def generate_batch_route(payload: BatchGeneratePayload):
             }
             for result in results
         ]
+    }
+
+
+@app.post("/edit")
+async def edit(prompt: str = Form(...), images: list[UploadFile] = File(...)):
+    # 讀取 body 前先擋數量與單檔大小，避免把大量/超大部件全載進記憶體（DoS 防護）。
+    if not images or len(images) > MAX_EDIT_IMAGES:
+        return JSONResponse({"error": EDIT_IMAGE_COUNT_ERROR_MESSAGE, "code": "bad_request"}, status_code=400)
+    for image in images:
+        if image.size is not None and image.size > MAX_EDIT_IMAGE_BYTES:
+            return JSONResponse(
+                {"error": f"單張圖片不可超過 {MAX_EDIT_IMAGE_BYTES // (1024 * 1024)}MB", "code": "bad_request"},
+                status_code=400,
+            )
+    raw_images = tuple([await image.read() for image in images])
+    try:
+        result = await edit_image(EditRequest(prompt=prompt, images=raw_images))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    except ProviderError as exc:
+        body, status = to_http_error(exc)
+        return JSONResponse(body, status_code=status)
+    return {
+        "image": result.image,
+        "provider": result.provider,
+        "model": result.model,
+        "image_count": result.image_count,
     }
 
 

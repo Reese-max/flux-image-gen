@@ -803,3 +803,31 @@ select option { background: #15171d; color: var(--text); }
   .blob, .pill.online .dot, .skeleton, .stage img { animation: none; }
   .btn, .idea { transition: none; }
 }
+
+/* AI 改圖面板 */
+#editPanel { margin-top: 20px; }
+.edit-drop {
+  display: flex; align-items: center; justify-content: center;
+  padding: 22px; margin: 6px 0 12px; cursor: pointer;
+  border: 1px dashed var(--glass-line-2); border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03); color: var(--muted);
+  font-family: var(--mono); font-size: 14px; transition: border-color .2s, background .2s;
+}
+.edit-drop:hover { border-color: var(--accent); background: rgba(255, 255, 255, 0.06); }
+.edit-thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.edit-thumb { position: relative; width: 84px; height: 84px; border-radius: 12px; overflow: hidden; border: 1px solid var(--glass-line-2); }
+.edit-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.edit-thumb-tag {
+  position: absolute; left: 4px; bottom: 4px; padding: 1px 6px;
+  font-size: 11px; font-family: var(--mono); border-radius: 6px;
+  background: rgba(15, 23, 42, 0.8); color: #e2e8f0;
+}
+.edit-thumb-remove {
+  position: absolute; top: 3px; right: 3px; width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; cursor: pointer; line-height: 1;
+  background: rgba(15, 23, 42, 0.85); color: #fff; font-size: 15px;
+}
+.edit-thumb-remove:hover { background: #ef4444; }
+#editStage { margin-top: 14px; }
+#editStage img, .stage-img { max-width: 100%; border-radius: 14px; display: block; }

@@ -6,10 +6,13 @@ import {
   IMAGE_MAX_ATTEMPTS,
   IMAGE_RETRY_BACKOFF_MS,
   MAX_BATCH_COUNT,
+  MAX_EDIT_IMAGES,
+  MAX_EDIT_IMAGE_BYTES,
   MAX_SEED,
   MODEL_ENDPOINTS,
   RETRYABLE_IMAGE_STATUS,
   SIZE_MAP,
+  WORKERS_AI_EDIT_MODEL,
   WORKERS_AI_FAST_MODEL,
   sleep,
 } from "./constants.js";
@@ -77,6 +80,68 @@ function detectMimeFromBase64(b64) {
   if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return "image/gif";
   if (bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return "image/webp";
   return "image/png";
+}
+
+// Like detectMimeFromBase64 but returns null when the bytes are not a known
+// image signature (or fail to decode). Used to gate the provider's direct
+// { image } fast path so a non-image token isn't wrapped into a broken data URL
+// and reported as success (mirrors Python's strict base64.b64decode + sniff).
+function detectImageMimeStrict(b64) {
+  let bytes;
+  try {
+    const bin = atob(b64.slice(0, 16));
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch {
+    return null;
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
+  if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return "image/gif";
+  if (bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return "image/webp";
+  return null;
+}
+
+// Sniff intrinsic pixel dimensions from an image header (PNG/GIF/JPEG). Returns
+// { width, height } or null for formats we don't parse (fail open — CF handles).
+// Used to enforce the FLUX.2 klein <512x512 input contract server-side, matching
+// the Python backend's _resize_for_edit (the Worker runtime has no image lib).
+function readImageDimensions(u8) {
+  if (!u8 || u8.length < 24) return null;
+  // PNG: 8-byte signature, then IHDR with width@16 / height@20 (big-endian).
+  if (u8[0] === 0x89 && u8[1] === 0x50 && u8[2] === 0x4e && u8[3] === 0x47) {
+    const width = (u8[16] << 24) | (u8[17] << 16) | (u8[18] << 8) | u8[19];
+    const height = (u8[20] << 24) | (u8[21] << 16) | (u8[22] << 8) | u8[23];
+    return { width: width >>> 0, height: height >>> 0 };
+  }
+  // GIF: 'GIF8', then width@6 / height@8 (little-endian).
+  if (u8[0] === 0x47 && u8[1] === 0x49 && u8[2] === 0x46 && u8[3] === 0x38) {
+    return { width: u8[6] | (u8[7] << 8), height: u8[8] | (u8[9] << 8) };
+  }
+  // JPEG: FFD8, then walk marker segments to the SOF frame header.
+  if (u8[0] === 0xff && u8[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < u8.length) {
+      if (u8[offset] !== 0xff) { offset++; continue; }
+      const marker = u8[offset + 1];
+      // SOF0..SOF15 carry the frame size, except DHT(C4)/JPG(C8)/DAC(CC) and RSTn/SOI/EOI.
+      const isSof =
+        marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
+      if (isSof) {
+        const height = (u8[offset + 5] << 8) | u8[offset + 6];
+        const width = (u8[offset + 7] << 8) | u8[offset + 8];
+        return { width, height };
+      }
+      if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+        offset += 2;
+        continue;
+      }
+      const segmentLength = (u8[offset + 2] << 8) | u8[offset + 3];
+      if (segmentLength < 2) return null;
+      offset += 2 + segmentLength;
+    }
+  }
+  return null;
 }
 
 function extractImage(data, providerLabel = "NVIDIA") {
@@ -198,9 +263,8 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
   // Documented binding shape is { image: "<base64>" }; short images fail the
   // shared length heuristic, so keep this direct path before extractImage.
   const direct = data && typeof data.image === "string" ? data.image.trim() : "";
-  const image = direct && isValidBase64(direct)
-    ? `data:${detectMimeFromBase64(direct)};base64,` + direct
-    : extractImage(data, "Workers AI");
+  const directMime = direct && isValidBase64(direct) ? detectImageMimeStrict(direct) : null;
+  const image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
   return {
     image,
     provider: "workers-ai",
@@ -309,4 +373,83 @@ export async function generateOneImage(env, { prompt, model, size, seed }) {
   }
   const image = extractImage(data);
   return { image, provider: "nvidia", model, width, height, seed };
+}
+
+export function validateEditImages(images) {
+  if (!Array.isArray(images) || images.length < 1 || images.length > MAX_EDIT_IMAGES) {
+    throw new HttpError(`請上傳 1 到 ${MAX_EDIT_IMAGES} 張圖片`, 400, "bad_request");
+  }
+  for (const img of images) {
+    if (!img || typeof img.size !== "number" || img.size <= 0) {
+      throw new HttpError("上傳的圖片是空的或格式錯誤", 400, "bad_request");
+    }
+    if (img.size > MAX_EDIT_IMAGE_BYTES) {
+      throw new HttpError(`單張圖片不可超過 ${Math.floor(MAX_EDIT_IMAGE_BYTES / (1024 * 1024))}MB`, 400, "bad_request");
+    }
+  }
+  return images;
+}
+
+// AI 改圖：把 1-4 張使用者上傳圖 + 文字指令送到 Workers AI FLUX.2 klein
+// (multipart input_image_0..3)。前端已把每張縮到 < 512x512。回 { image: base64 }。
+export async function editImage(env, { prompt, images }) {
+  if (!env || !env.AI || typeof env.AI.run !== "function") {
+    throw new HttpError("AI 改圖尚未啟用（缺少 Workers AI 綁定）", 503, "missing_api_key");
+  }
+  validateEditImages(images);
+
+  // Enforce the FLUX.2 klein <512x512 input contract server-side (parity with the
+  // Python backend's _resize_for_edit), so a non-browser caller that skipped the
+  // client-side canvas resize can't relay oversized images. Unknown formats fail
+  // open (CF handles them). Checked once, before the retry loop.
+  for (const blob of images) {
+    const dims = readImageDimensions(new Uint8Array(await blob.arrayBuffer()));
+    if (dims && (dims.width >= 512 || dims.height >= 512)) {
+      throw new HttpError("單張圖片尺寸須小於 512x512，請先縮圖再上傳", 400, "bad_request");
+    }
+  }
+
+  let data;
+  for (let attempt = 0; attempt < IMAGE_MAX_ATTEMPTS; attempt++) {
+    // AI.run has no AbortSignal support; race against a clearable timer so a
+    // hung run yields a fast 504 instead of hanging until the edge kills it.
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(Object.assign(new Error("workers ai timeout"), { name: "TimeoutError" })),
+        IMAGE_FETCH_TIMEOUT_MS
+      );
+    });
+    try {
+      // The multipart body is a stream and cannot be replayed, so rebuild it each attempt.
+      const form = new FormData();
+      form.append("prompt", prompt);
+      images.forEach((blob, i) => form.append(`input_image_${i}`, blob, `input_image_${i}.png`));
+      const formResponse = new Response(form);
+      const run = env.AI.run(WORKERS_AI_EDIT_MODEL, {
+        multipart: { body: formResponse.body, contentType: formResponse.headers.get("content-type") },
+      });
+      run.catch(() => {}); // the loser of the race must not become an unhandled rejection
+      data = await Promise.race([run, timeout]);
+      break;
+    } catch (e) {
+      console.error(`Workers AI 改圖失敗（attempt ${attempt + 1}/${IMAGE_MAX_ATTEMPTS}）`, e);
+      if (isWorkersAiContentFilterError(e)) {
+        throw new HttpError("此描述或圖片觸發 Workers AI 內容安全過濾，請換個描述或圖片再試", 422, "content_filtered");
+      }
+      const lastError =
+        e && (e.name === "TimeoutError" || e.name === "AbortError")
+          ? new HttpError("AI 改圖逾時，請稍後再試", 504, "timeout")
+          : new HttpError("AI 改圖失敗，請稍後再試", 502, "workers_ai_error");
+      if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) throw lastError;
+      await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const direct = data && typeof data.image === "string" ? data.image.trim() : "";
+  const directMime = direct && isValidBase64(direct) ? detectImageMimeStrict(direct) : null;
+  const image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
+  return { image, provider: "workers-ai", model: WORKERS_AI_EDIT_MODEL, image_count: images.length };
 }

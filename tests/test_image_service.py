@@ -571,5 +571,310 @@ class WorkersAiProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.message, "bad request")
 
 
+class EditImageTests(unittest.IsolatedAsyncioTestCase):
+    """AI 改圖：Cloudflare Workers AI FLUX.2 klein multipart 編輯。live 呼叫需 CF
+    token（未取得，故 mock httpx 鎖住請求 shape / resize / 回應解析 / 錯誤映射）。"""
+
+    @staticmethod
+    def _png(width: int, height: int) -> bytes:
+
+        from io import BytesIO
+
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (width, height), (10, 20, 200)).save(buf, format="PNG")
+        return buf.getvalue()
+
+    def _settings(self, **overrides):
+        base = dict(cf_account_id="acct-1", cf_api_token="cf-tok")
+        base.update(overrides)
+        return Settings(**base)
+
+    def test_validate_edit_images_rejects_out_of_range_and_empty_and_oversized(self):
+        from app.image_service import MAX_EDIT_IMAGE_BYTES, validate_edit_images
+
+        with self.assertRaises(ValueError):
+            validate_edit_images(())
+        with self.assertRaises(ValueError):
+            validate_edit_images((b"x",) * 5)
+        with self.assertRaises(ValueError):
+            validate_edit_images((b"",))
+        with self.assertRaises(ValueError):
+            validate_edit_images((b"x" * (MAX_EDIT_IMAGE_BYTES + 1),))
+        # 合法：1..4 張非空
+        self.assertEqual(len(validate_edit_images((b"a", b"b"))), 2)
+
+    def test_resize_for_edit_shrinks_below_512_and_rejects_garbage(self):
+        from io import BytesIO
+
+        from PIL import Image
+
+        from app.image_service import _resize_for_edit
+
+        out = _resize_for_edit(self._png(1600, 900))
+        with Image.open(BytesIO(out)) as im:
+            self.assertLess(max(im.size), 512)
+        with self.assertRaises(ValueError):
+            _resize_for_edit(b"not an image at all")
+
+    async def test_edit_image_without_cf_token_raises_missing_api_key(self):
+        from app.image_service import EditRequest, ProviderError, edit_image
+
+        with self.assertRaises(ProviderError) as ctx:
+            await edit_image(EditRequest(prompt="make it green", images=(self._png(64, 64),)), Settings())
+        self.assertEqual(ctx.exception.code, "missing_api_key")
+        self.assertEqual(ctx.exception.status_code, 503)
+
+    async def test_edit_image_success_posts_multipart_and_parses_result(self):
+        import base64
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import EditRequest, edit_image
+
+        captured = {}
+        png_b64 = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 60).decode("ascii")
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, data, files):
+                captured["endpoint"] = endpoint
+                captured["headers"] = headers
+                captured["prompt"] = data["prompt"]
+                captured["fields"] = sorted(files.keys())
+                return httpx.Response(200, json={"result": {"image": png_b64}, "success": True})
+
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            result = await edit_image(
+                EditRequest(prompt="make it green", images=(self._png(800, 600), self._png(300, 300))),
+                self._settings(),
+            )
+
+        self.assertTrue(captured["endpoint"].endswith("/ai/run/@cf/black-forest-labs/flux-2-klein-4b"))
+        self.assertIn("acct-1", captured["endpoint"])
+        self.assertEqual(captured["headers"]["Authorization"], "Bearer cf-tok")
+        self.assertNotIn("Content-Type", captured["headers"])  # httpx 自帶 multipart boundary
+        self.assertEqual(captured["fields"], ["input_image_0", "input_image_1"])
+        self.assertEqual(captured["prompt"], "make it green")
+        self.assertEqual(result.provider, "workers-ai")
+        self.assertEqual(result.image_count, 2)
+        self.assertTrue(result.image.startswith("data:image/png;base64,"))
+
+    async def test_edit_image_error_status_maps_to_workers_ai_error(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import EditRequest, ProviderError, edit_image
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, data, files):
+                return httpx.Response(400, json={"errors": [{"message": "bad edit request"}]})
+
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            with self.assertRaises(ProviderError) as ctx:
+                await edit_image(EditRequest(prompt="x", images=(self._png(64, 64),)), self._settings())
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.code, "workers_ai_error")
+        self.assertEqual(ctx.exception.message, "bad edit request")
+
+
+class EditImageHardeningTests(unittest.IsolatedAsyncioTestCase):
+    """審查後補強：resize 像素/bomb 防護、重試/逾時/429、resized bytes 保證 <512、
+    以及 extract_image 的 provider label。"""
+
+    @staticmethod
+    def _png(width: int, height: int) -> bytes:
+        from io import BytesIO
+
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (width, height), (10, 20, 200)).save(buf, format="PNG")
+        return buf.getvalue()
+
+    def _settings(self, **overrides):
+        base = dict(cf_account_id="acct-1", cf_api_token="cf-tok")
+        base.update(overrides)
+        return Settings(**base)
+
+    def test_resize_rejects_images_over_pixel_cap(self):
+        from unittest.mock import patch
+
+        from app import image_service
+
+        with patch.object(image_service, "EDIT_IMAGE_MAX_PIXELS", 100):
+            with self.assertRaises(ValueError):
+                image_service._resize_for_edit(self._png(64, 64))  # 4096 px > 100
+
+    def test_resize_converts_decompression_bomb_to_valueerror_not_500(self):
+        from unittest.mock import patch
+
+        from PIL import Image
+
+        from app.image_service import _resize_for_edit
+
+        # 把 PIL 的 bomb 門檻壓到極低，讓 Image.open 對正常圖也拋 DecompressionBombError，
+        # 驗證 _resize_for_edit 會收斂成 ValueError（上層才會回 400 而非 500）。
+        with patch.object(Image, "MAX_IMAGE_PIXELS", 100):
+            with self.assertRaises(ValueError):
+                _resize_for_edit(self._png(64, 64))
+
+    async def test_edit_image_retries_transient_5xx_then_succeeds(self):
+        import base64
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from app.image_service import EditRequest, edit_image
+
+        png_b64 = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 60).decode("ascii")
+        calls = {"n": 0}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, data, files):
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return httpx.Response(503, json={"errors": [{"message": "overloaded"}]})
+                return httpx.Response(200, json={"result": {"image": png_b64}})
+
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            with patch("app.image_service.asyncio.sleep", new_callable=AsyncMock) as sleep_mock:
+                result = await edit_image(
+                    EditRequest(prompt="x", images=(self._png(64, 64),)), self._settings()
+                )
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(sleep_mock.await_count, 1)
+        self.assertEqual(result.provider, "workers-ai")
+
+    async def test_edit_image_timeout_maps_to_504(self):
+        from unittest.mock import AsyncMock, patch
+
+        import httpx
+
+        from app.image_service import EditRequest, ProviderError, edit_image
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, data, files):
+                raise httpx.ReadTimeout("hang")
+
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            with patch("app.image_service.asyncio.sleep", new_callable=AsyncMock):
+                with self.assertRaises(ProviderError) as ctx:
+                    await edit_image(EditRequest(prompt="x", images=(self._png(64, 64),)), self._settings())
+        self.assertEqual(ctx.exception.status_code, 504)
+        self.assertEqual(ctx.exception.code, "timeout")
+
+    async def test_edit_image_429_keeps_retry_after(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import EditRequest, ProviderError, edit_image
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, data, files):
+                return httpx.Response(429, headers={"retry-after": "7"}, json={})
+
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            with self.assertRaises(ProviderError) as ctx:
+                await edit_image(EditRequest(prompt="x", images=(self._png(64, 64),)), self._settings())
+        self.assertEqual(ctx.exception.status_code, 429)
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(ctx.exception.retry_after, 7)
+
+    async def test_edit_image_uploads_resized_png_under_512(self):
+        import base64
+        from io import BytesIO
+        from unittest.mock import patch
+
+        import httpx
+        from PIL import Image
+
+        from app.image_service import EditRequest, edit_image
+
+        captured = {}
+        png_b64 = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 60).decode("ascii")
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, data, files):
+                captured["files"] = files
+                return httpx.Response(200, json={"result": {"image": png_b64}})
+
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            await edit_image(
+                EditRequest(prompt="x", images=(self._png(1600, 900),)), self._settings()
+            )
+        # 綁定 multipart 輸出到 resize 步驟：實際上傳的 bytes 必須是 <512 的 PNG。
+        filename, blob, content_type = captured["files"]["input_image_0"]
+        self.assertEqual(content_type, "image/png")
+        with Image.open(BytesIO(blob)) as im:
+            self.assertEqual(im.format, "PNG")
+            self.assertLess(max(im.size), 512)
+
+    def test_extract_image_error_uses_provider_label(self):
+        from app.image_service import ProviderError, extract_image
+
+        with self.assertRaises(ProviderError) as ctx:
+            extract_image({"result": None}, "Workers AI")
+        self.assertIn("Workers AI", ctx.exception.message)
+        self.assertNotIn("NVIDIA", ctx.exception.message)
+
+
 if __name__ == "__main__":
     unittest.main()

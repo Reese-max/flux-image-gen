@@ -207,6 +207,28 @@
       <button id="saveToCloud" class="btn secondary" type="button">☁️ 存到雲端</button>
     </div>
 
+    <section class="composer glass" id="editPanel" aria-label="AI 改圖">
+      <div class="section-heading">
+        <h2>🖌️ AI 改圖</h2>
+        <span class="hint">上傳 1–4 張圖 + 文字指令，讓 AI 依指示編輯（換色、換背景、合成、風格轉移）。</span>
+      </div>
+      <label id="editDrop" class="edit-drop" for="editFiles">
+        <input id="editFiles" type="file" accept="image/*" multiple hidden>
+        <span class="edit-drop-text">📁 點此選擇圖片（最多 4 張）</span>
+      </label>
+      <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
+      <textarea id="editPrompt" rows="2" maxlength="900"
+        placeholder="用文字說明要怎麼改。多張圖時可用「image 0 / image 1」指涉，例如：把 image 0 的貓放進 image 1 的場景；或：把蘋果改成綠色"></textarea>
+      <div class="composer-foot">
+        <div class="btn-row">
+          <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">⬇ 下載結果</a>
+          <button id="editGo" class="btn primary" type="button">🖌️ 開始改圖</button>
+        </div>
+      </div>
+      <div id="editStatus" class="status" aria-live="polite"></div>
+      <section class="stage glass" id="editStage" aria-label="改圖結果"><span class="muted">改好的圖會出現在這裡</span></section>
+    </section>
+
     <section id="historyWall" class="history-wall glass" aria-label="歷史記錄牆">
       <div class="history-head">
         <div>
@@ -391,6 +413,7 @@
   <script src="/static/prompt-enhancer.js"></script>
   <script src="/static/failure-advice.js"></script>
   <script src="/static/app.js"></script>
+  <script src="/static/image-edit.js"></script>
   <script src="/static/prompt-transform.js"></script>
   <script src="/static/idea-store.js"></script>
   <script src="/static/idea-cards.js"></script>

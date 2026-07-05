@@ -215,6 +215,65 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json()["code"], "missing_api_key")
 
+    @staticmethod
+    def _tiny_png() -> bytes:
+        from io import BytesIO
+
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (48, 48), (200, 40, 40)).save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_edit_route_returns_result_shape_on_success(self):
+        from app.image_service import EditResult
+
+        async def fake_edit(request, settings=None):
+            return EditResult(
+                image="data:image/png;base64,ZWRpdA==",
+                provider="workers-ai",
+                model="@cf/black-forest-labs/flux-2-klein-4b",
+                image_count=len(request.images),
+            )
+
+        with patch("app.main.edit_image", side_effect=fake_edit):
+            response = self.client.post(
+                "/edit",
+                data={"prompt": "make it green"},
+                files=[("images", ("a.png", self._tiny_png(), "image/png"))],
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["provider"], "workers-ai")
+        self.assertEqual(body["image_count"], 1)
+        self.assertTrue(body["image"].startswith("data:image/png;base64,"))
+
+    def test_edit_route_without_cf_token_returns_clean_503(self):
+        # 真實 edit_image（未 mock）：無 CF 設定 → 乾淨 503 missing_api_key。
+        response = self.client.post(
+            "/edit",
+            data={"prompt": "make it green"},
+            files=[("images", ("a.png", self._tiny_png(), "image/png"))],
+        )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["code"], "missing_api_key")
+
+    def test_edit_route_requires_prompt_and_images(self):
+        no_prompt = self.client.post(
+            "/edit", files=[("images", ("a.png", self._tiny_png(), "image/png"))]
+        )
+        self.assertEqual(no_prompt.status_code, 422)
+        no_images = self.client.post("/edit", data={"prompt": "x"})
+        self.assertEqual(no_images.status_code, 422)
+
+    def test_edit_route_rejects_more_than_four_images_before_reading(self):
+        # 超過 4 張 → 在讀取 body 前就以 400 擋掉（DoS 防護）。
+        png = self._tiny_png()
+        files = [("images", (f"{i}.png", png, "image/png")) for i in range(5)]
+        response = self.client.post("/edit", data={"prompt": "x"}, files=files)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["code"], "bad_request")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,6 +44,12 @@ class Settings:
     workers_ai_fast_model: str = os.getenv(
         "WORKERS_AI_FAST_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"
     )
+    # AI 改圖（instruction edit）後端。FLUX.2 klein 支援上傳 1-4 張自訂圖做指令式
+    # 編輯（NVIDIA hosted kontext 只吃內建範例圖，故本機/雲端一律走 Workers AI）。
+    # 需 CF_ACCOUNT_ID + CF_API_TOKEN；未設定時 /edit 回乾淨 503。
+    workers_ai_edit_model: str = os.getenv(
+        "WORKERS_AI_EDIT_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"
+    )
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
     gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-26b-a4b-it")
