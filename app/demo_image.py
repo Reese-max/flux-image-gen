@@ -30,6 +30,7 @@ def make_demo_png_data_url(prompt: str, width: int, height: int, model: str) -> 
 
     image = Image.new("RGB", (width, height), c1)
     px = image.load()
+    assert px is not None  # Image.load() 於新建影像不會回傳 None，收斂型別以利 mypy
     for y in range(height):
         yr = y / max(height - 1, 1)
         for x in range(width):
