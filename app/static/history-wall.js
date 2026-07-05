@@ -539,6 +539,9 @@
     if (!grid) { return; }
     clearNode(grid);
 
+    // 更新歷史分頁上的數量徽章（總數，與篩選無關）。
+    if (typeof root.setHistoryCount === 'function') { root.setHistoryCount(records.length); }
+
     if (!records.length) {
       empty = document.createElement('div');
       empty.className = 'history-empty';

@@ -832,7 +832,7 @@ select option { background: #15171d; color: var(--text); }
 #editStage { margin-top: 14px; }
 #editStage img, .stage-img { max-width: 100%; border-radius: 14px; display: block; }
 
-/* 功能分頁：置中玻璃分段控制 */
+/* 功能分頁：置中玻璃分段控制（滑動時 sticky 固定於頂端） */
 .tabs {
   display: flex;
   gap: 4px;
@@ -841,13 +841,35 @@ select option { background: #15171d; color: var(--text); }
   max-width: 100%;
   margin: 4px auto 26px;
   padding: 5px;
-  background: var(--glass-bg);
+  /* 底色比一般玻璃更實，浮在內容上時仍清晰可讀 */
+  background: rgba(14, 16, 22, 0.72);
   border: 1px solid var(--glass-line);
   border-radius: 999px;
   box-shadow: var(--shadow);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  /* sticky：捲動長分頁時分頁列固定在頂端；z-index 需低於彈窗遮罩(20) */
+  position: sticky;
+  top: 12px;
+  z-index: 15;
 }
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: var(--violet);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.tab.is-active .tab-badge { background: var(--accent-ink); color: var(--accent); }
+.tab-badge[hidden] { display: none; }
 .tab {
   display: inline-flex;
   align-items: center;
