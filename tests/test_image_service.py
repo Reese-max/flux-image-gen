@@ -418,5 +418,143 @@ class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.model, "dev")
 
 
+class WorkersAiProviderTests(unittest.IsolatedAsyncioTestCase):
+    """Unit coverage for the Cloudflare Workers AI fast-tier backend. The live
+    REST round-trip is unverified pending a token, so these mock httpx and lock
+    the request shape, endpoint, response parsing, and error mapping."""
+
+    @staticmethod
+    def _long_base64() -> str:
+        import base64
+
+        # >80 chars so _looks_like_image_string accepts it via the "image" key.
+        return base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 60).decode("ascii")
+
+    def _settings(self, **overrides):
+        base = dict(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct-123",
+            cf_api_token="cf-tok",
+        )
+        base.update(overrides)
+        return Settings(**base)
+
+    async def test_success_calls_rest_endpoint_and_parses_result_image(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import WorkersAiProvider
+
+        captured = {}
+        image_b64 = self._long_base64()
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                captured["endpoint"] = endpoint
+                captured["headers"] = headers
+                captured["json"] = json
+                return httpx.Response(200, json={"result": {"image": image_b64}, "success": True})
+
+        provider = WorkersAiProvider(self._settings())
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            result = await provider.generate(
+                GenerationRequest(prompt="a corgi", model="schnell", size="square", seed=7)
+            )
+
+        self.assertEqual(
+            captured["endpoint"],
+            "https://api.cloudflare.com/client/v4/accounts/acct-123/ai/run/@cf/black-forest-labs/flux-2-klein-4b",
+        )
+        self.assertEqual(captured["headers"]["Authorization"], "Bearer cf-tok")
+        self.assertEqual(captured["json"], {"prompt": "a corgi", "width": 1024, "height": 1024, "seed": 7})
+        self.assertEqual(result.provider, "workers-ai")
+        self.assertEqual(result.model, "schnell")
+        self.assertEqual(result.seed, 7)
+        self.assertTrue(result.image.startswith("data:image/png;base64,"))
+
+    async def test_missing_config_raises_missing_api_key(self):
+        from app.image_service import ProviderError, WorkersAiProvider
+
+        provider = WorkersAiProvider(self._settings(cf_api_token=""))
+        with self.assertRaises(ProviderError) as ctx:
+            await provider.generate(GenerationRequest(prompt="a corgi", model="schnell", size="square"))
+        self.assertEqual(ctx.exception.code, "missing_api_key")
+
+    async def test_seed_zero_becomes_random_and_is_returned(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import WorkersAiProvider
+
+        captured = {}
+        image_b64 = self._long_base64()
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                captured["json"] = json
+                return httpx.Response(200, json={"result": {"image": image_b64}})
+
+        provider = WorkersAiProvider(self._settings())
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            result = await provider.generate(
+                GenerationRequest(prompt="a corgi", model="schnell", size="square", seed=0)
+            )
+
+        self.assertNotEqual(captured["json"]["seed"], 0)
+        self.assertEqual(result.seed, captured["json"]["seed"])
+
+    async def test_error_status_maps_to_workers_ai_error(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import ProviderError, WorkersAiProvider
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                return httpx.Response(400, json={"errors": [{"message": "bad request"}]})
+
+        provider = WorkersAiProvider(self._settings())
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            with self.assertRaises(ProviderError) as ctx:
+                await provider.generate(
+                    GenerationRequest(prompt="a corgi", model="schnell", size="square", seed=1)
+                )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.code, "workers_ai_error")
+        # CF errors[].message is surfaced; label must not read "NVIDIA".
+        self.assertEqual(ctx.exception.message, "bad request")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -248,7 +248,7 @@ class WorkersAiProvider:
                     if response.status_code not in RETRYABLE_IMAGE_STATUS:
                         break
                     last_error = ProviderError(
-                        _response_error_message(response), status_code=response.status_code, code="workers_ai_error"
+                        _response_error_message(response, "Workers AI"), status_code=response.status_code, code="workers_ai_error"
                     )
                 if attempt + 1 >= IMAGE_MAX_ATTEMPTS:
                     raise last_error
@@ -258,7 +258,7 @@ class WorkersAiProvider:
             retry_after = _parse_retry_after(response.headers.get("retry-after"))
             raise ProviderError("叫用太頻繁，請稍後再試", status_code=429, code="rate_limited", retry_after=retry_after)
         if response.status_code >= 400:
-            raise ProviderError(_response_error_message(response), status_code=response.status_code, code="workers_ai_error")
+            raise ProviderError(_response_error_message(response, "Workers AI"), status_code=response.status_code, code="workers_ai_error")
 
         try:
             data = response.json()
@@ -454,18 +454,25 @@ def _parse_retry_after(value: str | None) -> int | None:
         return None
 
 
-def _response_error_message(response: httpx.Response) -> str:
+def _response_error_message(response: httpx.Response, provider_label: str = "NVIDIA") -> str:
+    fallback = f"{provider_label} HTTP {response.status_code}"
     try:
         data = response.json()
     except ValueError:
         text = response.text.strip()
-        return text or f"NVIDIA HTTP {response.status_code}"
+        return text or fallback
     if isinstance(data, dict):
         if isinstance(data.get("error"), str):
             return data["error"]
         if isinstance(data.get("message"), str):
             return data["message"]
+        # Cloudflare shape: {"errors": [{"message": "..."}], "success": false}
+        errors = data.get("errors")
+        if isinstance(errors, list):
+            for item in errors:
+                if isinstance(item, dict) and isinstance(item.get("message"), str):
+                    return item["message"]
         if "detail" in data:
-            return f"NVIDIA HTTP {response.status_code}: {data['detail']}"
+            return f"{fallback}: {data['detail']}"
     # Avoid leaking the raw provider payload (repr of an arbitrary dict) to clients.
-    return f"NVIDIA HTTP {response.status_code}"
+    return fallback
