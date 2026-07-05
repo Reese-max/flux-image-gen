@@ -330,6 +330,7 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "prompt-pack.js",
         "prompt-transform.js",
         "service-worker.js",
+        "tabs.js",
         "tutorial.js",
     }
 

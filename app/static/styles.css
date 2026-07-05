@@ -831,3 +831,64 @@ select option { background: #15171d; color: var(--text); }
 .edit-thumb-remove:hover { background: #ef4444; }
 #editStage { margin-top: 14px; }
 #editStage img, .stage-img { max-width: 100%; border-radius: 14px; display: block; }
+
+/* 功能分頁：置中玻璃分段控制 */
+.tabs {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 4px auto 26px;
+  padding: 5px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 15px/1 var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease);
+}
+.tab:hover { color: var(--text); background: var(--glass-bg-2); }
+.tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tab.is-active {
+  color: var(--accent-ink);
+  background: linear-gradient(180deg, var(--accent), var(--accent-2));
+  box-shadow: 0 8px 22px -6px rgba(190, 242, 100, 0.55);
+}
+.tab-ico { font-size: 17px; line-height: 1; }
+
+.tabpanel[hidden] { display: none; }
+.tabpanel { animation: tab-in .32s var(--ease) both; }
+@keyframes tab-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tabpanel { animation: none; }
+  .tab { transition: none; }
+}
+
+/* 手機版：分頁列滿版、等分 */
+@media (max-width: 560px) {
+  .tabs { width: 100%; gap: 3px; }
+  .tab { flex: 1 1 0; justify-content: center; padding: 11px 6px; }
+  .tab-label { font-size: 13px; }
+}
+
+/* 手機底部生成列只在「生成」分頁有意義，其他分頁隱藏 */
+body[data-tab="edit"] #mobileGenerateBar,
+body[data-tab="history"] #mobileGenerateBar { display: none !important; }

@@ -532,6 +532,7 @@ test('POST /generate rejects non-integer seed values', async () => {
 test('Cloudflare static shell includes synced feature scripts and modals', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
   const expectedScripts = [
+    '/static/tabs.js',
     '/static/generation-settings.js',
     '/static/prompt-enhancer.js',
     '/static/failure-advice.js',
@@ -556,6 +557,12 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="editPanel"/);
   assert.match(html, /id="editFiles"/);
   assert.match(html, /id="editGo"/);
+  // 功能分頁：tablist + 三個分頁與面板。
+  assert.match(html, /class="tabs" role="tablist"/);
+  assert.match(html, /id="tab-generate"[\s\S]*?data-tab="generate"/);
+  assert.match(html, /id="panel-generate"/);
+  assert.match(html, /id="panel-edit"/);
+  assert.match(html, /id="panel-history"/);
   assert.match(html, /id="copySettings"/);
   assert.match(html, /id="regenerate"/);
   assert.match(html, /id="tutorialModal"/);

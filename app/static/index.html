@@ -54,6 +54,19 @@
       <button id="openTutorial" class="mini-btn help-btn" type="button">？教學</button>
     </header>
 
+    <nav class="tabs" role="tablist" aria-label="功能分頁">
+      <button class="tab is-active" id="tab-generate" role="tab" type="button" aria-selected="true" aria-controls="panel-generate" data-tab="generate">
+        <span class="tab-ico" aria-hidden="true">✨</span><span class="tab-label">生成圖片</span>
+      </button>
+      <button class="tab" id="tab-edit" role="tab" type="button" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
+        <span class="tab-ico" aria-hidden="true">🖌️</span><span class="tab-label">AI 改圖</span>
+      </button>
+      <button class="tab" id="tab-history" role="tab" type="button" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">
+        <span class="tab-ico" aria-hidden="true">🕘</span><span class="tab-label">歷史作品</span>
+      </button>
+    </nav>
+
+    <div class="tabpanel" id="panel-generate" role="tabpanel" aria-labelledby="tab-generate">
     <section class="composer glass" aria-label="圖片描述">
       <div class="prompt-tool" aria-label="白話中文轉專業英文提示詞">
         <div class="section-heading">
@@ -163,6 +176,16 @@
       <div id="status" class="status" aria-live="polite"></div>
     </section>
 
+    <section class="stage glass" id="stage" aria-label="生成結果"><span class="muted">圖片會出現在這裡</span></section>
+
+    <div id="resultActions" class="result-actions" hidden>
+      <button id="regenerate" class="btn secondary" type="button">🔁 再生一張</button>
+      <button id="useComposition" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
+      <button id="copySettings" class="btn secondary" type="button">📋 複製這組設定</button>
+      <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
+      <button id="saveToCloud" class="btn secondary" type="button">☁️ 存到雲端</button>
+    </div>
+
     <section class="ideas" aria-label="提示詞靈感">
       <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下直接出圖）</span></div>
       <div class="idea-grid">
@@ -197,16 +220,9 @@
       </div>
     </section>
 
-    <section class="stage glass" id="stage" aria-label="生成結果"><span class="muted">圖片會出現在這裡</span></section>
+    </div><!-- /panel-generate -->
 
-    <div id="resultActions" class="result-actions" hidden>
-      <button id="regenerate" class="btn secondary" type="button">🔁 再生一張</button>
-      <button id="useComposition" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
-      <button id="copySettings" class="btn secondary" type="button">📋 複製這組設定</button>
-      <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
-      <button id="saveToCloud" class="btn secondary" type="button">☁️ 存到雲端</button>
-    </div>
-
+    <div class="tabpanel" id="panel-edit" role="tabpanel" aria-labelledby="tab-edit" hidden>
     <section class="composer glass" id="editPanel" aria-label="AI 改圖">
       <div class="section-heading">
         <h2>🖌️ AI 改圖</h2>
@@ -228,7 +244,9 @@
       <div id="editStatus" class="status" aria-live="polite"></div>
       <section class="stage glass" id="editStage" aria-label="改圖結果"><span class="muted">改好的圖會出現在這裡</span></section>
     </section>
+    </div><!-- /panel-edit -->
 
+    <div class="tabpanel" id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden>
     <section id="historyWall" class="history-wall glass" aria-label="歷史記錄牆">
       <div class="history-head">
         <div>
@@ -257,6 +275,7 @@
       </div>
       <div id="historyGrid" class="history-grid" aria-live="polite"></div>
     </section>
+    </div><!-- /panel-history -->
 
     <footer class="footer">
       <div>感謝 Modal 提供部署與運算，NVIDIA 提供 FLUX 影像生成資源。未設定金鑰時會回傳本機 Demo PNG，方便驗證流程。</div>
@@ -409,6 +428,7 @@
     </div>
   </main>
 
+  <script src="/static/tabs.js"></script>
   <script src="/static/generation-settings.js"></script>
   <script src="/static/prompt-enhancer.js"></script>
   <script src="/static/failure-advice.js"></script>
