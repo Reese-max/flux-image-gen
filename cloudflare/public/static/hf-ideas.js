@@ -59,7 +59,9 @@
 
   function usePrompt(prompt) {
     var app = window.ImageGenApp;
-    if (app && typeof app.setPromptAndGenerate === 'function') {
+    if (app && typeof app.setPromptForReview === 'function') {
+      app.setPromptForReview(prompt, 'HF 靈感 prompt');
+    } else if (app && typeof app.setPromptAndGenerate === 'function') {
       app.setPromptAndGenerate(prompt);
     } else {
       var field = document.getElementById('prompt');

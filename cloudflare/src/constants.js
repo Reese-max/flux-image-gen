@@ -4,9 +4,19 @@
 import sharedConstants from "../../shared/prompt-constants.json" with { type: "json" };
 
 export const SIZE_MAP = {
+  // Backward-compatible legacy ids.
   square: [1024, 1024],
   landscape: [1344, 768],
   portrait: [768, 1344],
+  // Productized use-case presets.
+  ig_post: [1024, 1024],
+  ppt_16_9: [1344, 768],
+  ig_story: [768, 1344],
+  youtube_thumb: [1344, 768],
+  mobile_wallpaper: [768, 1664],
+  poster_3_4: [960, 1280],
+  a4_illustration: [896, 1280],
+  hero_21_9: [1792, 768],
 };
 
 export const MODEL_ENDPOINTS = {
@@ -159,6 +169,7 @@ export const MAX_BATCH_COUNT = 4;
 
 // --- Cloud gallery (R2) ---
 export const GALLERY_PREFIX = "gallery/";
+export const GALLERY_META_PREFIX = "gallery-meta/";
 export const GALLERY_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
 export const GALLERY_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 

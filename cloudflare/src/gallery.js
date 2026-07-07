@@ -1,5 +1,5 @@
-// Cloud gallery (R2) helpers: data-URL decoding, metadata sanitization, and the
-// optional HMAC save-authorization token.
+// Cloud gallery (R2) helpers: data-URL decoding, metadata sanitization,
+// save authorization, and owner delete tokens.
 import { GALLERY_EXT, GALLERY_TOKEN_TTL_MS, MAX_GALLERY_IMAGE_BYTES } from "./constants.js";
 import { HttpError } from "./http.js";
 
@@ -27,10 +27,18 @@ export function decodeImageDataUrl(dataUrl) {
 export function sanitizeGalleryMeta(meta) {
   const out = {};
   if (meta && typeof meta === "object") {
-    for (const field of ["prompt", "model", "size", "seed"]) {
+    const promptPublic = meta.promptPublic === true || meta.promptPublic === "true";
+    out.promptPublic = promptPublic ? "true" : "false";
+    out.visibility = meta.visibility === "public" ? "public" : "unlisted";
+    out.storage = "r2";
+    out.metadataStorage = "r2-json";
+    for (const field of ["title", "model", "size", "seed", "mode", "style", "styleLabel", "useCase", "useCaseLabel"]) {
       if (meta[field] !== undefined && meta[field] !== null) {
         out[field] = String(meta[field]).slice(0, 500);
       }
+    }
+    if (promptPublic && meta.prompt !== undefined && meta.prompt !== null) {
+      out.prompt = String(meta.prompt).slice(0, 500);
     }
   }
   return out;
@@ -51,6 +59,20 @@ async function hmacHex(secret, message) {
   );
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function sha256Hex(message) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(message || "")));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function constantTimeEqual(a, b) {
+  const left = String(a || "");
+  const right = String(b || "");
+  if (left.length !== right.length) return false;
+  let diff = 0;
+  for (let i = 0; i < left.length; i++) diff |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  return diff === 0;
 }
 
 export async function issueGalleryToken(env) {
@@ -76,4 +98,21 @@ export async function verifyGalleryToken(env, token) {
   let diff = 0;
   for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
+}
+
+// --- Gallery owner deletion ---
+// The delete token is returned only to the saving browser. R2 metadata stores a
+// SHA-256 hash, not the raw token, so share pages and metadata leaks cannot delete
+// a work unless the user kept the one-time delete URL.
+export function issueGalleryDeleteToken() {
+  return `${crypto.randomUUID()}.${crypto.randomUUID()}`;
+}
+
+export async function hashGalleryDeleteToken(token) {
+  return sha256Hex(token);
+}
+
+export async function verifyGalleryDeleteTokenHash(expectedHash, token) {
+  if (typeof expectedHash !== "string" || !expectedHash || typeof token !== "string" || !token) return false;
+  return constantTimeEqual(expectedHash, await hashGalleryDeleteToken(token));
 }

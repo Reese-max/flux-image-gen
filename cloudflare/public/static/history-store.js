@@ -2,7 +2,10 @@
   'use strict';
 
   var STORAGE_KEY = 'aiImageGenerationHistory.v1';
-  var MAX_RECORDS = 12;
+  var COLLECTION_SCHEMA = 'GenerationRecordCollection';
+  var COLLECTION_VERSION = 2;
+  var RECORD_SCHEMA_VERSION = 2;
+  var MAX_RECORDS = 48;
   var DEFAULT_MODEL = 'schnell';
   var DEFAULT_SIZE = 'square';
 
@@ -75,6 +78,77 @@
     return value === true;
   }
 
+  function normalizeDimension(value) {
+    var number = Number(value);
+    if (!isFinite(number) || Math.floor(number) !== number || number < 0) {
+      return 0;
+    }
+    return number;
+  }
+
+  function normalizeQaReport(value) {
+    var source = value && typeof value === 'object' ? value : null;
+    var issues = [];
+    var i;
+
+    if (!source) {
+      return null;
+    }
+
+    if (Array.isArray(source.detectedIssues)) {
+      for (i = 0; i < source.detectedIssues.length; i += 1) {
+        if (toText(source.detectedIssues[i])) {
+          issues.push(toText(source.detectedIssues[i]));
+        }
+      }
+    }
+
+    return {
+      imageId: toText(source.imageId),
+      promptMatchScore: normalizeDimension(source.promptMatchScore),
+      compositionScore: normalizeDimension(source.compositionScore),
+      visualQualityScore: normalizeDimension(source.visualQualityScore),
+      textAccuracyScore: source.textAccuracyScore === null || source.textAccuracyScore === undefined ? null : normalizeDimension(source.textAccuracyScore),
+      detectedIssues: issues,
+      recommendation: toText(source.recommendation) || 'keep',
+      reason: toText(source.reason)
+    };
+  }
+
+  function normalizeAutoRetry(value) {
+    var source = value && typeof value === 'object' ? value : null;
+    if (!source) {
+      return null;
+    }
+    return {
+      maxRetries: normalizeDimension(source.maxRetries),
+      attempted: normalizeBoolean(source.attempted),
+      reason: toText(source.reason),
+      action: toText(source.action) || 'none',
+      message: toText(source.message)
+    };
+  }
+
+  function normalizeSuggestionList(value) {
+    var list = [];
+    var i;
+    var source;
+    var item;
+    if (!Array.isArray(value)) {
+      return list;
+    }
+    for (i = 0; i < value.length; i += 1) {
+      source = value[i];
+      if (typeof source === 'string') {
+        if (toText(source)) { list.push({ id: toText(source), label: toText(source) }); }
+      } else if (source && typeof source === 'object') {
+        item = { id: toText(source.id), label: toText(source.label) };
+        if (item.id || item.label) { list.push(item); }
+      }
+    }
+    return list;
+  }
+
   function normalizeVersionNumber(value) {
     var number = Number(value);
 
@@ -140,8 +214,11 @@
 
   function normalizeRecord(raw, makeId) {
     var source = raw || {};
-    var image = toText(source.image);
-    var prompt = toText(source.prompt);
+    var imageUrl = toText(source.imageUrl);
+    var localImageData = toText(source.localImageData);
+    var image = toText(source.image) || localImageData || imageUrl;
+    var prompt = toText(source.userPrompt) || toText(source.prompt);
+    var negativePrompt = toText(source.negativePrompt) || toText(source.avoid);
     var id = toText(source.id);
     var idFactory = typeof makeId === 'function' ? makeId : defaultMakeId;
 
@@ -157,16 +234,36 @@
 
     return {
       id: id,
+      schemaVersion: RECORD_SCHEMA_VERSION,
+      userPrompt: prompt,
+      expandedPrompt: toText(source.expandedPrompt) || toText(source.expandedChinesePrompt),
       image: image,
       thumbnail: toText(source.thumbnail) || image,
       prompt: prompt,
       providerPrompt: toText(source.providerPrompt) || prompt,
-      avoid: toText(source.avoid),
+      negativePrompt: negativePrompt,
+      avoid: negativePrompt,
       model: toText(source.model) || DEFAULT_MODEL,
       size: toText(source.size) || DEFAULT_SIZE,
       seed: normalizeSeed(source.seed),
+      width: normalizeDimension(source.width),
+      height: normalizeDimension(source.height),
+      imageUrl: imageUrl || (image.indexOf('http://') === 0 || image.indexOf('https://') === 0 ? image : ''),
+      localImageData: localImageData || (image.indexOf('data:image/') === 0 ? image : ''),
+      provider: toText(source.provider),
+      mode: toText(source.mode) === 'agent' ? 'agent' : 'normal',
       favorite: normalizeBoolean(source.favorite),
       tags: normalizeTags(source.tags),
+      qaReport: normalizeQaReport(source.qaReport),
+      recommended: normalizeBoolean(source.recommended),
+      agentRecommendation: toText(source.agentRecommendation),
+      autoRetry: normalizeAutoRetry(source.autoRetry),
+      nextSuggestions: normalizeSuggestionList(source.nextSuggestions),
+      cloudShareUrl: toText(source.cloudShareUrl),
+      cloudDeleteUrl: toText(source.cloudDeleteUrl),
+      cloudSavedAt: toText(source.cloudSavedAt),
+      cloudPromptPublic: normalizeBoolean(source.cloudPromptPublic),
+      cloudStorage: toText(source.cloudStorage),
       sourceRecordId: toText(source.sourceRecordId),
       versionGroupId: toText(source.versionGroupId) || id,
       versionNumber: normalizeVersionNumber(source.versionNumber),
@@ -336,9 +433,46 @@
     return updated.slice(0, MAX_RECORDS);
   }
 
+  function normalizeRecordCollection(value) {
+    var source = value && typeof value === 'object' ? value : {};
+    var rawRecords;
+    var records = [];
+
+    if (Array.isArray(value)) {
+      rawRecords = value;
+    } else if (toText(source.schema) === COLLECTION_SCHEMA) {
+      if (Number(source.version) !== 1 && Number(source.version) !== COLLECTION_VERSION) {
+        return [];
+      }
+      rawRecords = Array.isArray(source.records) ? source.records : [];
+    } else if (Array.isArray(source.records)) {
+      rawRecords = source.records;
+    } else {
+      return [];
+    }
+
+    rawRecords.forEach(function (record) {
+      try {
+        records.push(normalizeRecord(record));
+      } catch (error) {
+        return;
+      }
+    });
+
+    return records.slice(0, MAX_RECORDS);
+  }
+
+  function exportRecordCollection(records) {
+    return {
+      schema: COLLECTION_SCHEMA,
+      version: COLLECTION_VERSION,
+      migratedAt: new Date().toISOString(),
+      records: normalizeRecordList(records)
+    };
+  }
+
   function parseRecords(text) {
     var parsed;
-    var records;
 
     try {
       parsed = JSON.parse(toText(text));
@@ -346,20 +480,7 @@
       return [];
     }
 
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    records = [];
-    try {
-      parsed.forEach(function (record) {
-        records.push(normalizeRecord(record));
-      });
-    } catch (error) {
-      return [];
-    }
-
-    return records.slice(0, MAX_RECORDS);
+    return normalizeRecordCollection(parsed);
   }
 
   function normalizeRecordList(records) {
@@ -412,7 +533,7 @@
 
     while (true) {
       try {
-        store.setItem(STORAGE_KEY, JSON.stringify(nextRecords));
+        store.setItem(STORAGE_KEY, JSON.stringify(exportRecordCollection(nextRecords)));
         return nextRecords;
       } catch (error) {
         if (!nextRecords.length) {
@@ -456,6 +577,35 @@
     return nextRecords.slice(0, MAX_RECORDS);
   }
 
+  function deleteRecords(records, ids) {
+    var lookup = {};
+    var nextRecords = [];
+
+    if (!Array.isArray(records) || !Array.isArray(ids)) {
+      return [];
+    }
+
+    ids.forEach(function (id) {
+      var value = toText(id);
+      if (value) {
+        lookup[value] = true;
+      }
+    });
+
+    records.forEach(function (record) {
+      if (lookup[toText(record && record.id)]) {
+        return;
+      }
+      try {
+        nextRecords.push(normalizeRecord(record));
+      } catch (error) {
+        return;
+      }
+    });
+
+    return nextRecords.slice(0, MAX_RECORDS);
+  }
+
   function clearRecords(storage) {
     var store = getStorage(storage);
 
@@ -472,13 +622,18 @@
 
   root.ImageHistoryStore = {
     STORAGE_KEY: STORAGE_KEY,
+    COLLECTION_SCHEMA: COLLECTION_SCHEMA,
+    COLLECTION_VERSION: COLLECTION_VERSION,
     MAX_RECORDS: MAX_RECORDS,
     normalizeRecord: normalizeRecord,
+    normalizeRecordCollection: normalizeRecordCollection,
+    exportRecordCollection: exportRecordCollection,
     parseRecords: parseRecords,
     loadRecords: loadRecords,
     saveRecords: saveRecords,
     addRecord: addRecord,
     deleteRecord: deleteRecord,
+    deleteRecords: deleteRecords,
     findRecordById: findRecordById,
     findVersionGroup: findVersionGroup,
     createVersionRecord: createVersionRecord,

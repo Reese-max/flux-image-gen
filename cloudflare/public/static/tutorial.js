@@ -22,6 +22,18 @@
     }
   }
 
+  function shouldAutoOpenTutorial() {
+    var hash = (window.location.hash || '').replace(/^#/, '');
+    var activeTab = document.body ? document.body.getAttribute('data-tab') : '';
+    if (hash && hash !== 'generate') {
+      return false;
+    }
+    if (activeTab && activeTab !== 'generate') {
+      return false;
+    }
+    return !hasSeenTutorial();
+  }
+
   function openTutorial() {
     if (!tutorialModal) {
       tutorialModal = document.getElementById('tutorialModal');
@@ -90,7 +102,7 @@
       });
     }
 
-    if (!hasSeenTutorial()) {
+    if (shouldAutoOpenTutorial()) {
       window.setTimeout(openTutorial, 350);
     }
   }

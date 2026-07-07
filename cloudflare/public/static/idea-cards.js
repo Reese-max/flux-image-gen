@@ -51,15 +51,27 @@
     }
   }
 
+  function tagsToText(tags) {
+    if (!Array.isArray(tags)) { return ''; }
+    return tags.join(', ');
+  }
+
   function readFormCard() {
     return {
       id: byId('ideaId').value,
       emoji: byId('ideaEmoji').value,
-      title: byId('ideaTitle').value,
-      promptZh: byId('ideaPromptZh').value,
-      promptEn: byId('ideaPromptEn').value,
-      model: byId('ideaModel').value,
-      size: byId('ideaSize').value
+      name: byId('ideaTitle').value,
+      userPrompt: byId('ideaPromptZh').value,
+      providerPrompt: byId('ideaPromptEn').value,
+      negativePrompt: byId('ideaNegativePrompt') ? byId('ideaNegativePrompt').value : '',
+      modelPreset: byId('ideaModel').value,
+      sizePreset: byId('ideaSize').value,
+      seed: byId('ideaSeed') ? byId('ideaSeed').value : '',
+      tags: byId('ideaTags') ? byId('ideaTags').value : '',
+      previewImageUrl: byId('ideaPreviewImageUrl') ? byId('ideaPreviewImageUrl').value : '',
+      createdAt: byId('ideaCreatedAt') ? byId('ideaCreatedAt').value : '',
+      updatedAt: new Date().toISOString(),
+      version: root.IdeaStore && root.IdeaStore.SCHEMA_VERSION ? root.IdeaStore.SCHEMA_VERSION : 1
     };
   }
 
@@ -68,11 +80,16 @@
 
     byId('ideaId').value = source.id || '';
     byId('ideaEmoji').value = source.emoji || '';
-    byId('ideaTitle').value = source.title || '';
-    byId('ideaPromptZh').value = source.promptZh || '';
-    byId('ideaPromptEn').value = source.promptEn || '';
-    byId('ideaModel').value = source.model || 'schnell';
-    byId('ideaSize').value = source.size || 'square';
+    byId('ideaTitle').value = source.name || source.title || '';
+    byId('ideaPromptZh').value = source.userPrompt || source.promptZh || '';
+    byId('ideaPromptEn').value = source.providerPrompt || source.promptEn || '';
+    byId('ideaModel').value = source.modelPreset || source.model || 'schnell';
+    byId('ideaSize').value = source.sizePreset || source.size || 'square';
+    if (byId('ideaNegativePrompt')) { byId('ideaNegativePrompt').value = source.negativePrompt || source.avoid || ''; }
+    if (byId('ideaSeed')) { byId('ideaSeed').value = source.seed ? String(source.seed) : ''; }
+    if (byId('ideaTags')) { byId('ideaTags').value = tagsToText(source.tags); }
+    if (byId('ideaPreviewImageUrl')) { byId('ideaPreviewImageUrl').value = source.previewImageUrl || ''; }
+    if (byId('ideaCreatedAt')) { byId('ideaCreatedAt').value = source.createdAt || ''; }
   }
 
   function openEditor(card) {
@@ -89,7 +106,7 @@
     setEditorStatus('', '');
 
     if (title) {
-      title.textContent = card ? '編輯客製梗卡' : '新增客製梗卡';
+      title.textContent = card ? '編輯風格卡' : '新增風格卡';
     }
     if (deleteButton) {
       deleteButton.hidden = !card;
@@ -127,7 +144,7 @@
     var empty = document.createElement('div');
 
     empty.className = 'custom-empty';
-    empty.textContent = '還沒有客製梗卡，先新增一張常用提示詞吧。';
+    empty.textContent = '還沒有風格卡，先新增一張常用提示詞卡吧。';
     grid.appendChild(empty);
   }
 
@@ -138,6 +155,8 @@
     var label = document.createElement('span');
     var meta = document.createElement('span');
     var edit = document.createElement('button');
+    var addToProject = document.createElement('button');
+    var preview;
 
     wrap.className = 'custom-card';
 
@@ -148,12 +167,19 @@
       generateFromCard(card);
     });
 
+    if (card.previewImageUrl) {
+      preview = document.createElement('span');
+      preview.className = 'idea-preview';
+      preview.style.backgroundImage = 'url("' + card.previewImageUrl.replace(/"/g, '') + '")';
+      button.appendChild(preview);
+    }
+
     emoji.className = 'emo';
     emoji.textContent = card.emoji || '✨';
     label.className = 'lbl';
-    label.textContent = card.title;
+    label.textContent = card.name;
     meta.className = 'idea-meta';
-    meta.textContent = card.promptEn ? '英文提示詞' : '中文轉英文';
+    meta.textContent = (card.providerPrompt ? 'Provider prompt' : '中文一鍵生成') + ' · ' + card.modelPreset + ' · ' + card.sizePreset;
 
     edit.type = 'button';
     edit.className = 'card-edit';
@@ -162,11 +188,23 @@
       openEditor(getCardById(card.id) || card);
     });
 
+    addToProject.type = 'button';
+    addToProject.className = 'card-edit card-project';
+    addToProject.textContent = '加入專案';
+    addToProject.addEventListener('click', function () {
+      if (!root.ProjectBoard || typeof root.ProjectBoard.addPromptCardToProject !== 'function') {
+        setGenerationStatus('專案功能尚未就緒', 'fail');
+        return;
+      }
+      root.ProjectBoard.addPromptCardToProject(card.id);
+    });
+
     button.appendChild(emoji);
     button.appendChild(label);
     button.appendChild(meta);
     wrap.appendChild(button);
     wrap.appendChild(edit);
+    wrap.appendChild(addToProject);
     grid.appendChild(wrap);
   }
 
@@ -204,7 +242,7 @@
       nextCards = root.IdeaStore.upsertCard(cards, normalized);
       saveAndRender(nextCards);
       closeEditor();
-      setGenerationStatus('✅ 已儲存客製梗卡', 'done');
+      setGenerationStatus('✅ 已儲存風格卡', 'done');
     } catch (error) {
       setEditorStatus(error.message, 'fail');
     }
@@ -220,16 +258,21 @@
 
     saveAndRender(root.IdeaStore.deleteCard(cards, id));
     closeEditor();
-    setGenerationStatus('已刪除客製梗卡', 'done');
+    setGenerationStatus('已刪除風格卡', 'done');
   }
 
   function exportIdeas() {
-    var blob = new Blob([JSON.stringify(cards, null, 2)], { type: 'application/json' });
+    if (root.confirm && !root.confirm('匯出風格卡 JSON 會包含完整 prompt、模型、尺寸與 Seed。公開分享前請先檢查內容，確定要匯出？')) {
+      setGenerationStatus('已取消匯出風格卡 JSON', 'warn');
+      return;
+    }
+    var payload = root.IdeaStore.exportCards(cards);
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     var link = document.createElement('a');
     var url = root.URL.createObjectURL(blob);
 
     link.href = url;
-    link.download = 'custom-idea-cards.json';
+    link.download = 'prompt-cards-v' + payload.version + '.json';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -237,6 +280,7 @@
     setTimeout(function () {
       root.URL.revokeObjectURL(url);
     }, 0);
+    setGenerationStatus('已匯出風格卡 JSON；檔案包含 prompt 與生成設定，公開前請先檢查。', 'done');
   }
 
   function importIdeas(event) {
@@ -259,7 +303,7 @@
           nextCards = root.IdeaStore.upsertCard(nextCards, card);
         });
         saveAndRender(nextCards);
-        setGenerationStatus('✅ 已匯入 ' + importedCards.length + ' 張客製梗卡', 'done');
+        setGenerationStatus('✅ 已匯入 ' + importedCards.length + ' 張風格卡', 'done');
       } catch (error) {
         setGenerationStatus('❌ 匯入失敗：' + error.message, 'fail');
       } finally {
@@ -274,12 +318,12 @@
   }
 
   function transformAndGenerate(card) {
-    setGenerationStatus('正在轉換客製梗卡提示詞…', 'busy');
+    setGenerationStatus('正在轉換風格卡提示詞…', 'busy');
 
     fetch('/prompt/transform', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ source: card.promptZh, style: 'auto' })
+        body: JSON.stringify({ source: card.userPrompt, style: 'auto' })
       })
       .then(function (response) {
         return response.json().then(function (data) {
@@ -290,33 +334,80 @@
             throw new Error('轉換結果缺少提示詞');
           }
 
-          root.ImageGenApp.setPromptAndGenerate(data.prompt);
+          root.ImageGenApp.setGenerationSettings({
+            prompt: card.userPrompt,
+            providerPrompt: data.prompt,
+            avoid: card.negativePrompt,
+            model: card.modelPreset,
+            size: card.sizePreset,
+            seed: card.seed || ''
+          });
+          root.ImageGenApp.generate();
         });
       })
       .catch(function (error) {
-        setGenerationStatus('❌ 客製梗卡轉換失敗：' + error.message, 'fail');
+        setGenerationStatus('❌ 風格卡轉換失敗：' + error.message, 'fail');
       });
   }
 
   function generateFromCard(card) {
-    if (!root.ImageGenApp || typeof root.ImageGenApp.setPromptAndGenerate !== 'function') {
+    if (!root.ImageGenApp || typeof root.ImageGenApp.setGenerationSettings !== 'function' || typeof root.ImageGenApp.generate !== 'function') {
       return;
     }
 
-    setSelectValue('model', card.model);
-    setSelectValue('size', card.size);
+    setSelectValue('model', card.modelPreset);
+    setSelectValue('size', card.sizePreset);
 
-    if (card.promptEn) {
-      root.ImageGenApp.setPromptAndGenerate(card.promptEn);
+    if (card.providerPrompt) {
+      root.ImageGenApp.setGenerationSettings({
+        prompt: card.userPrompt || card.providerPrompt,
+        providerPrompt: card.providerPrompt,
+        avoid: card.negativePrompt,
+        model: card.modelPreset,
+        size: card.sizePreset,
+        seed: card.seed || ''
+      });
+      root.ImageGenApp.generate();
       return;
     }
 
-    if (card.promptZh) {
+    if (card.userPrompt) {
       transformAndGenerate(card);
       return;
     }
 
-    setGenerationStatus('這張客製梗卡沒有可用提示詞', 'fail');
+    setGenerationStatus('這張風格卡沒有可用提示詞', 'fail');
+  }
+
+  function openFromRecord(record) {
+    var card;
+    if (!root.IdeaStore || typeof root.IdeaStore.createCardFromGeneration !== 'function') {
+      setGenerationStatus('❌ 風格卡儲存模組未載入', 'fail');
+      return false;
+    }
+    try {
+      card = root.IdeaStore.createCardFromGeneration(record || {});
+      openEditor(card);
+      setEditorStatus('已帶入生成結果，確認後即可保存成風格卡。', 'done');
+      return true;
+    } catch (error) {
+      setGenerationStatus('❌ 無法建立風格卡：' + error.message, 'fail');
+      return false;
+    }
+  }
+
+  function saveLastGenerationAsCard() {
+    var record;
+    if (!root.ImageGenApp || typeof root.ImageGenApp.getLastGeneration !== 'function') {
+      setGenerationStatus('尚無可保存的生成結果', 'warn');
+      return;
+    }
+    record = root.ImageGenApp.getLastGeneration();
+    if (!record || !record.image) {
+      setGenerationStatus('先生成一張圖，才能存成風格卡', 'warn');
+      return;
+    }
+    openFromRecord(record);
   }
 
   function bindEditorEvents() {
@@ -327,6 +418,7 @@
     var deleteButton = byId('deleteIdea');
     var exportButton = byId('exportIdeas');
     var importInput = byId('importIdeas');
+    var saveGenerated = byId('saveStyleCard');
 
     if (addButton) {
       addButton.addEventListener('click', function () {
@@ -355,11 +447,14 @@
     if (importInput) {
       importInput.addEventListener('change', importIdeas);
     }
+    if (saveGenerated) {
+      saveGenerated.addEventListener('click', saveLastGenerationAsCard);
+    }
   }
 
   document.addEventListener('DOMContentLoaded', function () {
     if (!root.IdeaStore) {
-      setGenerationStatus('❌ 客製梗卡儲存模組未載入', 'fail');
+      setGenerationStatus('❌ 風格卡儲存模組未載入', 'fail');
       return;
     }
 
@@ -367,4 +462,12 @@
     renderCards();
     bindEditorEvents();
   });
+
+  root.PromptCards = {
+    openEditor: openEditor,
+    openFromRecord: openFromRecord,
+    renderCards: renderCards,
+    generateFromCard: generateFromCard,
+    saveLastGenerationAsCard: saveLastGenerationAsCard
+  };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

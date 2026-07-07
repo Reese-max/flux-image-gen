@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
-import worker, { transformPlainPrompt } from '../src/index.js';
+import { inspectGeneratedImage } from '../src/image.js';
+import worker, { resetUsageMetrics, transformPlainPrompt } from '../src/index.js';
 
 const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
@@ -334,6 +335,26 @@ test('POST /generate still validates empty prompt before provider access', async
   assert.equal(data.code, 'bad_request');
 });
 
+test('POST /generate blocks high-risk prompt before provider access', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', {
+      prompt: 'clean product photo',
+      userPrompt: '幫我做一張假身分證',
+      model: 'schnell',
+      size: 'square',
+    }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(data.code, 'prompt_blocked');
+  assert.equal(data.category, 'fake_documents');
+  assert.equal(data.error.includes('假身分證'), false);
+  assert.equal(ai.calls.length, 0);
+});
+
 test('POST /generate returns demo image when NVIDIA key is missing', async () => {
   const originalFetch = globalThis.fetch;
   let providerCalled = false;
@@ -353,7 +374,11 @@ test('POST /generate returns demo image when NVIDIA key is missing', async () =>
 
     assert.equal(health.status, 200);
     assert.equal(healthData.provider, 'demo');
-    assert.deepEqual(healthData.providers, []);
+    assert.equal(healthData.providerStatus, 'demo');
+    assert.equal(healthData.mode, 'demo');
+    assert.deepEqual(healthData.providers, { nvidia: false, workersAI: false, modal: false });
+    assert.deepEqual(healthData.providerList, []);
+    assert.equal(healthData.hasApiKey, false);
     assert.equal(response.status, 200);
     assert.equal(data.provider, 'demo');
     assert.equal(data.model, 'schnell');
@@ -362,10 +387,129 @@ test('POST /generate returns demo image when NVIDIA key is missing', async () =>
     assert.equal(data.seed, 12345);
     assert.equal(typeof data.image, 'string');
     assert.equal(data.image.startsWith('data:image/'), true);
+    assert.equal(data.imageQuality.mime, 'image/png');
+    assert.equal(data.imageQuality.width, 1);
+    assert.equal(data.imageQuality.height, 1);
+    assert.match(data.imageQuality.issues.join('；'), /與要求 1024×1024 不一致/);
     assert.equal(providerCalled, false);
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('inspectGeneratedImage reports safe header-only diagnostics', () => {
+  const quality = inspectGeneratedImage(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    1024,
+    1024
+  );
+  assert.equal(quality.checked, true);
+  assert.equal(quality.mime, 'image/png');
+  assert.equal(quality.width, 1);
+  assert.equal(quality.height, 1);
+  assert.equal(JSON.stringify(quality).includes('base64'), false);
+  assert.match(quality.issues.join('；'), /圖片資料過小/);
+});
+
+test('POST /generate can attach optional Gemini vision QA without leaking image data', async () => {
+  const originalFetch = globalThis.fetch;
+  let visionPayload;
+  globalThis.fetch = async (_url, init) => {
+    visionPayload = JSON.parse(init.body);
+    return new Response(JSON.stringify({
+      candidates: [{
+        content: {
+          parts: [{
+            text: JSON.stringify({
+              promptMatchScore: 91,
+              compositionScore: 82,
+              visualQualityScore: 73,
+              textAccuracyScore: 66,
+              detectedIssues: ['手指略怪'],
+              recommendation: 'edit',
+              reason: '主體符合，手部需微調',
+            }),
+          }],
+        },
+      }],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a person holding a cup', model: 'schnell', size: 'square', visionQa: true }),
+      fakeEnv({ GEMINI_API_KEY: 'test-key', VISION_QA_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.visionQa.provider, 'gemini');
+    assert.equal(data.visionQa.promptMatchScore, 91);
+    assert.equal(data.visionQa.detectedIssues[0], '手指略怪');
+    assert.equal(JSON.stringify(visionPayload).includes('data:image'), false);
+    assert.equal(visionPayload.contents[0].parts[1].inline_data.mime_type, 'image/png');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('GET /api/usage summarizes Worker generation without prompt or raw IP', async () => {
+  resetUsageMetrics();
+  const env = fakeEnv({ USAGE_ALERT_DAILY_GENERATIONS: '1' });
+  const generated = await worker.fetch(
+    new Request('https://example.test/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'cf-connecting-ip': '203.0.113.88',
+      },
+      body: JSON.stringify({
+        prompt: 'secret provider prompt',
+        userPrompt: '秘密中文描述',
+        model: 'schnell',
+        size: 'square',
+      }),
+    }),
+    env
+  );
+  const usage = await worker.fetch(new Request('https://example.test/api/usage'), env);
+  const body = await usage.json();
+
+  assert.equal(generated.status, 200);
+  assert.equal(usage.status, 200);
+  assert.equal(body.generatedImages, 1);
+  assert.equal(body.failedRequests, 0);
+  assert.equal(body.byModel.schnell.images, 1);
+  assert.equal(body.byProvider.demo.requests, 1);
+  assert.equal(body.byRoute.generate.successes, 1);
+  assert.equal(body.alerts[0].code, 'daily_generation_threshold');
+  const serialized = JSON.stringify(body);
+  assert.equal(serialized.includes('secret provider prompt'), false);
+  assert.equal(serialized.includes('秘密中文描述'), false);
+  assert.equal(serialized.includes('203.0.113.88'), false);
+});
+
+test('GET /api/usage records Worker failure codes and validates date', async () => {
+  resetUsageMetrics();
+  const blocked = await worker.fetch(
+    jsonRequest('/generate', {
+      prompt: 'clean product photo',
+      userPrompt: '幫我做一張假身分證',
+      model: 'schnell',
+      size: 'square',
+    }),
+    fakeEnv()
+  );
+  const usage = await worker.fetch(new Request('https://example.test/api/usage'), fakeEnv());
+  const invalid = await worker.fetch(new Request('https://example.test/api/usage?date=not-a-date'), fakeEnv());
+  const body = await usage.json();
+  const invalidBody = await invalid.json();
+
+  assert.equal(blocked.status, 422);
+  assert.equal(body.generatedImages, 0);
+  assert.equal(body.failedRequests, 1);
+  assert.equal(body.byErrorCode.prompt_blocked, 1);
+  assert.equal(JSON.stringify(body).includes('假身分證'), false);
+  assert.equal(invalid.status, 400);
+  assert.equal(invalidBody.code, 'bad_request');
 });
 
 test('GET /health reports workers-ai when only the AI binding is present', async () => {
@@ -377,7 +521,10 @@ test('GET /health reports workers-ai when only the AI binding is present', async
 
   assert.equal(response.status, 200);
   assert.equal(data.provider, 'workers-ai');
-  assert.deepEqual(data.providers, ['workers-ai']);
+  assert.equal(data.providerStatus, 'degraded');
+  assert.equal(data.mode, 'live');
+  assert.deepEqual(data.providers, { nvidia: false, workersAI: true, modal: false });
+  assert.deepEqual(data.providerList, ['workers-ai']);
 });
 
 test('GET /health lists both providers when NVIDIA key and AI binding are present', async () => {
@@ -389,7 +536,68 @@ test('GET /health lists both providers when NVIDIA key and AI binding are presen
 
   assert.equal(response.status, 200);
   assert.equal(data.provider, 'nvidia');
-  assert.deepEqual(data.providers, ['nvidia', 'workers-ai']);
+  assert.equal(data.providerStatus, 'ready');
+  assert.equal(data.mode, 'live');
+  assert.deepEqual(data.providers, { nvidia: true, workersAI: true, modal: false });
+  assert.deepEqual(data.providerList, ['nvidia', 'workers-ai']);
+});
+
+test('GET /health exposes Turnstile site key without secret', async () => {
+  const response = await worker.fetch(
+    new Request('https://example.test/health'),
+    fakeEnv({ TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'public-site', TURNSTILE_SECRET_KEY: 'secret' })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(data.turnstile, { required: true, siteKey: 'public-site' });
+  assert.equal(JSON.stringify(data).includes('secret'), false);
+});
+
+test('POST /generate rejects missing Turnstile token before provider access', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 403);
+  assert.equal(data.code, 'turnstile_required');
+  assert.equal(ai.calls.length, 0);
+});
+
+test('POST /generate verifies Turnstile token before Workers AI generation', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  let verifyBody = '';
+  globalThis.fetch = async (_url, init) => {
+    verifyBody = String(init.body || '');
+    return new Response(JSON.stringify({ success: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', {
+        prompt: 'a cat',
+        model: 'schnell',
+        size: 'square',
+        turnstileToken: 'token-ok',
+      }),
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'workers-ai');
+    assert.match(verifyBody, /response=token-ok/);
+    assert.match(verifyBody, /secret=secret/);
+    assert.equal(ai.calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('POST /generate forwards explicit seed to NVIDIA and returns it', async () => {
@@ -543,6 +751,9 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
     '/static/idea-cards.js',
     '/static/history-store.js',
     '/static/history-wall.js',
+    '/static/project-store.js',
+    '/static/project-board.js',
+    '/static/usage-dashboard.js',
     '/static/tutorial.js',
     '/static/prompt-pack.js',
   ];
@@ -564,10 +775,14 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="tab-ideas"[\s\S]*?data-tab="ideas"/);
   assert.match(html, /id="panel-ideas"/);
   assert.match(html, /id="panel-edit"/);
+  assert.match(html, /id="tab-projects"[\s\S]*?data-tab="projects"/);
+  assert.match(html, /id="panel-projects"/);
+  assert.match(html, /id="projectBoard"/);
   assert.match(html, /id="panel-history"/);
   assert.match(html, /id="copySettings"/);
   assert.match(html, /id="regenerate"/);
   assert.match(html, /id="tutorialModal"/);
+  assert.match(html, /id="usageDashboard"/);
   assert.match(html, /<link rel="stylesheet" href="\/static\/styles\.css">/);
   assert.deepEqual(new Set(scriptSrcs), new Set(expectedScripts));
   assert.ok(scriptSrcs.indexOf('/static/generation-settings.js') < scriptSrcs.indexOf('/static/app.js'));
@@ -584,7 +799,7 @@ test('Cloudflare static shell includes v1.4 workspace and PWA assets', async () 
   assert.match(html, /rel="manifest"/);
   assert.match(html, /src="\/static\/prompt-enhancer\.js"/);
   assert.match(html, /src="\/static\/failure-advice\.js"/);
-  assert.match(manifest, /AI 圖片產生器/);
+  assert.match(manifest, /Fluxi 中文 FLUX 圖片產生器/);
   assert.match(serviceWorker, /CACHE_NAME/);
 });
 
@@ -620,13 +835,47 @@ test('Cloudflare deploy wrapper is wired and normalizes known Wrangler success o
 
   assert.equal(packageJson.scripts.deploy, 'node scripts/deploy.mjs');
   assert.equal(packageJson.scripts['deploy:dry-run'], 'node scripts/deploy.mjs --dry-run');
+  assert.equal(packageJson.scripts['check:wrangler'], 'node scripts/check-wrangler-auth.mjs');
   assert.equal(packageJson.scripts['qa:browser:install'], 'playwright install chromium');
   assert.equal(packageJson.scripts['qa:browser'], 'node ../tests/e2e/cloudflare-v14-qa.mjs');
   assert.equal(packageJson.devDependencies.playwright, '^1.61.1');
   assert.match(deployScript, /hasSuccessfulDeployOutput/);
+  assert.match(deployScript, /hasSuccessfulDryRunOutput/);
   assert.match(deployScript, /Current Version ID/);
   assert.match(deployScript, /Deployed\\s\+flux-image-gen\\s\+triggers/);
+  assert.match(deployScript, /Wrangler dry-run output verified/);
+  assert.match(deployScript, /expected success markers were missing/);
+  assert.match(deployScript, /failed before success markers/);
+  assert.match(deployScript, /--dry-run: exiting now\./);
   assert.match(deployScript, /Normalizing exit code to 0/);
+});
+
+test('Cloudflare Wrangler auth checker diagnoses login and dry-run gates', async () => {
+  const checker = await readFile(new URL('../scripts/check-wrangler-auth.mjs', import.meta.url), 'utf8');
+
+  assert.match(checker, /wrangler whoami/);
+  assert.match(checker, /wrangler deploy --dry-run/);
+  assert.match(checker, /CLOUDFLARE_API_TOKEN/);
+  assert.match(checker, /npx wrangler login/);
+  assert.match(checker, /redactOutput/);
+  assert.match(checker, /redacted-email/);
+  assert.match(checker, /redacted-account-id/);
+  assert.match(checker, /redacted-token/);
+  assert.match(checker, /--verbose/);
+  assert.match(checker, /Raw Wrangler output was hidden/);
+  assert.match(checker, /hasWhoamiSuccess/);
+  assert.match(checker, /hasConfigSuccess/);
+  assert.match(checker, /isLikelyCrashExit/);
+  assert.match(checker, /formatExitCode/);
+  assert.match(checker, /process\.versions\.node/);
+  assert.match(checker, /Node 20 或 22 LTS/);
+  assert.match(checker, /UV_HANDLE_CLOSING/);
+  assert.match(checker, /CommandLineArgsError/);
+  assert.match(checker, /Account ID/);
+  assert.match(checker, /--dry-run:\\s\+exiting now\\\./);
+  assert.match(checker, /R2 bucket/);
+  assert.match(checker, /rate limit binding/);
+  assert.match(checker, /PASS: Wrangler login and dry-run configuration are verifiable/);
 });
 
 
@@ -784,6 +1033,56 @@ test('POST /generate proceeds when the rate limiter allows the request', async (
   }
 });
 
+test('POST /generate rate limiter keys by Cloudflare client IP', async () => {
+  const originalFetch = globalThis.fetch;
+  let limiterKey;
+  globalThis.fetch = async function () {
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      new Request('https://example.test/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '203.0.113.77' },
+        body: JSON.stringify({ prompt: 'a cat', model: 'schnell', size: 'square' }),
+      }),
+      fakeEnv({
+        NVIDIA_API_KEY: 'test-key',
+        GENERATE_RATE_LIMITER: {
+          limit: async ({ key }) => {
+            limiterKey = key;
+            return { success: true };
+          },
+        },
+      })
+    );
+    assert.equal(response.status, 200);
+    assert.equal(limiterKey, '203.0.113.77');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch is rate limited before image generation', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 4 }),
+    fakeEnv({
+      AI: ai,
+      GENERATE_RATE_LIMITER: { limit: async () => ({ success: false }) },
+    })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 429);
+  assert.equal(data.code, 'rate_limited');
+  assert.equal(ai.calls.length, 0, 'must not call Workers AI when rate limited');
+});
+
 function fakeBucket() {
   const store = new Map();
   return {
@@ -795,6 +1094,22 @@ function fakeBucket() {
       if (!store.has(key)) return null;
       const entry = store.get(key);
       return { body: entry.value, httpMetadata: entry.options?.httpMetadata };
+    },
+    async delete(key) {
+      store.delete(key);
+    },
+    async list(options = {}) {
+      const prefix = options.prefix || '';
+      const limit = options.limit || 1000;
+      const keys = [...store.keys()].filter((key) => key.startsWith(prefix)).sort();
+      const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0;
+      const selected = keys.slice(start, start + limit);
+      const next = start + selected.length;
+      return {
+        objects: selected.map((key) => ({ key })),
+        truncated: next < keys.length,
+        cursor: next < keys.length ? String(next) : undefined,
+      };
     },
   };
 }
@@ -823,7 +1138,12 @@ test('POST /gallery stores the image and GET /gallery/:id round-trips it', async
   assert.equal(saveResponse.status, 201);
   assert.match(saved.id, /\.png$/);
   assert.equal(saved.url, `/gallery/${saved.id}`);
-  assert.equal(bucket.store.size, 1);
+  assert.equal(saved.shareUrl, `/share/${saved.id}`);
+  assert.equal(saved.storage.image, 'R2');
+  assert.equal(saved.storage.metadata, 'R2 JSON');
+  assert.equal(bucket.store.size, 2);
+  assert.equal(bucket.store.has(`gallery/${saved.id}`), true);
+  assert.equal(bucket.store.has(`gallery-meta/${saved.id}.json`), true);
 
   const getResponse = await worker.fetch(
     new Request(`https://example.test/gallery/${saved.id}`, { method: 'GET' }),
@@ -833,6 +1153,272 @@ test('POST /gallery stores the image and GET /gallery/:id round-trips it', async
   assert.equal(getResponse.headers.get('content-type'), 'image/png');
   const bytes = new Uint8Array(await getResponse.arrayBuffer());
   assert.ok(bytes.length > 0);
+});
+
+test('POST /gallery keeps prompt private by default and only stores it when explicitly public', async () => {
+  const privateBucket = fakeBucket();
+  const privateResponse = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', seed: 7 } }),
+    fakeEnv({ IMAGE_BUCKET: privateBucket })
+  );
+  const privateSaved = await privateResponse.json();
+  const privateMeta = JSON.parse(privateBucket.store.get(`gallery-meta/${privateSaved.id}.json`).value);
+  assert.equal(privateSaved.promptPublic, false);
+  assert.equal(privateMeta.promptPublic, false);
+  assert.equal(Object.hasOwn(privateMeta.metadata, 'prompt'), false);
+
+  const publicBucket = fakeBucket();
+  const publicResponse = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'public prompt', promptPublic: true, visibility: 'public' } }),
+    fakeEnv({ IMAGE_BUCKET: publicBucket })
+  );
+  const publicSaved = await publicResponse.json();
+  const publicMeta = JSON.parse(publicBucket.store.get(`gallery-meta/${publicSaved.id}.json`).value);
+  assert.equal(publicSaved.promptPublic, true);
+  assert.equal(publicSaved.visibility, 'public');
+  assert.equal(publicMeta.metadata.prompt, 'public prompt');
+});
+
+test('GET /api/gallery requires admin token and lists cloud metadata without delete hashes', async () => {
+  const bucket = fakeBucket();
+  const env = fakeEnv({ IMAGE_BUCKET: bucket, GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const first = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { title: '第一張', prompt: 'private prompt', model: 'schnell', size: 'square' } }),
+    env
+  );
+  const second = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { title: '第二張', prompt: 'public prompt', promptPublic: true, visibility: 'public', seed: 9, mode: 'agent' } }),
+    env
+  );
+  const firstSaved = await first.json();
+  const secondSaved = await second.json();
+
+  const noToken = await worker.fetch(new Request('https://example.test/api/gallery', { method: 'GET' }), env);
+  assert.equal(noToken.status, 401);
+  assert.equal((await noToken.json()).code, 'unauthorized');
+
+  const disabled = await worker.fetch(
+    new Request('https://example.test/api/gallery', { method: 'GET', headers: { 'X-Gallery-Admin-Token': 'admin-secret' } }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  assert.equal(disabled.status, 503);
+  assert.equal((await disabled.json()).code, 'admin_gallery_disabled');
+
+  const listed = await worker.fetch(
+    new Request('https://example.test/api/gallery?limit=1', { method: 'GET', headers: { 'X-Gallery-Admin-Token': 'admin-secret' } }),
+    env
+  );
+  const data = await listed.json();
+  const body = JSON.stringify(data);
+  assert.equal(listed.status, 200);
+  assert.equal(data.items.length, 1);
+  assert.equal(data.truncated, true);
+  assert.equal(typeof data.cursor, 'string');
+  assert.equal(data.items[0].imageUrl.startsWith('/gallery/'), true);
+  assert.equal(data.items[0].shareUrl.startsWith('/share/'), true);
+  assert.equal(body.includes('deleteTokenHash'), false);
+  assert.equal(body.includes('private prompt'), false);
+
+  const listedAll = await worker.fetch(
+    new Request('https://example.test/api/gallery', { method: 'GET', headers: { 'X-Gallery-Admin-Token': 'admin-secret' } }),
+    env
+  );
+  const allData = await listedAll.json();
+  assert.equal(listedAll.status, 200);
+  assert.deepEqual(new Set(allData.items.map((item) => item.id)), new Set([firstSaved.id, secondSaved.id]));
+  assert.equal(allData.items.some((item) => item.promptPublic === true && item.visibility === 'public' && item.mode === 'agent'), true);
+});
+
+test('DELETE /gallery/:id deletes image and metadata only with the owner delete token', async () => {
+  const bucket = fakeBucket();
+  const saveResponse = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'delete me', seed: 7 } }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const saved = await saveResponse.json();
+  const deleteUrl = new URL(`https://example.test${saved.deleteUrl}`);
+  const deleteToken = deleteUrl.searchParams.get('deleteToken');
+  const metaBefore = JSON.parse(bucket.store.get(`gallery-meta/${saved.id}.json`).value);
+
+  assert.equal(saveResponse.status, 201);
+  assert.equal(typeof saved.deleteUrl, 'string');
+  assert.match(saved.deleteUrl, new RegExp(`^/gallery/${saved.id}/delete\\?deleteToken=`));
+  assert.equal(typeof deleteToken, 'string');
+  assert.equal(JSON.stringify(metaBefore).includes(deleteToken), false);
+  assert.equal(typeof metaBefore.deleteTokenHash, 'string');
+
+  const deletePage = await worker.fetch(
+    new Request(`https://example.test${saved.deleteUrl}`, { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const deletePageHtml = await deletePage.text();
+  assert.equal(deletePage.status, 200);
+  assert.match(deletePageHtml, /刪除雲端作品/);
+  assert.match(deletePageHtml, /確認刪除雲端作品/);
+  assert.match(deletePageHtml, /method: 'DELETE'/);
+  assert.equal(bucket.store.size, 2, 'opening the delete page must not delete the work');
+
+  const invalidDeletePage = await worker.fetch(
+    new Request(`https://example.test/gallery/${saved.id}/delete?deleteToken=bad-token`, { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const invalidDeletePageHtml = await invalidDeletePage.text();
+  assert.equal(invalidDeletePage.status, 401);
+  assert.match(invalidDeletePageHtml, /刪除授權無效/);
+
+  const missingToken = await worker.fetch(
+    new Request(`https://example.test/gallery/${saved.id}`, { method: 'DELETE' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  assert.equal(missingToken.status, 401);
+  assert.equal(bucket.store.size, 2);
+
+  const badToken = await worker.fetch(
+    new Request(`https://example.test/gallery/${saved.id}?deleteToken=bad-token`, { method: 'DELETE' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  assert.equal(badToken.status, 401);
+  assert.equal(bucket.store.size, 2);
+
+  const deleted = await worker.fetch(
+    new Request(`https://example.test/gallery/${saved.id}?deleteToken=${encodeURIComponent(deleteToken)}`, { method: 'DELETE' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const deletedBody = await deleted.json();
+  assert.equal(deleted.status, 200);
+  assert.equal(deletedBody.deleted, true);
+  assert.equal(bucket.store.has(`gallery/${saved.id}`), false);
+  assert.equal(bucket.store.has(`gallery-meta/${saved.id}.json`), false);
+
+  const afterDelete = await worker.fetch(
+    new Request(`https://example.test/gallery/${saved.id}`, { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  assert.equal(afterDelete.status, 404);
+});
+
+test('GET /share/:id hides prompts by default and only renders public prompts', async () => {
+  const privateBucket = fakeBucket();
+  const privateResponse = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', model: 'schnell', size: 'square', style: 'realistic', useCase: 'social' } }),
+    fakeEnv({ IMAGE_BUCKET: privateBucket })
+  );
+  const privateSaved = await privateResponse.json();
+  const privateShare = await worker.fetch(
+    new Request(`https://example.test/share/${privateSaved.id}`, { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: privateBucket })
+  );
+  const privateHtml = await privateShare.text();
+  assert.equal(privateShare.status, 200);
+  assert.match(privateHtml, /此作品未公開完整 prompt/);
+  assert.match(privateHtml, /仍可套用公開設定/);
+  assert.match(privateHtml, /Prompt：隱藏/);
+  assert.match(privateHtml, /套用公開設定再生成/);
+  assert.match(privateHtml, /複製模板設定/);
+  assert.match(privateHtml, /model=schnell/);
+  assert.match(privateHtml, /size=square/);
+  assert.match(privateHtml, /style=realistic/);
+  assert.match(privateHtml, /useCase=social/);
+  assert.doesNotMatch(privateHtml, /secret prompt/);
+  assert.doesNotMatch(privateHtml, /prompt=/);
+  assert.match(privateHtml, /noindex,nofollow/);
+
+  const publicBucket = fakeBucket();
+  const publicResponse = await worker.fetch(
+    jsonRequest('/gallery', {
+      image: TINY_PNG_DATA_URL,
+      meta: {
+        title: '測試作品標題',
+        prompt: 'public <prompt>',
+        promptPublic: true,
+        visibility: 'public',
+        seed: 9,
+        mode: 'agent',
+        model: 'schnell',
+        size: 'landscape',
+        style: 'cinematic',
+        styleLabel: '電影感',
+        useCase: 'ppt',
+        useCaseLabel: '簡報插圖',
+      },
+    }),
+    fakeEnv({ IMAGE_BUCKET: publicBucket })
+  );
+  const publicSaved = await publicResponse.json();
+  const publicShare = await worker.fetch(
+    new Request(`https://example.test/share/${publicSaved.id}`, { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: publicBucket })
+  );
+  const publicHtml = await publicShare.text();
+  assert.equal(publicShare.status, 200);
+  assert.match(publicHtml, /測試作品標題/);
+  assert.match(publicHtml, /public &lt;prompt&gt;/);
+  assert.doesNotMatch(publicHtml, /public <prompt>/);
+  assert.match(publicHtml, /複製 prompt 模板/);
+  assert.match(publicHtml, /複製模板設定/);
+  assert.match(publicHtml, /用這個 prompt 再生成/);
+  assert.match(publicHtml, /prompt=public\+%3Cprompt%3E/);
+  assert.match(publicHtml, /style=cinematic/);
+  assert.match(publicHtml, /useCase=ppt/);
+  assert.match(publicHtml, /智慧體模式/);
+  assert.match(publicHtml, /風格：電影感/);
+  assert.match(publicHtml, /用途：簡報插圖/);
+  assert.match(publicHtml, /Prompt：公開/);
+  assert.match(publicHtml, /index,follow/);
+});
+
+test('GET /share/:id does not leak sensitive metadata fields even if R2 metadata is polluted', async () => {
+  const bucket = fakeBucket();
+  const response = await worker.fetch(
+    jsonRequest('/gallery', {
+      image: TINY_PNG_DATA_URL,
+      meta: {
+        title: '安全分享測試',
+        prompt: 'visible public prompt',
+        promptPublic: true,
+        visibility: 'public',
+        model: 'schnell',
+        size: 'square',
+      },
+    }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const saved = await response.json();
+  const metaKey = `gallery-meta/${saved.id}.json`;
+  const stored = JSON.parse(bucket.store.get(metaKey).value);
+
+  stored.deleteTokenHash = 'secret-delete-token-hash';
+  stored.deleteUrl = `/gallery/${saved.id}/delete?deleteToken=raw-delete-token`;
+  stored.metadata.providerPrompt = 'secret provider prompt';
+  stored.metadata.negativePrompt = 'secret negative prompt';
+  stored.metadata.apiKey = 'sk-live-secret-key';
+  stored.metadata.nvidiaApiKey = 'nvapi-secret-key';
+  stored.metadata.cloudDeleteUrl = `/gallery/${saved.id}/delete?deleteToken=cloud-delete-secret`;
+  stored.metadata.deleteTokenHash = 'nested-delete-token-hash';
+  stored.metadata.localImageData = 'data:image/png;base64,secret-local-image';
+  bucket.store.set(metaKey, { value: JSON.stringify(stored), options: { httpMetadata: { contentType: 'application/json' } } });
+
+  const share = await worker.fetch(
+    new Request(`https://example.test/share/${saved.id}`, { method: 'GET' }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  const html = await share.text();
+
+  assert.equal(share.status, 200);
+  assert.match(html, /visible public prompt/);
+  assert.match(html, /安全分享測試/);
+  assert.doesNotMatch(html, /secret-delete-token-hash/);
+  assert.doesNotMatch(html, /raw-delete-token/);
+  assert.doesNotMatch(html, /cloud-delete-secret/);
+  assert.doesNotMatch(html, /secret provider prompt/);
+  assert.doesNotMatch(html, /secret negative prompt/);
+  assert.doesNotMatch(html, /sk-live-secret-key/);
+  assert.doesNotMatch(html, /nvapi-secret-key/);
+  assert.doesNotMatch(html, /nested-delete-token-hash/);
+  assert.doesNotMatch(html, /secret-local-image/);
+  assert.doesNotMatch(html, /deleteToken/i);
+  assert.doesNotMatch(html, /providerPrompt/);
+  assert.doesNotMatch(html, /apiKey/);
 });
 
 test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', async () => {
@@ -867,7 +1453,7 @@ test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', as
     env
   );
   assert.equal(withToken.status, 201);
-  assert.equal(bucket.store.size, 1);
+  assert.equal(bucket.store.size, 2);
 });
 
 test('POST /gallery accepts a realistic-size image larger than the generic 64KB JSON cap', async () => {
@@ -883,7 +1469,7 @@ test('POST /gallery accepts a realistic-size image larger than the generic 64KB 
   const data = await response.json();
   assert.equal(response.status, 201);
   assert.match(data.id, /\.png$/);
-  assert.equal(bucket.store.size, 1);
+  assert.equal(bucket.store.size, 2);
 });
 
 test('GET /gallery/:id returns 404 for an unknown id', async () => {
@@ -1001,6 +1587,44 @@ test('POST /generate model=schnell uses Workers AI with size and a real seed', a
   assert.equal(ai.calls[0].fields.width, '1344');
   assert.equal(ai.calls[0].fields.height, '768');
   assert.equal(String(data.seed), ai.calls[0].fields.seed);
+});
+
+test('POST /generate supports productized use-case size presets on Workers AI', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a mobile wallpaper', model: 'schnell', size: 'mobile_wallpaper', seed: 123 }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(data.width, 768);
+  assert.equal(data.height, 1664);
+  assert.equal(ai.calls[0].fields.width, '768');
+  assert.equal(ai.calls[0].fields.height, '1664');
+});
+
+test('POST /generate supports and validates custom dimensions on Workers AI', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const ok = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a custom poster', model: 'schnell', size: 'custom', width: 1152, height: 1536, seed: 123 }),
+    fakeEnv({ AI: ai })
+  );
+  const okBody = await ok.json();
+  assert.equal(ok.status, 200);
+  assert.equal(okBody.width, 1152);
+  assert.equal(okBody.height, 1536);
+  assert.equal(ai.calls[0].fields.width, '1152');
+  assert.equal(ai.calls[0].fields.height, '1536');
+
+  const invalid = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a custom poster', model: 'schnell', size: 'custom', width: 1000, height: 1536, seed: 123 }),
+    fakeEnv({ AI: fakeAi({ image: 'iVBORw0KGgo=' }) })
+  );
+  const invalidBody = await invalid.json();
+  assert.equal(invalid.status, 400);
+  assert.equal(invalidBody.code, 'bad_request');
+  assert.match(invalidBody.error, /自訂尺寸寬高必須是 256 到 1920/);
 });
 
 test('POST /generate model=schnell keeps an explicit seed on Workers AI', async () => {

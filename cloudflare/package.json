@@ -6,11 +6,15 @@
     "check": "node scripts/check-js.mjs",
     "sync": "node scripts/sync-static.mjs",
     "sync:check": "node scripts/sync-static.mjs --check",
+    "check:wrangler": "node scripts/check-wrangler-auth.mjs",
     "deploy": "node scripts/deploy.mjs",
     "deploy:dry-run": "node scripts/deploy.mjs --dry-run",
     "qa:browser:install": "playwright install chromium",
     "qa:browser": "node ../tests/e2e/cloudflare-v14-qa.mjs",
-    "qa:perf": "node ../tests/e2e/cloudflare-perf-qa.mjs"
+    "qa:network": "node ../tests/e2e/network-interrupted-qa.mjs",
+    "qa:perf": "node ../tests/e2e/cloudflare-perf-qa.mjs",
+    "qa:mobile": "node ../tests/e2e/mobile-generation-qa.mjs",
+    "qa:a11y": "node ../tests/e2e/accessibility-keyboard-qa.mjs"
   },
   "devDependencies": {
     "playwright": "^1.61.1",

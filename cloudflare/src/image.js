@@ -144,6 +144,75 @@ function readImageDimensions(u8) {
   return null;
 }
 
+function decodeBase64ToBytes(b64) {
+  const clean = String(b64 || "").replace(/\s+/g, "");
+  const bin = atob(clean);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+export function inspectGeneratedImage(image, expectedWidth, expectedHeight) {
+  const issues = [];
+  let score = 100;
+  const result = {
+    checked: false,
+    mime: null,
+    byteSize: null,
+    width: null,
+    height: null,
+    expectedWidth,
+    expectedHeight,
+    issues,
+    visualQualityScore: score,
+  };
+  if (typeof image !== "string" || !image) {
+    issues.push("圖片資料為空");
+    result.visualQualityScore = 0;
+    return result;
+  }
+  if (image.startsWith("http://") || image.startsWith("https://")) {
+    issues.push("遠端圖片 URL 未做內嵌品質檢查");
+    result.visualQualityScore = 82;
+    return result;
+  }
+  const match = image.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([\s\S]+)$/);
+  if (!match) {
+    issues.push("圖片格式不是可檢查的 data URL");
+    result.visualQualityScore = 45;
+    return result;
+  }
+  result.checked = true;
+  result.mime = match[1];
+  let bytes;
+  try {
+    bytes = decodeBase64ToBytes(match[2]);
+  } catch {
+    issues.push("圖片 base64 無法解碼");
+    result.visualQualityScore = 20;
+    return result;
+  }
+  result.byteSize = bytes.length;
+  if (bytes.length < 256) {
+    issues.push("圖片資料過小，可能是損壞或佔位圖");
+    score -= 35;
+  }
+  const dims = readImageDimensions(bytes);
+  if (dims) {
+    result.width = dims.width;
+    result.height = dims.height;
+    if (dims.width !== expectedWidth || dims.height !== expectedHeight) {
+      issues.push(`圖片實際尺寸 ${dims.width}×${dims.height} 與要求 ${expectedWidth}×${expectedHeight} 不一致`);
+      score -= 18;
+    }
+  } else {
+    issues.push("無法讀取圖片實際尺寸");
+    score -= 15;
+  }
+  result.visualQualityScore = Math.max(0, Math.min(100, score));
+  return result;
+}
+
 function extractImage(data, providerLabel = "NVIDIA") {
   const candidate = findImageCandidate(data);
   if (!candidate) throw new HttpError(`${providerLabel} 回應中找不到圖片資料`, 502, "bad_provider_response");
@@ -188,6 +257,14 @@ export function validateBatchCount(count) {
     throw new HttpError(`count 必須是 1 到 ${MAX_BATCH_COUNT} 之間的整數`, 400, "bad_request");
   }
   return count;
+}
+
+export function validateCustomDimension(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 256 || n > 1920 || n % 64 !== 0) {
+    throw new HttpError("自訂尺寸寬高必須是 256 到 1920 之間，且為 64 的倍數", 400, "bad_request");
+  }
+  return n;
 }
 
 export function randomImageSeed() {
@@ -272,19 +349,26 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     width,
     height,
     seed: effectiveSeed,
+    imageQuality: inspectGeneratedImage(image, width, height),
   };
 }
 
 // Generate ONE image. Returns a plain result object, or throws HttpError on a
 // provider/validation failure. Shared by /generate and /generate/batch.
-export async function generateOneImage(env, { prompt, model, size, seed }) {
-  const [width, height] = SIZE_MAP[size];
+export async function generateOneImage(env, { prompt, model, size, width, height, seed }) {
+  if (size === "custom") {
+    width = validateCustomDimension(width);
+    height = validateCustomDimension(height);
+  } else {
+    [width, height] = SIZE_MAP[size];
+  }
   if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
     return generateWithWorkersAi(env, { prompt, model, width, height, seed });
   }
   const key = getNvidiaApiKey(env);
   if (!key) {
-    return { image: makeDemoImageDataUrl(), provider: "demo", model, width, height, seed };
+    const image = makeDemoImageDataUrl();
+    return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
   }
 
   const base = (env.NVIDIA_BASE_URL || "https://ai.api.nvidia.com/v1/genai").replace(/\/+$/, "");
@@ -372,7 +456,7 @@ export async function generateOneImage(env, { prompt, model, size, seed }) {
     throw new HttpError("此描述觸發 NVIDIA 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
   }
   const image = extractImage(data);
-  return { image, provider: "nvidia", model, width, height, seed };
+  return { image, provider: "nvidia", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
 }
 
 export function validateEditImages(images) {

@@ -4,18 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0b0f">
-  <title>AI 圖片產生器 · 用文字生成你的想像</title>
-  <meta name="description" content="用中文描述就能生成圖片：以 NVIDIA FLUX 在無伺服器 GPU 上出圖，內建中英提示詞轉換、精選與隨機靈感、雲端圖庫。">
+  <title>Fluxi 中文 FLUX 圖片產生器｜白話中文直接生成圖片</title>
+  <meta name="description" content="中文 FLUX 圖片產生器：輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。">
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/favicon.svg">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="AI 圖片產生器 · 用文字生成你的想像">
-  <meta property="og:description" content="用中文描述就能生成圖片：NVIDIA FLUX 出圖、中英提示詞轉換、精選與隨機靈感、雲端圖庫。">
+  <meta property="og:title" content="Fluxi 中文 FLUX 圖片產生器">
+  <meta property="og:description" content="輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。">
   <meta property="og:image" content="https://flux-image-gen.irisx-tracker.workers.dev/static/og.jpg">
   <meta property="og:image:width" content="1344">
   <meta property="og:image:height" content="768">
   <meta property="og:url" content="https://flux-image-gen.irisx-tracker.workers.dev/">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Fluxi 中文 FLUX 圖片產生器">
+  <meta name="twitter:description" content="輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。">
   <meta name="twitter:image" content="https://flux-image-gen.irisx-tracker.workers.dev/static/og.jpg">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/static/styles.css">
@@ -29,29 +31,29 @@
   </div>
 
   <main class="shell">
-    <div id="oldbrowser" class="oldbrowser">⚠️ 偵測到你的瀏覽器較舊，部分功能可能無法運作。建議改用最新版 Chrome、Edge、Firefox 或 Safari。</div>
+    <div id="oldbrowser" class="oldbrowser" role="alert">⚠️ 偵測到你的瀏覽器較舊，部分功能可能無法運作。建議改用最新版 Chrome、Edge、Firefox 或 Safari。</div>
 
     <header class="topbar">
       <div class="brand">
         <span class="logo" aria-hidden="true">✦</span>
-        <span class="brand-name">AI 圖片產生器</span>
+        <span class="brand-name">Fluxi</span>
         <span class="badge">v1.2.0</span>
       </div>
-      <div id="provider-pill" class="pill" title="後端服務狀態">
+      <div id="provider-pill" class="pill" title="後端服務狀態" role="status" aria-live="polite" aria-atomic="true">
         <span class="dot"></span><span id="provider-text">連線中…</span>
       </div>
     </header>
 
-    <div id="demo-notice" class="demo-notice" hidden>
+    <div id="demo-notice" class="demo-notice" role="status" aria-live="polite" hidden>
       <span class="demo-ico" aria-hidden="true">⚠️</span>
       <span>目前是 <b>Demo 模式</b>，產出為本機示意圖。於 <code>.env</code> 設定 <code>NVIDIA_API_KEY</code> 後即為真實 FLUX 出圖。</span>
     </div>
 
     <header class="hero">
-      <p class="eyebrow">Modal 部署 · NVIDIA FLUX 出圖 · 用英文描述效果最好</p>
-      <h1 class="title">用文字，<br>生成你的想像。</h1>
-      <p class="lede">在 FLUX.1 上以無伺服器 GPU 出圖，輸入提示詞、選好尺寸，幾秒生成一張圖。</p>
-      <button id="openTutorial" class="mini-btn help-btn" type="button">？教學</button>
+      <p class="eyebrow">中文原生 · 智慧體補 prompt · FLUX 出圖</p>
+      <h1 class="title">一句中文，<br>生成可用圖片。</h1>
+      <p class="lede">Fluxi 是中文 FLUX 圖片產生器，會把白話需求整理成適合簡報、社群、產品與角色創作的出圖 prompt。</p>
+      <button id="openTutorial" class="mini-btn help-btn" type="button" aria-label="開啟快速教學">？教學</button>
     </header>
 
     <nav class="tabs" role="tablist" aria-label="功能分頁">
@@ -64,27 +66,54 @@
       <button class="tab" id="tab-edit" role="tab" type="button" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
         <span class="tab-ico" aria-hidden="true">🖌️</span><span class="tab-label">AI 改圖</span>
       </button>
+      <button class="tab" id="tab-projects" role="tab" type="button" aria-selected="false" aria-controls="panel-projects" tabindex="-1" data-tab="projects">
+        <span class="tab-ico" aria-hidden="true">📁</span><span class="tab-label">專案</span>
+      </button>
       <button class="tab" id="tab-history" role="tab" type="button" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">
         <span class="tab-ico" aria-hidden="true">🕘</span><span class="tab-label">歷史作品</span><span class="tab-badge" id="historyTabBadge" hidden></span>
+      </button>
+      <button class="tab" id="tab-usage" role="tab" type="button" aria-selected="false" aria-controls="panel-usage" tabindex="-1" data-tab="usage">
+        <span class="tab-ico" aria-hidden="true">📊</span><span class="tab-label">用量</span>
       </button>
     </nav>
 
     <div class="tabpanel" id="panel-generate" role="tabpanel" aria-labelledby="tab-generate">
     <section class="composer glass" aria-label="圖片描述">
-      <div class="prompt-tool" aria-label="白話中文轉專業英文提示詞">
+      <div class="prompt-tool product-first" aria-label="中文圖片創作">
         <div class="section-heading">
-          <span class="section-kicker">Prompt helper</span>
-          <h2>白話中文轉專業英文提示詞</h2>
-          <p>先用中文描述畫面；在輸入框按 Tab 可用 Gemma 先補完整，再轉成適合 FLUX 的英文提示詞。</p>
+          <span class="section-kicker">中文 FLUX</span>
+          <h2>中文輸入，直接生成 FLUX 圖片。</h2>
+          <p>適合簡報插圖、社群圖、產品概念圖、角色設定與靈感草稿。</p>
         </div>
-        <label class="final-prompt-label" for="plainPrompt">① 先用中文描述你想要的畫面</label>
-        <p class="prompt-shortcut-hint">快捷鍵：在中文描述框按 Tab 讓 Gemma 補完整中文描述；Ctrl / ⌘ + Enter 轉英文。</p>
-        <textarea id="plainPrompt" rows="3" placeholder="例如：一隻可愛柴犬在月球上吃拉麵，風格要可愛一點"></textarea>
+        <label class="final-prompt-label" for="plainPrompt">用中文描述你想要的畫面</label>
+        <p id="plainPromptHelp" class="visually-hidden">必填。請用中文描述主體、場景、風格或用途；按生成圖片後系統會自動整理成 FLUX prompt。</p>
+        <textarea id="plainPrompt" rows="3" aria-describedby="plainPromptHelp status" aria-required="true" placeholder="例如：一隻柴犬在月球吃拉麵，適合放在 PPT 封面，風格可愛但不要太像 AI"></textarea>
+        <div class="mode-switch" role="radiogroup" aria-label="生成模式">
+          <label class="mode-option">
+            <input id="modeNormal" name="generationMode" type="radio" value="normal" checked>
+            <span>一般模式</span>
+            <small>快速整理 prompt 後生成圖片</small>
+          </label>
+          <label class="mode-option">
+            <input id="modeAgent" name="generationMode" type="radio" value="agent">
+            <span>智慧體模式</span>
+            <small>解析需求、推薦模型尺寸，預設生成 4 張</small>
+          </label>
+        </div>
+        <div id="agentPanel" class="agent-panel" hidden>
+          <div class="agent-panel-head">
+            <strong>智慧體進度</strong>
+            <span id="agentModeSummary">等待中文需求</span>
+          </div>
+          <ol id="agentSteps" class="agent-steps" aria-live="polite"></ol>
+          <div id="agentRecommendation" class="agent-recommendation"></div>
+        </div>
+
         <div class="prompt-controls">
           <label class="field">
             <span class="field-label">風格</span>
             <div class="select-wrap">
-              <select id="promptStyle">
+              <select id="promptStyle" aria-label="選擇圖片風格">
                 <option value="auto">自動判斷</option>
                 <option value="cute">可愛</option>
                 <option value="cinematic">電影感</option>
@@ -95,104 +124,226 @@
               <span class="chevron" aria-hidden="true">▾</span>
             </div>
           </label>
-          <button id="transformPrompt" class="btn secondary" type="button">② 轉成英文提示詞</button>
+          <label class="field">
+            <span class="field-label">用途</span>
+            <div class="select-wrap">
+                <select id="useCase" aria-label="選擇圖片用途">
+                  <option value="auto">自動判斷</option>
+                  <option value="ppt">簡報插圖</option>
+                  <option value="social">社群貼文</option>
+                  <option value="story">IG 限動 / Reels / Shorts</option>
+                  <option value="product">產品概念圖</option>
+                  <option value="character">角色設定</option>
+                  <option value="thumbnail">YouTube 縮圖 / 封面</option>
+                  <option value="poster">海報</option>
+                  <option value="wallpaper">手機桌布</option>
+                  <option value="hero">網頁 Hero</option>
+                </select>
+              <span class="chevron" aria-hidden="true">▾</span>
+            </div>
+          </label>
+          <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
         </div>
-        <div id="transformStatus" class="transform-status" aria-live="polite"></div>
+        <div id="turnstileGate" class="turnstile-gate" hidden>
+          <div id="turnstileWidget" class="cf-turnstile" data-action="turnstile-spin-v1"></div>
+          <p id="turnstileStatus" class="turnstile-status" role="status" aria-live="polite">公開站生成前需完成人機驗證。</p>
+        </div>
+        <div id="transformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>
 
-      <label class="final-prompt-label" for="prompt">③ 拿去生成的英文提示詞（上面按鈕會自動填，也可直接打英文）</label>
-      <textarea id="prompt" rows="3" placeholder="按上方「② 轉成英文提示詞」會自動填這裡；你也可以直接打或貼英文，或點下方的靈感卡。"></textarea>
+      <details id="advancedSettings" class="advanced-settings">
+        <summary>進階設定：英文 prompt、Negative prompt、Seed、模型、尺寸與張數</summary>
+        <p class="prompt-shortcut-hint">可用下方按鈕轉成英文；鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
+        <button id="transformPrompt" class="btn secondary" type="button">轉成英文 provider prompt</button>
+        <label class="final-prompt-label" for="prompt">英文 provider prompt（可查看、複製、編輯）</label>
+        <textarea id="prompt" rows="3" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理成 FLUX prompt。"></textarea>
 
-      <div id="promptEnhancer" class="prompt-enhancer" aria-label="Prompt 強化器">
-        <label class="field-label" for="effectPrompt">加效果（選填）</label>
-        <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
-        <div class="enhance-actions">
-          <input id="effectPrompt" class="text-input" type="text"
-            placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
-          <button class="btn mini secondary" id="applyEffect" type="button">用 AI 套用效果</button>
-        </div>
-      </div>
-
-      <div class="prompt-controls advanced-controls" aria-label="進階生成設定">
-        <div class="field seed-field">
-          <span class="field-label">構圖模式</span>
-          <div class="seed-mode" role="group" aria-label="構圖模式">
-            <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
-            <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
+        <div id="promptEnhancer" class="prompt-enhancer" aria-label="Prompt 強化器">
+          <label class="field-label" for="effectPrompt">加效果（選填）</label>
+          <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
+          <div class="enhance-actions">
+            <input id="effectPrompt" class="text-input" type="text" aria-describedby="status"
+              placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
+            <button class="btn mini secondary" id="applyEffect" type="button">用 AI 套用效果</button>
           </div>
-          <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
-          <details class="seed-advanced">
-            <summary>進階：自訂種子碼</summary>
-            <input id="seed" class="text-input" type="number" min="0" max="2147483647" step="1" inputmode="numeric" placeholder="留空＝每次都不一樣">
-            <p class="seed-advanced-hint">同一個數字會畫出構圖相同的圖，想重現或微調時很好用。</p>
-          </details>
         </div>
-        <label class="field field-wide">
-          <span class="field-label">不想出現的東西（選填）</span>
-          <input id="avoid" class="text-input" type="text" maxlength="240" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, extra fingers）">
-        </label>
-      </div>
 
-      <div class="composer-foot">
-        <div class="controls">
-          <label class="field">
-            <span class="field-label">模型</span>
-            <div class="select-wrap">
-              <select id="model">
-                <!-- 快速檔自 2026-07 起改用 FLUX.2 klein 4B（NVIDIA schnell 故障期間）：本機 FastAPI 走 NVIDIA flux.2-klein-4b，Cloudflare 版走 Workers AI 同名模型 -->
-                <option value="schnell" selected>快速 · FLUX.2 Klein</option>
-                <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
-              </select>
-              <span class="chevron" aria-hidden="true">▾</span>
+        <div class="prompt-controls advanced-controls" role="group" aria-label="進階生成設定">
+          <div class="field seed-field">
+            <span class="field-label">構圖模式 / Seed</span>
+            <div class="seed-mode" role="group" aria-label="構圖模式">
+              <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
+              <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
             </div>
-          </label>
-          <label class="field">
-            <span class="field-label">尺寸 / 比例</span>
-            <div class="select-wrap">
-              <select id="size">
-                <option value="square">方形 1024×1024</option>
-                <option value="landscape">橫向 1344×768</option>
-                <option value="portrait">直向 768×1344</option>
-              </select>
-              <span class="chevron" aria-hidden="true">▾</span>
-            </div>
-          </label>
-          <label class="field">
-            <span class="field-label">張數</span>
-            <div class="select-wrap">
-              <select id="batchCount">
-                <option value="1">1 張</option>
-                <option value="2">2 張變體</option>
-                <option value="3">3 張變體</option>
-                <option value="4">4 張變體</option>
-              </select>
-              <span class="chevron" aria-hidden="true">▾</span>
-            </div>
+            <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
+            <details class="seed-advanced">
+              <summary>自訂種子碼</summary>
+              <input id="seed" class="text-input" type="number" min="0" max="2147483647" step="1" inputmode="numeric" aria-describedby="seedModeHint" placeholder="留空＝每次都不一樣">
+              <p class="seed-advanced-hint">同一個數字會畫出構圖相同的圖，想重現或微調時很好用。</p>
+            </details>
+          </div>
+          <label class="field field-wide">
+            <span class="field-label">Negative prompt / 不想出現的東西</span>
+            <input id="avoid" class="text-input" type="text" maxlength="240" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, extra fingers）">
           </label>
         </div>
 
-        <div class="btn-row">
-          <a id="dl" class="btn download is-disabled" aria-disabled="true" download="flux.png">⬇ 下載圖片</a>
-          <button id="go" class="btn primary" type="button">🎨 生成圖片</button>
+        <div class="composer-foot">
+          <div class="controls">
+            <label class="field">
+              <span class="field-label">模型</span>
+              <div class="select-wrap">
+                <select id="model" aria-label="選擇模型 preset">
+                  <!-- 快速檔自 2026-07 起改用 FLUX.2 klein 4B（NVIDIA schnell 故障期間）：本機 FastAPI 走 NVIDIA flux.2-klein-4b，Cloudflare 版走 Workers AI 同名模型 -->
+                  <option value="schnell" selected>快速草稿 · FLUX.2 Klein</option>
+                  <option value="dev">高品質輸出 · FLUX.1-dev（較慢）</option>
+                </select>
+                <span class="chevron" aria-hidden="true">▾</span>
+              </div>
+              <p class="model-license-hint">模型授權與商用限制依實際 provider 條款而定；商用前請自行確認第三方權利。</p>
+            </label>
+            <label class="field">
+              <span class="field-label">用途尺寸</span>
+              <div class="select-wrap">
+                <select id="size" aria-label="選擇用途尺寸">
+                  <option value="ig_post">IG 貼文 1:1（1024×1024）</option>
+                  <option value="ppt_16_9">PPT 橫式 16:9（1344×768）</option>
+                  <option value="ig_story">IG 限動 / Reels / Shorts 9:16（768×1344）</option>
+                  <option value="youtube_thumb">YouTube 縮圖 16:9（1344×768）</option>
+                  <option value="mobile_wallpaper">手機桌布 9:19.5（768×1664）</option>
+                  <option value="poster_3_4">海報 3:4（960×1280）</option>
+                  <option value="a4_illustration">A4 插圖（896×1280）</option>
+                  <option value="hero_21_9">網頁 Hero 21:9（1792×768）</option>
+                  <option value="custom">自訂尺寸</option>
+                </select>
+                <span class="chevron" aria-hidden="true">▾</span>
+              </div>
+              <div id="customSizeFields" class="custom-size-fields" hidden>
+                <label>寬度 px
+                  <input id="customWidth" class="text-input" type="number" min="256" max="1920" step="64" inputmode="numeric" value="1024">
+                </label>
+                <label>高度 px
+                  <input id="customHeight" class="text-input" type="number" min="256" max="1920" step="64" inputmode="numeric" value="1024">
+                </label>
+                <p class="seed-advanced-hint">自訂尺寸必須介於 256～1920，且為 64 的倍數；不合法會在送出前阻擋。</p>
+              </div>
+            </label>
+            <label class="field">
+              <span class="field-label">張數</span>
+              <div class="select-wrap">
+                <select id="batchCount" aria-label="選擇生成張數">
+                  <option value="1">1 張</option>
+                  <option value="2">2 張變體</option>
+                  <option value="3">3 張變體</option>
+                  <option value="4">4 張變體</option>
+                </select>
+                <span class="chevron" aria-hidden="true">▾</span>
+              </div>
+            </label>
+          </div>
         </div>
-      </div>
-      <div id="status" class="status" aria-live="polite"></div>
+      </details>
+      <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </section>
 
-    <section class="stage glass" id="stage" aria-label="生成結果"><span class="muted">圖片會出現在這裡</span></section>
+    <section class="stage glass" id="stage" role="region" aria-label="生成結果" aria-live="polite" aria-busy="false" tabindex="-1"><span class="muted">圖片生成後會出現在這裡。你可以先輸入一句中文，例如：一隻柴犬在月球吃拉麵。</span></section>
 
-    <div id="resultActions" class="result-actions" hidden>
-      <button id="regenerate" class="btn secondary" type="button">🔁 再生一張</button>
-      <button id="useComposition" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
-      <button id="copySettings" class="btn secondary" type="button">📋 複製這組設定</button>
+    <div id="resultActions" class="result-actions" aria-label="生成結果操作" hidden>
+      <a id="dl" class="btn download is-disabled" aria-disabled="true" download="flux.png" hidden>⬇ 下載圖片</a>
+      <button id="regenerate" class="btn secondary" type="button" aria-label="再生成一張圖片">🔁 再生一張</button>
+      <button id="useComposition" class="btn secondary" type="button" aria-label="以目前圖片的構圖再變化">🔧 以這張構圖再變化</button>
+      <button id="copySettings" class="btn secondary" type="button" aria-label="複製目前生成設定">📋 複製這組設定</button>
       <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
+      <button id="saveStyleCard" class="btn secondary" type="button">💾 儲存成風格卡</button>
       <button id="saveToCloud" class="btn secondary" type="button">☁️ 存到雲端</button>
     </div>
+
+    <section id="exampleGallery" class="example-gallery glass" aria-label="範例 Gallery">
+      <div class="section-heading compact">
+        <span class="section-kicker">範例 Gallery</span>
+        <h2>看看 Fluxi 可以做什麼</h2>
+        <p>點「套用範例」只會把中文描述、風格與尺寸帶入輸入框，不會直接消耗生成額度。</p>
+      </div>
+      <div class="example-grid">
+        <article class="example-card" data-example-prompt="一張適合簡報封面的插圖：台灣中小企業用 AI 自動整理資料，畫面乾淨、明亮、帶一點未來感，留白可放標題" data-example-style="cinematic" data-example-use-case="ppt" data-example-size="landscape">
+          <div class="example-thumb" aria-hidden="true">📊</div>
+          <div class="example-body">
+            <span class="example-category">PPT 插圖</span>
+            <h3>AI 資料簡報封面</h3>
+            <p>橫式、留白、適合投影片開場。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+        <article class="example-card" data-example-prompt="一瓶極簡保養品放在霧面石材平台上，柔和攝影棚光，乾淨背景，高級品牌形象照，適合新品社群貼文" data-example-style="product" data-example-use-case="product" data-example-size="square">
+          <div class="example-thumb" aria-hidden="true">🧴</div>
+          <div class="example-body">
+            <span class="example-category">產品照</span>
+            <h3>極簡保養品形象照</h3>
+            <p>棚拍光、乾淨背景、商品主視覺。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+        <article class="example-card" data-example-prompt="角色設定圖：一位戴著透明雨衣的近未來城市偵探，手拿小型無人機控制器，夜晚霓虹街道，全身站姿，表情冷靜" data-example-style="cinematic" data-example-use-case="character" data-example-size="portrait">
+          <div class="example-thumb" aria-hidden="true">🕵️</div>
+          <div class="example-body">
+            <span class="example-category">角色設計</span>
+            <h3>霓虹城市偵探</h3>
+            <p>角色輪廓清楚，可延伸系列圖。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+        <article class="example-card" data-example-prompt="動漫插畫：一位魔法料理學徒在夜晚屋頂煮發光拉麵，旁邊有小貓助手，溫暖可愛、細緻背景、日系動畫風" data-example-style="anime" data-example-use-case="social" data-example-size="square">
+          <div class="example-thumb" aria-hidden="true">🍜</div>
+          <div class="example-body">
+            <span class="example-category">動漫插畫</span>
+            <h3>魔法拉麵學徒</h3>
+            <p>可愛、敘事感、適合社群貼文。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+        <article class="example-card" data-example-prompt="美食攝影：一碗台式牛肉麵放在木桌上，熱氣上升，湯頭油光細緻，側逆光，淺景深，讓人有食慾" data-example-style="realistic" data-example-use-case="social" data-example-size="square">
+          <div class="example-thumb" aria-hidden="true">🥢</div>
+          <div class="example-body">
+            <span class="example-category">美食攝影</span>
+            <h3>台式牛肉麵特寫</h3>
+            <p>真實攝影、熱氣、淺景深。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+        <article class="example-card" data-example-prompt="建築室內概念圖：日光灑入木質閱讀咖啡館，高挑天花板、大片窗景、綠色植栽、安靜舒適的工作氛圍" data-example-style="realistic" data-example-use-case="ppt" data-example-size="landscape">
+          <div class="example-thumb" aria-hidden="true">🏛️</div>
+          <div class="example-body">
+            <span class="example-category">建築室內</span>
+            <h3>木質閱讀咖啡館</h3>
+            <p>空間設計提案與 moodboard。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+        <article class="example-card" data-example-prompt="科幻概念圖：海上漂浮城市在黃昏發光，太陽能帆板、透明溫室、遠方有無人船，電影級廣角構圖" data-example-style="cinematic" data-example-use-case="ppt" data-example-size="landscape">
+          <div class="example-thumb" aria-hidden="true">🛸</div>
+          <div class="example-body">
+            <span class="example-category">科幻概念</span>
+            <h3>海上漂浮城市</h3>
+            <p>廣角、世界觀、概念提案。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+        <article class="example-card" data-example-prompt="手機桌布：夜晚森林中一條發光小路通往玻璃小屋，螢火蟲、藍紫色月光、夢幻但不雜亂，直式構圖" data-example-style="cute" data-example-use-case="wallpaper" data-example-size="portrait">
+          <div class="example-thumb" aria-hidden="true">🌙</div>
+          <div class="example-body">
+            <span class="example-category">手機桌布</span>
+            <h3>月光森林小屋</h3>
+            <p>直式、乾淨、適合手機桌面。</p>
+            <button class="btn mini secondary apply-example" type="button">套用範例</button>
+          </div>
+        </article>
+      </div>
+    </section>
     </div><!-- /panel-generate -->
 
     <div class="tabpanel" id="panel-ideas" role="tabpanel" aria-labelledby="tab-ideas" hidden>
     <section class="ideas" aria-label="提示詞靈感">
-      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下直接出圖）</span></div>
+      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下只套用 prompt，不會自動消耗額度）</span></div>
       <div class="idea-grid">
         <button class="idea" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><span class="emo">🏞️</span><span class="lbl">水墨山水</span></button>
         <button class="idea" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><span class="emo">🌃</span><span class="lbl">賽博夜市</span></button>
@@ -211,11 +362,12 @@
       <div class="custom-ideas">
         <div class="custom-ideas-head">
           <div>
-            <div class="ideas-title">🧩 我的客製梗卡<span class="hint">（儲存在這台瀏覽器）</span></div>
-            <p class="custom-ideas-copy">建立常用提示詞，點卡片會自動套用模型與尺寸並生成圖片。</p>
+            <div class="ideas-title">🧩 我的風格卡<span class="hint">（提示詞卡，儲存在這台瀏覽器）</span></div>
+            <p class="custom-ideas-copy">保存常用 prompt、模型、尺寸、Seed 與預覽圖，點卡片即可重新套用。</p>
+            <p class="custom-ideas-copy">匯出 JSON 會包含完整 prompt、模型、尺寸與 Seed；公開分享前請先檢查內容。</p>
           </div>
-          <div class="mini-actions" aria-label="客製梗卡操作">
-            <button id="addIdea" class="btn mini" type="button">＋ 新增梗卡</button>
+          <div class="mini-actions" aria-label="風格卡操作">
+            <button id="addIdea" class="btn mini" type="button">＋ 新增風格卡</button>
             <button id="exportIdeas" class="btn mini secondary" type="button">匯出 JSON</button>
             <label class="btn mini secondary import-label" for="importIdeas">匯入 JSON</label>
             <input id="importIdeas" class="visually-hidden" type="file" accept="application/json,.json">
@@ -229,16 +381,55 @@
     <div class="tabpanel" id="panel-edit" role="tabpanel" aria-labelledby="tab-edit" hidden>
     <section class="composer glass" id="editPanel" aria-label="AI 改圖">
       <div class="section-heading">
-        <h2>🖌️ AI 改圖</h2>
-        <span class="hint">上傳 1–4 張圖 + 文字指令，讓 AI 依指示編輯（換色、換背景、合成、風格轉移）。</span>
+        <h2>🖌️ 參考圖與 AI 改圖</h2>
+        <span class="hint">上傳 1–4 張參考圖，標示用途後一起送出；可做角色一致、產品照、風格參考與構圖變化。</span>
+      </div>
+      <div class="edit-mode-grid" aria-label="參考圖模式">
+        <button class="edit-mode-card" type="button" data-edit-mode="general">
+          <strong>一般改圖</strong><span>換色、換背景、合成、風格轉移。</span>
+        </button>
+        <button class="edit-mode-card" type="button" data-edit-mode="character">
+          <strong>角色一致模式</strong><span>至少一張角色參考圖；可保持角色特徵但不能保證完全一致。</span>
+        </button>
+        <button class="edit-mode-card" type="button" data-edit-mode="product">
+          <strong>產品照模式</strong><span>上傳產品圖，選背景與光線，生成商品形象照。</span>
+        </button>
       </div>
       <label id="editDrop" class="edit-drop" for="editFiles">
         <input id="editFiles" type="file" accept="image/*" multiple hidden>
-        <span class="edit-drop-text">📁 點此選擇圖片（最多 4 張）</span>
+        <span class="edit-drop-text">📁 點此選擇參考圖（最多 4 張，支援角色／產品／風格／構圖）</span>
       </label>
       <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
+      <div class="edit-product-controls" aria-label="產品照設定">
+        <label class="field">
+          <span class="field-label">產品背景</span>
+          <select id="editProductBackground" class="text-input">
+            <option value="clean studio background">乾淨棚拍背景</option>
+            <option value="matte stone surface">霧面石材平台</option>
+            <option value="warm lifestyle interior">溫暖生活情境</option>
+            <option value="pure white ecommerce background">白底電商主圖</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">產品光線</span>
+          <select id="editProductLighting" class="text-input">
+            <option value="softbox studio lighting">柔和棚燈</option>
+            <option value="natural window light">自然窗光</option>
+            <option value="dramatic rim light">高級輪廓光</option>
+            <option value="bright clean commercial lighting">明亮商業光</option>
+          </select>
+        </label>
+      </div>
       <textarea id="editPrompt" rows="2" maxlength="900"
-        placeholder="用文字說明要怎麼改。多張圖時可用「image 0 / image 1」指涉，例如：把 image 0 的貓放進 image 1 的場景；或：把蘋果改成綠色"></textarea>
+        placeholder="輸入新場景或改圖指令。例：保持角色特徵，改成在雨夜街道；或：把產品放在霧面石材平台上，柔和棚燈，高級品牌形象照"></textarea>
+      <div class="edit-stub-tools" aria-label="即將推出的圖片編輯功能">
+        <button class="btn mini secondary" type="button" disabled title="即將推出">局部修改（即將推出）</button>
+        <button class="btn mini secondary" type="button" disabled title="即將推出">換背景（即將推出）</button>
+        <button class="btn mini secondary" type="button" disabled title="即將推出">擴圖（即將推出）</button>
+        <button class="btn mini secondary" type="button" disabled title="即將推出">去背（即將推出）</button>
+        <button class="btn mini secondary" type="button" disabled title="即將推出">加文字（即將推出）</button>
+        <button class="btn mini secondary" type="button" disabled title="即將推出">調整比例（即將推出）</button>
+      </div>
       <div class="composer-foot">
         <div class="btn-row">
           <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">⬇ 下載結果</a>
@@ -249,6 +440,43 @@
       <section class="stage glass" id="editStage" aria-label="改圖結果"><span class="muted">改好的圖會出現在這裡</span></section>
     </section>
     </div><!-- /panel-edit -->
+
+    <div class="tabpanel" id="panel-projects" role="tabpanel" aria-labelledby="tab-projects" hidden>
+    <section id="projectBoard" class="project-board glass" aria-label="專案管理">
+      <div class="history-head">
+        <div>
+          <div class="ideas-title">📁 專案<span class="hint">（整理同一主題的作品與風格卡）</span></div>
+          <p class="custom-ideas-copy">建立專案後，可把歷史作品與風格卡收進同一主題，之後從專案繼續生成。</p>
+        </div>
+        <button id="deleteProject" class="btn mini secondary" type="button">刪除目前專案</button>
+      </div>
+      <div class="project-create">
+        <input id="projectName" class="text-input" type="text" maxlength="48" placeholder="專案名稱，例如：品牌主視覺">
+        <input id="projectDescription" class="text-input" type="text" maxlength="280" placeholder="描述，例如：官網 Hero、社群貼文與產品圖方向">
+        <button id="createProject" class="btn primary" type="button">建立專案</button>
+      </div>
+      <div id="projectStatus" class="form-status" aria-live="polite"></div>
+      <div id="projectList" class="project-list" aria-label="專案清單"></div>
+      <div class="project-detail">
+        <div class="project-detail-head">
+          <div>
+            <h2 id="projectDetailTitle">尚未選取專案</h2>
+            <p id="projectDetailMeta">建立專案後，可以把作品與風格卡整理在一起。</p>
+          </div>
+        </div>
+        <div class="project-columns">
+          <section>
+            <h3>專案作品</h3>
+            <div id="projectRecordList" class="project-item-list"></div>
+          </section>
+          <section>
+            <h3>專案風格卡</h3>
+            <div id="projectCardList" class="project-item-list"></div>
+          </section>
+        </div>
+      </div>
+    </section>
+    </div><!-- /panel-projects -->
 
     <div class="tabpanel" id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden>
     <section id="historyWall" class="history-wall glass" aria-label="歷史記錄牆">
@@ -272,18 +500,134 @@
           <option value="landscape">橫向</option>
           <option value="portrait">直向</option>
         </select>
+        <label class="history-date-filter" for="historyDateFrom">
+          <span>起日</span>
+          <input id="historyDateFrom" class="text-input" type="date" aria-label="篩選起始日期">
+        </label>
+        <label class="history-date-filter" for="historyDateTo">
+          <span>迄日</span>
+          <input id="historyDateTo" class="text-input" type="date" aria-label="篩選結束日期">
+        </label>
         <label class="tutorial-check" for="historyFavoritesOnly">
           <input id="historyFavoritesOnly" type="checkbox">
           <span>只看收藏</span>
         </label>
+        <label class="tutorial-check" for="historyCloudOnly">
+          <input id="historyCloudOnly" type="checkbox">
+          <span>只看雲端</span>
+        </label>
+      </div>
+      <div id="cloudLibrary" class="cloud-library" aria-label="雲端作品管理">
+        <div class="cloud-library-head">
+          <div>
+            <strong>☁️ 雲端作品管理</strong>
+            <p>集中查看已保存到雲端的分享頁、刪除頁、Prompt 公開狀態與保存時間；實際刪除仍需打開刪除頁確認。</p>
+          </div>
+          <span id="cloudLibraryCount" class="cloud-library-count">0 筆雲端作品</span>
+        </div>
+        <div id="cloudRecordList" class="cloud-record-list" aria-live="polite"></div>
+      </div>
+      <div id="historyBatchBar" class="history-batch-bar">
+        <span id="historySelectionCount">尚未選取作品</span>
+        <div class="history-batch-actions">
+          <button id="selectVisibleHistory" class="btn mini secondary" type="button">選取目前篩選</button>
+          <button id="clearHistorySelection" class="btn mini secondary" type="button" disabled>取消選取</button>
+          <button id="deleteSelectedHistory" class="btn mini danger" type="button" disabled>刪除選取</button>
+        </div>
       </div>
       <div id="historyGrid" class="history-grid" aria-live="polite"></div>
     </section>
     </div><!-- /panel-history -->
 
+    <div class="tabpanel" id="panel-usage" role="tabpanel" aria-labelledby="tab-usage" hidden>
+    <section id="usageDashboard" class="usage-dashboard glass" aria-label="成本與生成用量 Dashboard">
+      <div class="history-head">
+        <div>
+          <span class="section-kicker">站長工具</span>
+          <h2>成本 Dashboard</h2>
+          <p>查看今日生成次數、失敗率、估計成本、模型用量與異常提醒。此摘要不保存 prompt、圖片內容或原始 IP。</p>
+        </div>
+        <div class="history-actions">
+          <label class="field" for="usageDate">
+            <span class="field-label">查詢日期</span>
+            <input id="usageDate" class="text-input" type="date" aria-label="查詢用量日期">
+          </label>
+          <button id="refreshUsage" class="btn mini secondary" type="button">重新整理</button>
+        </div>
+      </div>
+      <div id="usageStatus" class="status" role="status" aria-live="polite" aria-atomic="true">尚未載入用量資料。</div>
+      <div class="usage-metrics" aria-label="今日用量摘要">
+        <article class="usage-metric"><span>今日生成圖數</span><strong id="usageGeneratedImages">—</strong></article>
+        <article class="usage-metric"><span>今日失敗次數</span><strong id="usageFailedRequests">—</strong></article>
+        <article class="usage-metric"><span>今日估計成本</span><strong id="usageEstimatedCost">—</strong></article>
+        <article class="usage-metric"><span>平均生成時間</span><strong id="usageAverageMs">—</strong></article>
+        <article class="usage-metric"><span>錯誤率</span><strong id="usageErrorRate">—</strong></article>
+        <article class="usage-metric"><span>總請求數</span><strong id="usageTotalRequests">—</strong></article>
+      </div>
+      <div id="usageAlerts" class="usage-alerts" aria-live="polite"></div>
+      <div class="usage-columns">
+        <section class="usage-card">
+          <h3>每模型使用量</h3>
+          <div id="usageByModel" class="usage-table" role="table" aria-label="每模型使用量"></div>
+        </section>
+        <section class="usage-card">
+          <h3>每 provider 使用量</h3>
+          <div id="usageByProvider" class="usage-table" role="table" aria-label="每 provider 使用量"></div>
+        </section>
+        <section class="usage-card">
+          <h3>路由用量</h3>
+          <div id="usageByRoute" class="usage-table" role="table" aria-label="路由用量"></div>
+        </section>
+        <section class="usage-card">
+          <h3>錯誤碼</h3>
+          <div id="usageByError" class="usage-table" role="table" aria-label="錯誤碼統計"></div>
+        </section>
+      </div>
+      <section class="gallery-admin-card" aria-label="站長雲端圖庫管理">
+        <div class="gallery-admin-head">
+          <div>
+            <h3>☁️ 雲端圖庫管理</h3>
+            <p>用 Worker secret <code>GALLERY_ADMIN_TOKEN</code> 讀取 R2 metadata 清單；此工具不會暴露刪除 token hash，也不會顯示未公開的完整 prompt。</p>
+          </div>
+          <span id="galleryAdminCount" class="gallery-admin-count">尚未載入</span>
+        </div>
+        <div class="gallery-admin-controls">
+          <label class="field" for="galleryAdminToken">
+            <span class="field-label">站長 Token</span>
+            <input id="galleryAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 GALLERY_ADMIN_TOKEN" aria-label="站長雲端圖庫 Token">
+          </label>
+          <button id="refreshGalleryAdmin" class="btn mini secondary" type="button">讀取雲端圖庫</button>
+          <button id="galleryAdminNext" class="btn mini secondary" type="button" disabled>載入下一頁</button>
+        </div>
+        <div class="gallery-admin-filters" aria-label="雲端圖庫篩選">
+          <input id="galleryAdminSearch" class="text-input" type="search" placeholder="搜尋標題、id、模型或尺寸" aria-label="搜尋雲端圖庫">
+          <select id="galleryAdminVisibility" class="text-input" aria-label="篩選公開狀態">
+            <option value="">所有公開狀態</option>
+            <option value="public">公開</option>
+            <option value="private">非公開</option>
+          </select>
+          <select id="galleryAdminPromptPublic" class="text-input" aria-label="篩選 Prompt 公開狀態">
+            <option value="">所有 Prompt 狀態</option>
+            <option value="true">Prompt 公開</option>
+            <option value="false">Prompt 隱藏</option>
+          </select>
+          <input id="galleryAdminModel" class="text-input" type="search" placeholder="模型篩選，例如 schnell" aria-label="依模型篩選">
+        </div>
+        <div id="galleryAdminStatus" class="status" role="status" aria-live="polite" aria-atomic="true">尚未讀取雲端圖庫。</div>
+        <div id="galleryAdminList" class="gallery-admin-list" aria-live="polite"></div>
+      </section>
+    </section>
+    </div><!-- /panel-usage -->
+
     <footer class="footer">
       <div>感謝 Modal 提供部署與運算，NVIDIA 提供 FLUX 影像生成資源。未設定金鑰時會回傳本機 Demo PNG，方便驗證流程。</div>
-      <div class="footer-meta">AI 圖片產生器 · 版本 v1.2.0</div>
+      <div class="footer-meta">
+        Fluxi 中文 FLUX 圖片產生器 · 版本 v1.2.0
+        <span class="footer-links">
+          <button id="openPrivacyPolicy" class="footer-link" type="button">隱私政策</button>
+          <button id="openLicensePolicy" class="footer-link" type="button">授權與商用說明</button>
+        </span>
+      </div>
     </footer>
 
     <div id="historyDetailModal" class="modal-backdrop" hidden>
@@ -307,8 +651,20 @@
             <p id="historyDetailMeta"></p>
           </section>
           <section>
+            <h3>智慧體 QA</h3>
+            <p id="historyDetailQaReport"></p>
+          </section>
+          <section>
             <h3>版本</h3>
             <div id="historyVersionList" class="version-list"></div>
+          </section>
+          <section id="historyCloudSection" hidden>
+            <h3>雲端保存</h3>
+            <p id="historyCloudMeta"></p>
+            <div class="history-cloud-actions">
+              <a id="openHistoryCloudShare" class="btn secondary" href="#" target="_blank" rel="noopener">開啟分享頁</a>
+              <a id="openHistoryCloudDelete" class="btn danger" href="#" target="_blank" rel="noopener">開啟刪除頁</a>
+            </div>
           </section>
         </div>
         <label class="form-field" for="historyTagEditor">
@@ -316,14 +672,23 @@
           <input id="historyTagEditor" class="text-input" type="text" placeholder="用逗號分隔，例如：角色, 產品, 靈感">
         </label>
         <button id="saveHistoryTags" class="btn secondary" type="button">儲存標籤</button>
+        <div class="project-add-row">
+          <label class="form-field" for="historyProjectSelect">
+            <span>加入專案</span>
+            <select id="historyProjectSelect" class="text-input"></select>
+          </label>
+          <button id="addHistoryToProject" class="btn secondary" type="button">加入目前專案</button>
+        </div>
         <label class="tutorial-check" for="hidePromptInShare">
           <input id="hidePromptInShare" type="checkbox">
           <span>分享時隱藏 prompt</span>
         </label>
+        <p class="custom-ideas-copy">匯出作品 JSON 會包含白話 prompt、Provider prompt、Seed、metadata，且可能包含雲端分享或刪除連結；公開前請先檢查。</p>
         <div class="modal-actions">
           <button id="downloadHistoryDetail" class="btn secondary" type="button">下載圖片</button>
           <button id="copyHistoryPrompt" class="btn secondary" type="button">複製 prompt</button>
           <button id="copyHistoryShareText" class="btn secondary" type="button">複製分享文案</button>
+          <button id="saveHistoryAsStyleCard" class="btn secondary" type="button">儲存成風格卡</button>
           <button id="exportHistoryJson" class="btn secondary" type="button">匯出作品 JSON</button>
           <button id="useCompositionDetail" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
           <button id="regenerateHistoryDetail" class="btn primary" type="button">以此版本再生</button>
@@ -334,7 +699,7 @@
     <div id="ideaEditor" class="modal-backdrop" hidden>
       <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ideaEditorTitle">
         <div class="modal-head">
-          <h2 id="ideaEditorTitle">新增客製梗卡</h2>
+          <h2 id="ideaEditorTitle">新增風格卡</h2>
           <button id="closeIdeaEditor" class="icon-btn" type="button" aria-label="關閉">×</button>
         </div>
         <form id="ideaForm" class="idea-form">
@@ -351,29 +716,45 @@
           </div>
           <label class="form-field">
             <span>中文描述</span>
-            <textarea id="ideaPromptZh" rows="3" maxlength="500" placeholder="沒有英文提示詞時，點卡片會先自動轉成英文。"></textarea>
+            <textarea id="ideaPromptZh" rows="3" maxlength="1200" placeholder="白話中文描述；沒有 provider prompt 時會自動整理。"></textarea>
           </label>
           <label class="form-field">
-            <span>英文提示詞</span>
-            <textarea id="ideaPromptEn" rows="4" maxlength="1000" placeholder="可直接貼最終英文提示詞；有填寫時會略過轉換。"></textarea>
+            <span>Provider prompt</span>
+            <textarea id="ideaPromptEn" rows="4" maxlength="2400" placeholder="可保存最終 FLUX provider prompt；有填寫時會直接使用。"></textarea>
+          </label>
+          <label class="form-field">
+            <span>Negative prompt</span>
+            <textarea id="ideaNegativePrompt" rows="2" maxlength="1200" placeholder="例如：low quality, blurry, watermark"></textarea>
           </label>
           <div class="form-grid">
             <label class="form-field">
-              <span>模型</span>
+              <span>模型 preset</span>
               <select id="ideaModel">
-                <option value="schnell">快速 · FLUX.2 Klein</option>
-                <option value="dev">高品質 · FLUX.1-dev（較慢）</option>
+                <option value="schnell">快速草稿 · FLUX.2 Klein</option>
+                <option value="dev">高品質輸出 · FLUX.1-dev</option>
               </select>
             </label>
             <label class="form-field">
-              <span>尺寸 / 比例</span>
+              <span>尺寸 preset</span>
               <select id="ideaSize">
-                <option value="square">方形 1024×1024</option>
-                <option value="landscape">橫向 1344×768</option>
-                <option value="portrait">直向 768×1344</option>
+                <option value="square">IG 貼文 1:1 · 1024×1024</option>
+                <option value="landscape">PPT / YouTube 16:9 · 1344×768</option>
+                <option value="portrait">IG 限動 / 海報 · 768×1344</option>
               </select>
             </label>
           </div>
+          <div class="form-grid">
+            <label class="form-field">
+              <span>Seed</span>
+              <input id="ideaSeed" type="number" min="0" step="1" placeholder="留空代表隨機">
+            </label>
+            <label class="form-field">
+              <span>Tags</span>
+              <input id="ideaTags" type="text" maxlength="240" placeholder="用逗號分隔，例如：產品, PPT, 角色">
+            </label>
+          </div>
+          <input id="ideaPreviewImageUrl" type="hidden">
+          <input id="ideaCreatedAt" type="hidden">
           <div id="ideaEditorStatus" class="form-status" aria-live="polite"></div>
           <div class="modal-actions">
             <button id="deleteIdea" class="btn danger" type="button">刪除卡片</button>
@@ -383,6 +764,123 @@
             </div>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div id="cloudSaveModal" class="modal-backdrop" hidden>
+      <div class="modal cloud-save-modal" role="dialog" aria-modal="true" aria-labelledby="cloudSaveTitle">
+        <div class="modal-head">
+          <h2 id="cloudSaveTitle">存到雲端前請確認</h2>
+          <button id="closeCloudSave" class="icon-btn" type="button" aria-label="關閉雲端保存說明">×</button>
+        </div>
+        <div class="cloud-save-copy">
+          <p><strong>目前不需要登入。</strong>圖片會存到站台設定的 Cloudflare R2；metadata 會分開保存為 R2 JSON。</p>
+          <p><strong>公開性：</strong>目前沒有帳號權限系統，因此雲端連結屬於「知道連結即可查看」。若不想分享，請只保留本機歷史。</p>
+          <p><strong>Prompt：</strong>預設不公開也不保存完整 prompt 到雲端 metadata；只有勾選下方選項才會保存並可供分享頁顯示。</p>
+          <p><strong>刪除：</strong>上傳成功後會產生刪除連結，並同步保存在本機歷史詳情；打開連結後可確認刪除 R2 圖片與 metadata。若清除本機資料後遺失連結，需請站長從 R2 刪除。</p>
+          <p><strong>保存期限：</strong>直到站長刪除或儲存桶生命週期規則清除為止。</p>
+        </div>
+        <label class="tutorial-check" for="cloudIncludePrompt">
+          <input id="cloudIncludePrompt" type="checkbox">
+          <span>公開並保存完整 prompt 到雲端 metadata</span>
+        </label>
+        <label class="tutorial-check" for="cloudAcknowledge">
+          <input id="cloudAcknowledge" type="checkbox">
+          <span>我了解此連結不是登入保護的私密作品</span>
+        </label>
+        <div id="cloudSaveStatus" class="form-status" aria-live="polite"></div>
+        <div id="cloudFallbackInfo" class="cloud-fallback-info" hidden>
+          <strong>雲端保存失敗時的本機備援</strong>
+          <span>作品仍保留在這台瀏覽器。你可以先下載圖片或匯出本機作品 JSON，之後再重試雲端保存。</span>
+          <div class="cloud-link-row">
+            <button id="downloadCloudFallbackImage" class="btn secondary" type="button">下載本機圖片</button>
+            <button id="exportCloudFallbackJson" class="btn secondary" type="button">匯出本機作品 JSON</button>
+          </div>
+        </div>
+        <div id="cloudShareInfo" class="cloud-link-info" hidden>
+          <strong>雲端分享連結</strong>
+          <span>此連結可開啟分享頁；預設不公開完整 prompt，除非你已勾選公開 prompt。</span>
+          <div class="cloud-link-row">
+            <input id="cloudShareUrl" class="text-input" type="text" readonly aria-label="雲端作品分享連結">
+            <button id="copyCloudShareUrl" class="btn secondary" type="button">複製分享連結</button>
+          </div>
+        </div>
+        <div id="cloudDeleteInfo" class="cloud-delete-info" hidden>
+          <strong>刪除連結已保存到本機歷史</strong>
+          <span>也可手動複製此連結；打開後可確認刪除，任何取得連結的人都可刪除此雲端作品。</span>
+          <div class="cloud-link-row">
+            <input id="cloudDeleteUrl" class="text-input" type="text" readonly aria-label="雲端作品刪除連結">
+            <button id="copyCloudDeleteUrl" class="btn secondary" type="button">複製刪除連結</button>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button id="cloudLocalOnly" class="btn secondary" type="button">只保留本機歷史</button>
+          <div class="modal-actions-main">
+            <button id="confirmCloudSave" class="btn primary" type="button">確認上傳並複製連結</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="privacyPolicyModal" class="modal-backdrop" hidden>
+      <div class="modal policy-modal" role="dialog" aria-modal="true" aria-labelledby="privacyPolicyTitle">
+        <div class="modal-head">
+          <h2 id="privacyPolicyTitle">隱私政策</h2>
+          <button id="closePrivacyPolicy" class="icon-btn" type="button" aria-label="關閉隱私政策">×</button>
+        </div>
+        <div class="policy-copy">
+          <section>
+            <h3>Prompt 與圖片會送去哪裡？</h3>
+            <p>為了整理中文描述與生成圖片，你輸入的 prompt 可能會送到後端、Gemini／Gemma 提示詞服務、NVIDIA FLUX 或 Cloudflare Workers AI。實際使用哪個 provider 取決於目前服務狀態與模型設定。</p>
+          </section>
+          <section>
+            <h3>本機歷史與雲端保存差異</h3>
+            <p>本機歷史、風格卡與專案會存在這台瀏覽器的 localStorage。只有你點「存到雲端」並確認後，圖片才會上傳到 Cloudflare R2；metadata 會分開保存為 R2 JSON。</p>
+          </section>
+          <section>
+            <h3>Prompt 是否公開？</h3>
+            <p>雲端保存預設不公開、也不保存完整 prompt。只有你在保存前勾選「公開並保存完整 prompt」時，prompt 才會寫入雲端 metadata。</p>
+          </section>
+          <section>
+            <h3>Cookies、localStorage 與刪除資料</h3>
+            <p>本站目前主要使用 localStorage 保存教學狀態、本機歷史、風格卡與專案；不需要登入 cookie。你可以在這裡清除本機資料。</p>
+            <div class="local-data-row">
+              <button id="clearLocalData" class="btn danger" type="button">清除本機資料</button>
+              <span>會清除這台瀏覽器中的歷史、風格卡、專案與教學偏好；雲端 R2 作品不會因此刪除。</span>
+            </div>
+          </section>
+          <section>
+            <h3>是否用於訓練模型？</h3>
+            <p>本站不主動拿你的 prompt 或圖片訓練自有模型。第三方 provider 如何處理資料，仍以各 provider 的服務條款與資料政策為準。</p>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div id="licensePolicyModal" class="modal-backdrop" hidden>
+      <div class="modal policy-modal" role="dialog" aria-modal="true" aria-labelledby="licensePolicyTitle">
+        <div class="modal-head">
+          <h2 id="licensePolicyTitle">授權與商用說明</h2>
+          <button id="closeLicensePolicy" class="icon-btn" type="button" aria-label="關閉授權與商用說明">×</button>
+        </div>
+        <div class="policy-copy">
+          <section>
+            <h3>模型與 provider 限制</h3>
+            <p>不同模型與服務商可能有不同使用限制。快速草稿、高品質輸出、Workers AI、NVIDIA FLUX 與未來新增模型，都應以實際 provider 條款為準。</p>
+          </section>
+          <section>
+            <h3>生成圖能否商用？</h3>
+            <p>本站不替你保證生成圖可商用、不侵權或適合特定用途。商用前請自行確認模型條款、素材來源、品牌、商標、人物肖像與第三方權利。</p>
+          </section>
+          <section>
+            <h3>禁止用途</h3>
+            <p>不得用於違法、詐欺、仿冒證件、侵犯隱私、濫用商標、未成年敏感內容、未授權名人或政治人物高風險素材等用途。</p>
+          </section>
+          <section>
+            <h3>AI 生成標示建議</h3>
+            <p>若作品用於公開、商業或新聞脈絡，建議標示為 AI 生成或 AI 輔助創作，並保留 prompt、模型與日期紀錄以便追溯。</p>
+          </section>
+        </div>
       </div>
     </div>
 
@@ -406,8 +904,8 @@
             <span>依照速度、品質與用途，選擇 FLUX 模型和方形、橫向或直向尺寸。</span>
           </li>
           <li data-tutorial-step="4">
-            <strong>生成、下載、收藏梗卡</strong>
-            <span>按下生成後可下載圖片，也能把常用題材存成客製梗卡下次快速重用。</span>
+            <strong>生成、下載、收藏風格卡</strong>
+            <span>按下生成後可下載圖片，也能把常用題材存成風格卡下次快速重用。</span>
           </li>
         </ol>
         <div class="modal-actions">
@@ -422,13 +920,14 @@
       </div>
     </div>
 
-    <div id="pwaUpdateNotice" class="pwa-update-notice" role="status" aria-live="polite" hidden>
+    <div id="pwaUpdateNotice" class="pwa-update-notice" role="status" aria-live="polite" aria-atomic="true" hidden>
       <span>新版本已準備好。</span>
       <button id="reloadPwa" class="btn mini secondary" type="button">重新整理</button>
     </div>
 
-    <div id="mobileGenerateBar" class="mobile-generate-bar" hidden>
-      <button id="mobileGenerate" class="btn primary" type="button">🎨 生成圖片</button>
+    <div id="mobileGenerateBar" class="mobile-generate-bar" role="region" aria-label="手機固定生成列" hidden>
+      <span id="mobileGenerateSummary" class="mobile-generate-summary" aria-live="polite">自動用途｜自動風格</span>
+      <button id="mobileGenerate" class="btn primary" type="button" aria-describedby="mobileGenerateSummary status">🎨 生成圖片</button>
     </div>
   </main>
 
@@ -443,6 +942,9 @@
   <script src="/static/idea-cards.js"></script>
   <script src="/static/history-store.js"></script>
   <script src="/static/history-wall.js"></script>
+  <script src="/static/project-store.js"></script>
+  <script src="/static/project-board.js"></script>
+  <script src="/static/usage-dashboard.js"></script>
   <script src="/static/tutorial.js"></script>
   <script src="/static/prompt-pack.js"></script>
 </body>

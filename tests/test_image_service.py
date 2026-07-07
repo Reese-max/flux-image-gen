@@ -9,6 +9,21 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(map_size("square"), (1024, 1024))
         self.assertEqual(map_size("landscape"), (1344, 768))
         self.assertEqual(map_size("portrait"), (768, 1344))
+        self.assertEqual(map_size("ig_post"), (1024, 1024))
+        self.assertEqual(map_size("ppt_16_9"), (1344, 768))
+        self.assertEqual(map_size("ig_story"), (768, 1344))
+        self.assertEqual(map_size("youtube_thumb"), (1344, 768))
+        self.assertEqual(map_size("mobile_wallpaper"), (768, 1664))
+        self.assertEqual(map_size("poster_3_4"), (960, 1280))
+        self.assertEqual(map_size("a4_illustration"), (896, 1280))
+        self.assertEqual(map_size("hero_21_9"), (1792, 768))
+        self.assertEqual(map_size("custom", 1152, 1536), (1152, 1536))
+
+    def test_map_size_validates_custom_dimensions(self):
+        with self.assertRaisesRegex(ValueError, "自訂尺寸寬高必須"):
+            map_size("custom", 1000, 1024)
+        with self.assertRaisesRegex(ValueError, "自訂尺寸寬高必須"):
+            map_size("custom", 1024, 2048)
 
     def test_validate_prompt_rejects_blank_prompt(self):
         with self.assertRaisesRegex(ValueError, "請先輸入描述文字"):
@@ -58,6 +73,24 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.provider, "demo")
         self.assertEqual(result.width, 1024)
         self.assertEqual(result.height, 1024)
+        self.assertEqual(result.image_quality["mime"], "image/png")
+        self.assertEqual(result.image_quality["width"], 1024)
+        self.assertEqual(result.image_quality["height"], 1024)
+        self.assertEqual(result.image_quality["issues"], [])
+
+    def test_inspect_generated_image_flags_dimension_mismatch_without_leaking_image_data(self):
+        from app.demo_image import make_demo_png_data_url
+        from app.image_service import inspect_generated_image
+
+        image = make_demo_png_data_url("tiny", 512, 512, "schnell")
+        quality = inspect_generated_image(image, 1024, 1024)
+
+        self.assertTrue(quality["checked"])
+        self.assertEqual(quality["mime"], "image/png")
+        self.assertEqual(quality["width"], 512)
+        self.assertEqual(quality["height"], 512)
+        self.assertIn("與要求 1024×1024 不一致", "；".join(quality["issues"]))
+        self.assertNotIn("base64", str(quality))
 
     async def test_nvidia_provider_payload_uses_request_seed(self):
         import base64
@@ -233,6 +266,35 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, 429)
         self.assertEqual(payload["code"], "rate_limited")
         self.assertEqual(payload["retry_after"], 17)
+
+    def test_provider_error_message_redacts_secrets_and_stack_traces(self):
+        from app.image_service import ProviderError, to_http_error
+
+        payload, status = to_http_error(
+            ProviderError(
+                "NVIDIA failed Authorization: Bearer nvapi-secret-token sk-proj-secret\nTraceback (most recent call last)",
+                status_code=500,
+                code="nvidia_error",
+            )
+        )
+
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["code"], "nvidia_error")
+        self.assertEqual(payload["error"], "出圖服務回傳錯誤，請稍後再試")
+        self.assertNotIn("nvapi-secret-token", payload["error"])
+        self.assertNotIn("sk-proj-secret", payload["error"])
+        self.assertNotIn("Traceback", payload["error"])
+
+    def test_response_error_message_redacts_secret_tokens_without_hiding_status(self):
+        import httpx
+
+        from app.image_service import _response_error_message
+
+        response = httpx.Response(500, text="upstream failed with Bearer nvapi-secret-token")
+        message = _response_error_message(response)
+
+        self.assertIn("Bearer [redacted]", message)
+        self.assertNotIn("nvapi-secret-token", message)
 
     async def test_nvidia_provider_retries_transient_failure_then_succeeds(self):
         import base64

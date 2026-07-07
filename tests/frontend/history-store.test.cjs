@@ -85,16 +85,36 @@ test('normalizeRecord trims fields, uses injected id factory, and applies defaul
   assert.equal(record.createdAt.length > 0, true);
   assert.deepEqual(plain(Object.assign({}, record, { createdAt: 'normalized-date' })), {
     id: 'history-id-1',
+    schemaVersion: 2,
+    userPrompt: '一隻太空貓',
+    expandedPrompt: '',
     image: 'data:image/png;base64,abc',
     thumbnail: 'data:image/png;base64,abc',
     prompt: '一隻太空貓',
     providerPrompt: '一隻太空貓',
+    negativePrompt: '',
     avoid: '',
     model: 'schnell',
     size: 'square',
     seed: 0,
+    width: 0,
+    height: 0,
+    imageUrl: '',
+    localImageData: 'data:image/png;base64,abc',
+    provider: '',
+    mode: 'normal',
     favorite: false,
     tags: [],
+    qaReport: null,
+    recommended: false,
+    agentRecommendation: '',
+    autoRetry: null,
+    nextSuggestions: [],
+    cloudShareUrl: '',
+    cloudDeleteUrl: '',
+    cloudSavedAt: '',
+    cloudPromptPublic: false,
+    cloudStorage: '',
     sourceRecordId: '',
     versionGroupId: 'history-id-1',
     versionNumber: 1,
@@ -109,6 +129,11 @@ test('normalizeRecord adds version, tags, favorite, and share defaults', () => {
     prompt: '  a cat  ',
     tags: ['  cute ', '', 'cat'],
     favorite: true,
+    cloudShareUrl: ' https://example.com/share/abc ',
+    cloudDeleteUrl: ' https://example.com/gallery/abc/delete?deleteToken=secret ',
+    cloudSavedAt: ' 2026-07-07T00:00:00.000Z ',
+    cloudPromptPublic: true,
+    cloudStorage: ' R2 / R2 JSON ',
     sourceRecordId: ' parent-1 ',
     versionGroupId: '',
     versionNumber: 3
@@ -117,9 +142,78 @@ test('normalizeRecord adds version, tags, favorite, and share defaults', () => {
   assert.equal(record.id, 'record-1');
   assert.equal(record.favorite, true);
   assert.deepEqual(plain(record.tags), ['cute', 'cat']);
+  assert.equal(record.cloudShareUrl, 'https://example.com/share/abc');
+  assert.equal(record.cloudDeleteUrl, 'https://example.com/gallery/abc/delete?deleteToken=secret');
+  assert.equal(record.cloudSavedAt, '2026-07-07T00:00:00.000Z');
+  assert.equal(record.cloudPromptPublic, true);
+  assert.equal(record.cloudStorage, 'R2 / R2 JSON');
   assert.equal(record.sourceRecordId, 'parent-1');
   assert.equal(record.versionGroupId, 'record-1');
   assert.equal(record.versionNumber, 3);
+});
+
+test('normalizeRecord supports GenerationRecord field aliases', () => {
+  const Store = loadHistoryStore();
+  const record = Store.normalizeRecord({
+    id: 'generation-record',
+    userPrompt: '中文原始需求',
+    expandedPrompt: '補完整的中文畫面',
+    providerPrompt: 'English FLUX prompt',
+    negativePrompt: 'bad hands',
+    imageUrl: 'https://example.com/image.png',
+    model: 'quality',
+    width: 1344,
+    height: 768,
+    mode: 'agent'
+  });
+
+  assert.equal(record.prompt, '中文原始需求');
+  assert.equal(record.userPrompt, '中文原始需求');
+  assert.equal(record.expandedPrompt, '補完整的中文畫面');
+  assert.equal(record.avoid, 'bad hands');
+  assert.equal(record.negativePrompt, 'bad hands');
+  assert.equal(record.image, 'https://example.com/image.png');
+  assert.equal(record.imageUrl, 'https://example.com/image.png');
+  assert.equal(record.localImageData, '');
+  assert.equal(record.width, 1344);
+  assert.equal(record.height, 768);
+  assert.equal(record.mode, 'agent');
+});
+
+test('normalizeRecord preserves agent QA metadata and next suggestions', () => {
+  const Store = loadHistoryStore();
+  const record = Store.normalizeRecord({
+    image: 'data:image/png;base64,abc',
+    prompt: '一隻柴犬',
+    width: '1344',
+    height: '768',
+    provider: 'demo',
+    mode: 'agent',
+    recommended: true,
+    agentRecommendation: '推薦最佳圖：第 2 張',
+    qaReport: {
+      imageId: 'variation-2',
+      promptMatchScore: '88',
+      compositionScore: 82,
+      visualQualityScore: 79,
+      textAccuracyScore: null,
+      detectedIssues: ['Demo 圖'],
+      recommendation: 'keep',
+      reason: '構圖清楚'
+    },
+    autoRetry: { maxRetries: 1, attempted: false, reason: '成本保護', action: 'manual_retry', message: '需手動重試' },
+    nextSuggestions: [{ id: 'brighter', label: '讓背景更亮' }]
+  }, () => 'agent-record');
+
+  assert.equal(record.mode, 'agent');
+  assert.equal(record.width, 1344);
+  assert.equal(record.height, 768);
+  assert.equal(record.provider, 'demo');
+  assert.equal(record.recommended, true);
+  assert.equal(record.qaReport.promptMatchScore, 88);
+  assert.deepEqual(plain(record.qaReport.detectedIssues), ['Demo 圖']);
+  assert.equal(record.autoRetry.action, 'manual_retry');
+  assert.deepEqual(plain(record.nextSuggestions), [{ id: 'brighter', label: '讓背景更亮' }]);
 });
 
 test('normalizeRecord rejects partial and decimal version numbers', () => {
@@ -212,6 +306,30 @@ test('updateRecordTags and toggleFavorite update only the target record', () => 
   assert.equal(favorited[1].favorite, true);
 });
 
+test('updateRecord persists cloud share and delete links for the target record', () => {
+  const Store = loadHistoryStore();
+  const records = [
+    Store.normalizeRecord({ id: 'a', image: 'data:image/png;base64,a', prompt: 'a' }),
+    Store.normalizeRecord({ id: 'b', image: 'data:image/png;base64,b', prompt: 'b' })
+  ];
+
+  const updated = Store.updateRecord(records, 'a', {
+    cloudShareUrl: 'https://example.com/share/a',
+    cloudDeleteUrl: 'https://example.com/gallery/a/delete?deleteToken=secret',
+    cloudSavedAt: '2026-07-07T00:00:00.000Z',
+    cloudPromptPublic: true,
+    cloudStorage: 'R2 / R2 JSON'
+  });
+
+  assert.equal(updated[0].cloudShareUrl, 'https://example.com/share/a');
+  assert.equal(updated[0].cloudDeleteUrl, 'https://example.com/gallery/a/delete?deleteToken=secret');
+  assert.equal(updated[0].cloudSavedAt, '2026-07-07T00:00:00.000Z');
+  assert.equal(updated[0].cloudPromptPublic, true);
+  assert.equal(updated[0].cloudStorage, 'R2 / R2 JSON');
+  assert.equal(updated[1].cloudShareUrl, '');
+  assert.equal(updated[1].cloudDeleteUrl, '');
+});
+
 test('normalizeRecord rejects missing image or prompt', () => {
   const store = loadHistoryStore();
 
@@ -242,8 +360,28 @@ test('addRecord prepends records and limits list to MAX_RECORDS', () => {
   assert.equal(result.length, store.MAX_RECORDS);
   assert.equal(result[0].id, 'newest-id');
   assert.equal(result[0].prompt, '最新提示詞');
-  assert.equal(result[result.length - 1].id, 'record-10');
+  assert.equal(result[result.length - 1].id, 'record-' + String(store.MAX_RECORDS - 2));
   assert.equal(existing.length, store.MAX_RECORDS);
+});
+
+test('parseRecords migrates legacy arrays and versioned collections', () => {
+  const store = loadHistoryStore();
+  const legacy = store.parseRecords(JSON.stringify([makeRawRecord(1)]));
+  const collection = store.parseRecords(JSON.stringify({
+    schema: store.COLLECTION_SCHEMA,
+    version: store.COLLECTION_VERSION,
+    records: [makeRawRecord(2)]
+  }));
+
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].schemaVersion, 2);
+  assert.equal(collection.length, 1);
+  assert.equal(collection[0].id, 'record-2');
+  assert.deepEqual(plain(store.parseRecords(JSON.stringify({
+    schema: store.COLLECTION_SCHEMA,
+    version: 999,
+    records: [makeRawRecord(3)]
+  }))), []);
 });
 
 test('loadRecords returns [] when storage is missing, unavailable, or invalid', () => {
@@ -270,16 +408,36 @@ test('saveRecords writes normalized JSON to storage key', () => {
 
   assert.deepEqual(plain(result), [{
     id: 'save-me',
+    schemaVersion: 2,
+    userPrompt: '儲存提示詞',
+    expandedPrompt: '',
     image: 'data:image/png;base64,saved',
     thumbnail: 'data:image/png;base64,saved',
     prompt: '儲存提示詞',
     providerPrompt: '儲存提示詞',
+    negativePrompt: '',
     avoid: '',
     model: 'schnell',
     size: 'square',
     seed: 0,
+    width: 0,
+    height: 0,
+    imageUrl: '',
+    localImageData: 'data:image/png;base64,saved',
+    provider: '',
+    mode: 'normal',
     favorite: false,
     tags: [],
+    qaReport: null,
+    recommended: false,
+    agentRecommendation: '',
+    autoRetry: null,
+    nextSuggestions: [],
+    cloudShareUrl: '',
+    cloudDeleteUrl: '',
+    cloudSavedAt: '',
+    cloudPromptPublic: false,
+    cloudStorage: '',
     sourceRecordId: '',
     versionGroupId: 'save-me',
     versionNumber: 1,
@@ -287,7 +445,9 @@ test('saveRecords writes normalized JSON to storage key', () => {
   }]);
   assert.equal(storage.calls.setItem.length, 1);
   assert.equal(storage.calls.setItem[0][0], store.STORAGE_KEY);
-  assert.deepEqual(JSON.parse(storage.calls.setItem[0][1]), plain(result));
+  assert.equal(JSON.parse(storage.calls.setItem[0][1]).schema, store.COLLECTION_SCHEMA);
+  assert.equal(JSON.parse(storage.calls.setItem[0][1]).version, store.COLLECTION_VERSION);
+  assert.deepEqual(JSON.parse(storage.calls.setItem[0][1]).records, plain(result));
 });
 
 test('saveRecords drops oldest records on quota failure and does not throw', () => {
@@ -296,8 +456,8 @@ test('saveRecords drops oldest records on quota failure and does not throw', () 
   const storage = {
     setItem(key, value) {
       const parsed = JSON.parse(value);
-      attempts.push({ key, length: parsed.length });
-      if (parsed.length > 2) {
+      attempts.push({ key, length: parsed.records.length });
+      if (parsed.records.length > 2) {
         throw new Error('quota exceeded');
       }
     }
@@ -312,6 +472,14 @@ test('saveRecords drops oldest records on quota failure and does not throw', () 
   assert.deepEqual(attempts.map((attempt) => attempt.length), [4, 3, 2]);
   assert.deepEqual(plain(result.map((record) => record.id)), ['record-1', 'record-2']);
   assert.deepEqual(records.map((record) => record.id), ['record-1', 'record-2', 'record-3', 'record-4']);
+});
+
+test('deleteRecords removes a selected batch and keeps the rest', () => {
+  const store = loadHistoryStore();
+  const records = [makeRawRecord(1), makeRawRecord(2), makeRawRecord(3), makeRawRecord(4)];
+  const result = store.deleteRecords(records, ['record-2', 'record-4']);
+
+  assert.deepEqual(plain(result.map((record) => record.id)), ['record-1', 'record-3']);
 });
 
 test('deleteRecord removes target and preserves others', () => {

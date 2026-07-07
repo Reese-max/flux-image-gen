@@ -24,6 +24,13 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 @dataclass(frozen=True)
 class Settings:
     nvidia_api_key: str = os.getenv("NVIDIA_API_KEY", "")
@@ -53,15 +60,39 @@ class Settings:
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
     gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-26b-a4b-it")
+    gemini_vision_model: str = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
     gemini_base_url: str = os.getenv(
         "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
     )
     prompt_llm_timeout_seconds: float = _float_env("PROMPT_LLM_TIMEOUT_SECONDS", 20.0)
+    vision_qa_enabled: bool = _bool_env("VISION_QA_ENABLED", False)
     # Secondary LLM fallback via the local Codex proxy (OpenAI-compatible). Used only
     # when Gemini fails, before dropping to the offline rule engine. Empty key = off.
     codex_api_key: str = os.getenv("CODEX_PROXY_KEY", "")
     codex_base_url: str = os.getenv("CODEX_PROXY_BASE", "http://127.0.0.1:8317/v1")
     codex_prompt_model: str = os.getenv("CODEX_PROMPT_MODEL", "gpt-5.4-mini")
+    # 後端硬性成本保護。Demo 與 live 分開計數，避免沒有金鑰時耗掉正式額度；
+    # 設為 0 或 RATE_LIMIT_ENABLED=false 可在本機壓測時停用。
+    rate_limit_enabled: bool = _bool_env("RATE_LIMIT_ENABLED", True)
+    rate_limit_window_seconds: int = _int_env("RATE_LIMIT_WINDOW_SECONDS", 3600)
+    generate_rate_limit_per_window: int = _int_env("GENERATE_RATE_LIMIT_PER_WINDOW", 60)
+    demo_generate_rate_limit_per_window: int = _int_env("DEMO_GENERATE_RATE_LIMIT_PER_WINDOW", 300)
+    # Turnstile / anti-bot gate. 預設不強制，避免本機 Demo 被卡住；公開站可設定
+    # TURNSTILE_REQUIRED=true + site key + secret key，後端會在呼叫模型前驗證 token。
+    turnstile_required: bool = _bool_env("TURNSTILE_REQUIRED", False)
+    turnstile_site_key: str = os.getenv("TURNSTILE_SITE_KEY", "")
+    turnstile_secret_key: str = os.getenv("TURNSTILE_SECRET_KEY", "")
+    turnstile_verify_url: str = os.getenv(
+        "TURNSTILE_VERIFY_URL",
+        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+    )
+    turnstile_timeout_seconds: float = _float_env("TURNSTILE_TIMEOUT_SECONDS", 5.0)
+    # 成本／用量 Dashboard。只記錄 route、模型、provider、匿名 IP hash、張數、
+    # 耗時與錯誤碼；不保存 prompt、圖片內容或任何金鑰。
+    usage_logging_enabled: bool = _bool_env("USAGE_LOGGING_ENABLED", True)
+    usage_log_dir: str = os.getenv("USAGE_LOG_DIR", "logs")
+    usage_estimated_cost_usd_per_image: float = _float_env("USAGE_ESTIMATED_COST_USD_PER_IMAGE", 0.003)
+    usage_alert_daily_generations: int = _int_env("USAGE_ALERT_DAILY_GENERATIONS", 1000)
 
 
 _default_settings: Settings | None = None

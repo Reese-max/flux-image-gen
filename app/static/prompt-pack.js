@@ -1,6 +1,6 @@
 // Curated FLUX-tuned prompt pack. Self-mounting: fetches prompt-pack.json and
 // renders a "精選提示詞" section after the ideas section. Clicking a card sets the
-// model/size and fills the final prompt, then generates — same behaviour as the
+// model/size and fills the final prompt for review — same no-auto-spend behaviour as the
 // built-in idea cards. No edits to the main app modules required.
 (function () {
   'use strict';
@@ -37,7 +37,9 @@
     var app = window.ImageGenApp;
     setSelect('model', card.model);
     setSelect('size', card.size);
-    if (app && typeof app.setPromptAndGenerate === 'function') {
+    if (app && typeof app.setPromptForReview === 'function') {
+      app.setPromptForReview(card.en, '精選提示詞');
+    } else if (app && typeof app.setPromptAndGenerate === 'function') {
       app.setPromptAndGenerate(card.en);
     } else {
       // Fallback: fill the prompt box if the app API isn't ready yet.

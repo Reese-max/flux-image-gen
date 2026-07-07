@@ -35,7 +35,64 @@ export function json(body, status = 200, requestId = makeRequestId()) {
 export function httpErrorJson(e) {
   const body = { error: e.message, code: e.code };
   if (e.retry_after != null) body.retry_after = e.retry_after;
+  if (e.category != null) body.category = e.category;
   return json(body, e.status);
+}
+
+function envFlag(value) {
+  return String(value || "").trim().toLowerCase() === "true";
+}
+
+export function turnstileConfig(env) {
+  const required = envFlag(env && env.TURNSTILE_REQUIRED);
+  return {
+    required,
+    siteKey: required ? String((env && env.TURNSTILE_SITE_KEY) || "").trim() : "",
+  };
+}
+
+export async function verifyTurnstileToken(token, request, env) {
+  const config = turnstileConfig(env);
+  if (!config.required) return null;
+
+  const secret = String((env && env.TURNSTILE_SECRET_KEY) || "").trim();
+  if (!secret) {
+    return new HttpError("真人驗證尚未完成設定，請稍後再試", 503, "turnstile_unconfigured");
+  }
+
+  const cleanToken = String(token || "").trim();
+  if (!cleanToken) {
+    return new HttpError("請先完成人機驗證再生成圖片", 403, "turnstile_required");
+  }
+
+  const form = new URLSearchParams();
+  form.set("secret", secret);
+  form.set("response", cleanToken);
+  form.set("remoteip", request.headers.get("cf-connecting-ip") || "");
+
+  let response;
+  let data;
+  try {
+    response = await fetch(
+      String((env && env.TURNSTILE_VERIFY_URL) || "https://challenges.cloudflare.com/turnstile/v0/siteverify"),
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }
+    );
+    data = await response.json();
+  } catch {
+    return new HttpError("真人驗證服務暫時不可用，請稍後再試", 503, "turnstile_unavailable");
+  }
+
+  if (response.status >= 500) {
+    return new HttpError("真人驗證服務暫時不可用，請稍後再試", 503, "turnstile_unavailable");
+  }
+  if (!data || data.success !== true) {
+    return new HttpError("真人驗證失敗，請重新驗證後再試", 403, "turnstile_failed");
+  }
+  return null;
 }
 
 export async function readJsonPayload(request, maxBytes = MAX_JSON_BYTES) {

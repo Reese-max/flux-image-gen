@@ -7,6 +7,12 @@
   var MAX_EDIT_IMAGES = 4;
   // 嚴格小於 512：FLUX.2 klein 每張輸入圖須 < 512x512。
   var MAX_EDIT_DIM = 511;
+  var REFERENCE_ROLES = {
+    character: '角色',
+    product: '產品',
+    style: '風格',
+    composition: '構圖'
+  };
 
   // 等比縮到框內，只縮不放大；回傳整數寬高。
   function computeResizeDims(width, height, maxDim) {
@@ -28,10 +34,40 @@
     return { ok: true, error: '' };
   }
 
+  function normalizeReferenceRole(role) {
+    return REFERENCE_ROLES[role] ? role : 'style';
+  }
+
+  function composeEditPrompt(prompt, references, options) {
+    var cleanPrompt = String(prompt == null ? '' : prompt).replace(/\s+/g, ' ').trim();
+    var mode = options && options.mode ? String(options.mode) : 'general';
+    var parts = [];
+    var roles = [];
+    (references || []).forEach(function (ref, index) {
+      var role = normalizeReferenceRole(ref && ref.role);
+      roles.push('image ' + index + ' = ' + REFERENCE_ROLES[role] + '參考');
+    });
+    if (roles.length) {
+      parts.push('參考圖用途：' + roles.join('；') + '。');
+    }
+    if (mode === 'character') {
+      parts.push('角色一致模式：保持角色的臉部輪廓、髮型、服裝與主要特徵，但允許姿勢與場景自然變化；不得改變核心角色身份。');
+    } else if (mode === 'product') {
+      parts.push('產品照模式：保持產品外觀、比例、Logo 位置與材質一致，避免改變商品設計。');
+      if (options && options.background) { parts.push('背景：' + options.background + '。'); }
+      if (options && options.lighting) { parts.push('光線：' + options.lighting + '。'); }
+    }
+    if (cleanPrompt) { parts.push(cleanPrompt); }
+    return parts.join(' ');
+  }
+
   // 組出送到 /edit 的 FormData：prompt + 多個同名 images 欄位。
-  function buildEditFormData(prompt, blobs) {
+  function buildEditFormData(prompt, blobs, turnstileToken) {
     var fd = new FormData();
     fd.append('prompt', String(prompt == null ? '' : prompt));
+    if (turnstileToken) {
+      fd.append('turnstileToken', String(turnstileToken));
+    }
     (blobs || []).forEach(function (blob, i) {
       fd.append('images', blob, 'input_image_' + i + '.png');
     });
@@ -50,6 +86,8 @@
     MAX_EDIT_DIM: MAX_EDIT_DIM,
     computeResizeDims: computeResizeDims,
     validateEditSelection: validateEditSelection,
+    normalizeReferenceRole: normalizeReferenceRole,
+    composeEditPrompt: composeEditPrompt,
     buildEditFormData: buildEditFormData,
     mapEditResponse: mapEditResponse
   };
@@ -67,9 +105,12 @@
   var dlLink = document.getElementById('editDl');
   var statusEl = document.getElementById('editStatus');
   var stage = document.getElementById('editStage');
+  var productBackground = document.getElementById('editProductBackground');
+  var productLighting = document.getElementById('editProductLighting');
   var STAGE_PLACEHOLDER = '<span class="muted">改好的圖會出現在這裡</span>';
 
-  var selected = []; // { blob, url, name }
+  var selected = []; // { blob, url, name, role }
+  var editMode = 'general';
 
   function setStatus(msg, kind) {
     statusEl.textContent = msg || '';
@@ -122,6 +163,47 @@
       var tag = document.createElement('span');
       tag.className = 'edit-thumb-tag';
       tag.textContent = 'image ' + index;
+      var role = document.createElement('select');
+      role.className = 'edit-thumb-role';
+      role.setAttribute('aria-label', '設定 image ' + index + ' 的參考用途');
+      Object.keys(REFERENCE_ROLES).forEach(function (key) {
+        var option = document.createElement('option');
+        option.value = key;
+        option.textContent = REFERENCE_ROLES[key];
+        role.appendChild(option);
+      });
+      role.value = normalizeReferenceRole(item.role);
+      role.addEventListener('change', function () {
+        item.role = normalizeReferenceRole(role.value);
+      });
+      var moveUp = document.createElement('button');
+      moveUp.type = 'button';
+      moveUp.className = 'edit-thumb-move edit-thumb-up';
+      moveUp.setAttribute('aria-label', '將 image ' + index + ' 往前排序');
+      moveUp.textContent = '↑';
+      moveUp.disabled = index === 0;
+      moveUp.addEventListener('click', function () {
+        var tmp;
+        if (index <= 0) { return; }
+        tmp = selected[index - 1];
+        selected[index - 1] = selected[index];
+        selected[index] = tmp;
+        renderThumbs();
+      });
+      var moveDown = document.createElement('button');
+      moveDown.type = 'button';
+      moveDown.className = 'edit-thumb-move edit-thumb-down';
+      moveDown.setAttribute('aria-label', '將 image ' + index + ' 往後排序');
+      moveDown.textContent = '↓';
+      moveDown.disabled = index === selected.length - 1;
+      moveDown.addEventListener('click', function () {
+        var tmp;
+        if (index >= selected.length - 1) { return; }
+        tmp = selected[index + 1];
+        selected[index + 1] = selected[index];
+        selected[index] = tmp;
+        renderThumbs();
+      });
       var rm = document.createElement('button');
       rm.type = 'button';
       rm.className = 'edit-thumb-remove';
@@ -134,6 +216,9 @@
       });
       wrap.appendChild(im);
       wrap.appendChild(tag);
+      wrap.appendChild(role);
+      wrap.appendChild(moveUp);
+      wrap.appendChild(moveDown);
       wrap.appendChild(rm);
       thumbs.appendChild(wrap);
     });
@@ -158,7 +243,7 @@
       results.forEach(function (r) {
         if (!r.ok) { failed++; return; }
         if (selected.length < MAX_EDIT_IMAGES) {
-          selected.push({ blob: r.blob, url: URL.createObjectURL(r.blob), name: 'image.png' });
+          selected.push({ blob: r.blob, url: URL.createObjectURL(r.blob), name: 'image.png', role: editMode === 'product' ? 'product' : (editMode === 'character' ? 'character' : 'style') });
         } else {
           dropped++; // 超過上限：未建 URL，直接丟棄，無洩漏
         }
@@ -190,6 +275,31 @@
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) { e.preventDefault(); });
 
+  function setEditMode(mode) {
+    editMode = mode === 'character' || mode === 'product' ? mode : 'general';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-edit-mode]'), function (button) {
+      button.classList.toggle('is-active', button.getAttribute('data-edit-mode') === editMode);
+    });
+    if (editMode === 'character' && promptEl && !promptEl.value.trim()) {
+      promptEl.value = '保持角色特徵，改成在新的場景中，全身或半身構圖，角色一致但姿勢自然。';
+    }
+    if (editMode === 'product' && promptEl && !promptEl.value.trim()) {
+      promptEl.value = '生成產品形象照，保持產品外觀一致，背景乾淨，光線專業，適合商業展示。';
+    }
+    selected.forEach(function (item) {
+      if (editMode === 'character') { item.role = 'character'; }
+      if (editMode === 'product') { item.role = 'product'; }
+    });
+    renderThumbs();
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('[data-edit-mode]'), function (button) {
+    button.addEventListener('click', function () {
+      setEditMode(button.getAttribute('data-edit-mode'));
+    });
+  });
+  setEditMode('general');
+
   function showResult(dataUrl) {
     stage.innerHTML = '';
     var im = document.createElement('img');
@@ -205,13 +315,27 @@
   goBtn.addEventListener('click', function () {
     var check = validateEditSelection(selected.length);
     if (!check.ok) { setStatus(check.error, 'fail'); return; }
+    if (editMode === 'character' && !selected.some(function (item) { return normalizeReferenceRole(item.role) === 'character'; })) {
+      setStatus('角色一致模式需要至少一張標成「角色」的參考圖', 'fail');
+      return;
+    }
+    if (editMode === 'product' && !selected.some(function (item) { return normalizeReferenceRole(item.role) === 'product'; })) {
+      setStatus('產品照模式需要至少一張標成「產品」的參考圖', 'fail');
+      return;
+    }
     var prompt = (promptEl.value || '').trim();
     if (!prompt) { setStatus('請輸入改圖指令', 'fail'); return; }
 
     goBtn.disabled = true;
     resetResult(); // 送出前先清舊結果，避免失敗時殘留可下載的舊圖
     setStatus('AI 改圖中…（約數秒）', '');
-    var fd = buildEditFormData(prompt, selected.map(function (s) { return s.blob; }));
+    var token = typeof readTurnstileToken === 'function' ? readTurnstileToken() : '';
+    var finalPrompt = composeEditPrompt(prompt, selected, {
+      mode: editMode,
+      background: productBackground ? productBackground.value : '',
+      lighting: productLighting ? productLighting.value : ''
+    });
+    var fd = buildEditFormData(finalPrompt, selected.map(function (s) { return s.blob; }), token);
 
     fetch('/edit', { method: 'POST', body: fd })
       .then(function (resp) {
@@ -231,6 +355,9 @@
       .catch(function (e) {
         setStatus('連線失敗：' + (e && e.message ? e.message : e), 'fail');
       })
-      .then(function () { goBtn.disabled = false; });
+      .then(function () {
+        if (typeof resetTurnstileWidget === 'function') { resetTurnstileWidget(); }
+        goBtn.disabled = false;
+      });
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

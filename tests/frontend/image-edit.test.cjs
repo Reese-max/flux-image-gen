@@ -47,6 +47,44 @@ test('validateEditSelection enforces the 1..MAX range', () => {
   assert.equal(E.validateEditSelection(E.MAX_EDIT_IMAGES).ok, true);
 });
 
+test('normalizeReferenceRole accepts known reference roles and falls back to style', () => {
+  const E = loadImageEdit();
+  assert.equal(E.normalizeReferenceRole('character'), 'character');
+  assert.equal(E.normalizeReferenceRole('product'), 'product');
+  assert.equal(E.normalizeReferenceRole('composition'), 'composition');
+  assert.equal(E.normalizeReferenceRole('unknown'), 'style');
+});
+
+test('composeEditPrompt records reference roles for character consistency mode', () => {
+  const E = loadImageEdit();
+  const prompt = E.composeEditPrompt(
+    '改成在咖啡廳看書',
+    [{ role: 'character' }, { role: 'style' }],
+    { mode: 'character' }
+  );
+  assert.match(prompt, /參考圖用途：image 0 = 角色參考；image 1 = 風格參考。/);
+  assert.match(prompt, /角色一致模式：保持角色的臉部輪廓、髮型、服裝與主要特徵/);
+  assert.match(prompt, /改成在咖啡廳看書/);
+});
+
+test('composeEditPrompt records product mode background and lighting guidance', () => {
+  const E = loadImageEdit();
+  const prompt = E.composeEditPrompt(
+    '做成電商主圖',
+    [{ role: 'product' }, { role: 'composition' }],
+    {
+      mode: 'product',
+      background: 'pure white ecommerce background',
+      lighting: 'bright clean commercial lighting',
+    }
+  );
+  assert.match(prompt, /image 0 = 產品參考；image 1 = 構圖參考/);
+  assert.match(prompt, /產品照模式：保持產品外觀、比例、Logo 位置與材質一致/);
+  assert.match(prompt, /背景：pure white ecommerce background。/);
+  assert.match(prompt, /光線：bright clean commercial lighting。/);
+  assert.match(prompt, /做成電商主圖/);
+});
+
 test('buildEditFormData appends prompt once and one repeated images field per blob', () => {
   const E = loadImageEdit();
   const blobs = [

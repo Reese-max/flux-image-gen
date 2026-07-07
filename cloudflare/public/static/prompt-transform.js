@@ -116,13 +116,6 @@
 
     if(plainPrompt){
       plainPrompt.addEventListener('keydown', function(event){
-        if(event.key === 'Tab' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing){
-          if(plainPrompt.value.trim()){
-            event.preventDefault();
-            completePrompt();
-          }
-          return;
-        }
         if((event.metaKey || event.ctrlKey) && event.key === 'Enter'){
           event.preventDefault();
           transformPrompt();

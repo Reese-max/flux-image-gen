@@ -1,0 +1,594 @@
+{
+  "schema": "flux-product-test-prompts.v1",
+  "version": 1,
+  "updatedAt": "2026-07-07",
+  "description": "公開產品化驗收用測試 Prompt 集。每個案例都包含輸入、預期 UI / API 行為，以及可自動檢查的最小條件。",
+  "cases": [
+    {
+      "id": "short-zh-cat",
+      "category": "短中文 prompt",
+      "description": "極短中文輸入仍要能補成可出圖 prompt，並提示可補充場景或風格。",
+      "input": {
+        "userPrompt": "貓",
+        "style": "auto",
+        "useCase": "auto",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "cat"
+        ],
+        "warningsContain": [
+          "描述較短"
+        ],
+        "style": "auto",
+        "modelPreset": "schnell",
+        "sizePreset": "square",
+        "generationStateSequence": [
+          "idle",
+          "compiling_prompt",
+          "generating",
+          "saving",
+          "success"
+        ],
+        "uiNotes": [
+          "顯示 prompt 品質提示",
+          "保留使用者輸入",
+          "成功後才顯示下載與複製操作"
+        ]
+      }
+    },
+    {
+      "id": "long-zh-concept",
+      "category": "長中文 prompt",
+      "description": "長中文需求要保留主體、場景、構圖、光線、材質、情緒與用途。",
+      "input": {
+        "userPrompt": "一位太空考古學家站在月球洞穴入口，手上拿著會發光的古代羅盤，背景有地球升起，畫面要有孤獨但壯闊的電影感，適合做科幻小說封面。",
+        "style": "cinematic",
+        "useCase": "auto",
+        "mode": "normal",
+        "negativePrompt": "blurry, low quality, watermark",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": false,
+        "style": "cinematic",
+        "modelPreset": "schnell",
+        "sizePreset": "portrait",
+        "providerPromptMustPreserve": [
+          "太空考古學家",
+          "月球洞穴",
+          "發光羅盤",
+          "地球升起",
+          "電影感",
+          "小說封面"
+        ],
+        "generationStateSequence": [
+          "idle",
+          "compiling_prompt",
+          "generating",
+          "saving",
+          "success"
+        ],
+        "uiNotes": [
+          "最終英文 provider prompt 可在進階設定查看",
+          "negative prompt 會合併到 provider prompt"
+        ]
+      }
+    },
+    {
+      "id": "ppt-use-case",
+      "category": "PPT 用途",
+      "description": "提到簡報或 PPT 時自動推薦橫式 16:9。",
+      "input": {
+        "userPrompt": "我要放在 PPT 封面的未來城市插圖，留白多一點，藍紫色科技感。",
+        "style": "auto",
+        "useCase": "auto",
+        "mode": "agent",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 4
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "clean composition"
+        ],
+        "useCase": "ppt",
+        "modelPreset": "schnell",
+        "sizePreset": "landscape",
+        "batchCount": 4,
+        "agentSteps": [
+          "解析需求",
+          "補全畫面",
+          "產生 prompt",
+          "選模型與尺寸",
+          "生成圖片",
+          "檢查品質",
+          "推薦最佳圖",
+          "產生修改建議"
+        ],
+        "uiNotes": [
+          "顯示推薦尺寸理由",
+          "使用者仍可手動覆蓋尺寸"
+        ]
+      }
+    },
+    {
+      "id": "ig-post-use-case",
+      "category": "IG 用途",
+      "description": "提到 IG 貼文或社群時推薦 1:1。",
+      "input": {
+        "userPrompt": "做一張 IG 貼文用的拿鐵咖啡海報，溫暖晨光，乾淨留白。",
+        "style": "realistic",
+        "useCase": "auto",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "photorealistic",
+          "natural lighting"
+        ],
+        "style": "realistic",
+        "useCase": "social",
+        "modelPreset": "schnell",
+        "sizePreset": "square",
+        "uiNotes": [
+          "首頁顯示用途名稱",
+          "進階設定顯示實際像素"
+        ]
+      }
+    },
+    {
+      "id": "portrait-risk",
+      "category": "人像",
+      "description": "人像 prompt 要觸發人物品質注意事項，並保留臉部與構圖需求。",
+      "input": {
+        "userPrompt": "寫實人像，一位銀髮女性企業家坐在窗邊，半身構圖，自信但溫柔，自然光。",
+        "style": "realistic",
+        "useCase": "auto",
+        "mode": "agent",
+        "negativePrompt": "bad hands, distorted face, extra fingers",
+        "seed": 0,
+        "batchCount": 4
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "photorealistic",
+          "natural lighting"
+        ],
+        "style": "realistic",
+        "modelPreset": "dev",
+        "sizePreset": "square",
+        "riskFlagsContain": [
+          "臉部",
+          "手部"
+        ],
+        "qaReportRequired": true,
+        "uiNotes": [
+          "每張圖顯示 QA 簡評",
+          "嚴重問題時提供重試建議"
+        ]
+      }
+    },
+    {
+      "id": "product-photo",
+      "category": "產品照",
+      "description": "產品照需求要推薦產品照模式與較高品質模型。",
+      "input": {
+        "userPrompt": "白底商品主圖，一瓶玫瑰精油放在大理石桌面，柔和棚拍打光，電商用。",
+        "style": "auto",
+        "useCase": "auto",
+        "mode": "agent",
+        "negativePrompt": "text, logo, watermark, messy background",
+        "seed": 0,
+        "batchCount": 4
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "studio product photography",
+          "clean background",
+          "commercial lighting"
+        ],
+        "style": "product",
+        "useCase": "product",
+        "modelPreset": "dev",
+        "sizePreset": "square",
+        "qaReportRequired": true,
+        "uiNotes": [
+          "推薦理由寫入 metadata",
+          "可一鍵儲存成風格卡"
+        ]
+      }
+    },
+    {
+      "id": "anime-style",
+      "category": "動漫",
+      "description": "動漫語意要自動切到動漫風格。",
+      "input": {
+        "userPrompt": "動漫風的少女魔法師站在圖書館，漂浮書本與藍色魔法光。",
+        "style": "auto",
+        "useCase": "auto",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "anime style",
+          "expressive character design",
+          "vibrant colors"
+        ],
+        "style": "anime",
+        "modelPreset": "schnell",
+        "sizePreset": "square",
+        "uiNotes": [
+          "快捷鍵不是主流程",
+          "可用一鍵強化改成寫實或產品照"
+        ]
+      }
+    },
+    {
+      "id": "text-rendering",
+      "category": "文字渲染",
+      "description": "需要畫面中文字時要提醒可能產生亂碼，並建議後製加字。",
+      "input": {
+        "userPrompt": "做一張咖啡店開幕海報，招牌上要寫「明日開幕」，復古暖色。",
+        "style": "cinematic",
+        "useCase": "poster",
+        "mode": "agent",
+        "negativePrompt": "gibberish text, misspelled letters",
+        "seed": 0,
+        "batchCount": 4
+      },
+      "expected": {
+        "automatedTransform": false,
+        "style": "cinematic",
+        "useCase": "poster",
+        "modelPreset": "schnell",
+        "sizePreset": "portrait",
+        "riskFlagsContain": [
+          "文字渲染"
+        ],
+        "qaReportRequired": true,
+        "uiNotes": [
+          "顯示文字亂碼風險",
+          "建議改成後製加字",
+          "分享預設不公開完整 prompt"
+        ]
+      }
+    },
+    {
+      "id": "negative-prompt",
+      "category": "Negative prompt",
+      "description": "使用者輸入排除描述時要合併到 provider prompt，並保存原始 negative prompt。",
+      "input": {
+        "userPrompt": "一隻柴犬在月球吃拉麵，可愛風格。",
+        "style": "cute",
+        "useCase": "auto",
+        "mode": "normal",
+        "negativePrompt": "blurry, watermark, extra limbs",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "Shiba Inu",
+          "on the moon",
+          "eating ramen",
+          "adorable"
+        ],
+        "providerPromptSuffixContains": [
+          "avoid blurry, watermark, extra limbs"
+        ],
+        "style": "cute",
+        "modelPreset": "schnell",
+        "sizePreset": "square",
+        "uiNotes": [
+          "作品詳情保存 originalPrompt 與 negativePrompt",
+          "失敗後保留輸入內容"
+        ]
+      }
+    },
+    {
+      "id": "seed-repeatability",
+      "category": "Seed 重現",
+      "description": "固定 Seed 應可重現同一組設定，且非法 seed 要被阻擋。",
+      "input": {
+        "userPrompt": "台北夜市雨天街景，電影感。",
+        "style": "cinematic",
+        "useCase": "auto",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 12345,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "Taipei night market",
+          "rainy street scene",
+          "cinematic lighting"
+        ],
+        "style": "cinematic",
+        "seed": 12345,
+        "modelPreset": "schnell",
+        "sizePreset": "square",
+        "uiNotes": [
+          "固定 seed 會寫入歷史與作品 metadata",
+          "非法 seed 顯示友善錯誤且不呼叫 provider"
+        ]
+      }
+    },
+    {
+      "id": "agent-four-variants",
+      "category": "多張生成",
+      "description": "智慧體模式預設產生四張，失敗張可單獨重試，成功張不被清空。",
+      "input": {
+        "userPrompt": "角色設定：一位穿紅色外套的冒險家，在森林入口，半身，適合遊戲立繪。",
+        "style": "anime",
+        "useCase": "character",
+        "mode": "agent",
+        "negativePrompt": "bad hands, extra fingers, distorted face",
+        "seed": 0,
+        "batchCount": 4
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "anime style",
+          "expressive character design"
+        ],
+        "style": "anime",
+        "useCase": "character",
+        "modelPreset": "dev",
+        "sizePreset": "square",
+        "batchCount": 4,
+        "qaReportRequired": true,
+        "bestImageRecommendationRequired": true,
+        "uiNotes": [
+          "多張圖可左右滑動",
+          "推薦最佳圖並顯示理由",
+          "每張圖都有 metadata"
+        ]
+      }
+    },
+    {
+      "id": "demo-mode",
+      "category": "Demo 模式",
+      "description": "未設定真實 provider 時首頁只能顯示 Demo 模式，按鈕也要明確標示 Demo。",
+      "input": {
+        "userPrompt": "一隻柴犬在月球吃拉麵。",
+        "style": "cute",
+        "useCase": "auto",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerStatus": "demo",
+        "modeLabel": "demo",
+        "statusMessage": "Demo 模式，不會真實出圖",
+        "forbiddenStatusCombinations": [
+          [
+            "Demo 模式",
+            "真實出圖"
+          ]
+        ],
+        "modelCallExpected": false,
+        "uiNotes": [
+          "同一時間只顯示一種主狀態",
+          "生成按鈕標示 Demo 生成圖片"
+        ]
+      }
+    },
+    {
+      "id": "api-failure",
+      "category": "API 失敗",
+      "description": "Provider 回 500 或壞回應時顯示友善錯誤，不白屏、不清空輸入、不暴露 stack trace。",
+      "input": {
+        "userPrompt": "一張產品概念圖，金屬保溫瓶在黑色背景上。",
+        "style": "product",
+        "useCase": "product",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerStatus": "error",
+        "generationState": "error",
+        "safeErrorRequired": true,
+        "preserveUserInput": true,
+        "retryButtonRequired": true,
+        "forbiddenErrorText": [
+          "API_KEY",
+          "Traceback",
+          "stack",
+          "Authorization"
+        ],
+        "uiNotes": [
+          "顯示錯誤原因與重試按鈕",
+          "不遺失使用者輸入"
+        ]
+      }
+    },
+    {
+      "id": "missing-api-key",
+      "category": "金鑰未設定",
+      "description": "金鑰未設定時 health 回 demo 或明確停用，不得在前端暴露金鑰名稱之外的敏感值。",
+      "input": {
+        "userPrompt": "手機桌布，一隻太空貓漂浮在銀河中。",
+        "style": "cute",
+        "useCase": "wallpaper",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 1
+      },
+      "expected": {
+        "automatedTransform": true,
+        "providerPromptContains": [
+          "cat",
+          "adorable"
+        ],
+        "providerStatus": "demo",
+        "modeLabel": "demo",
+        "hasApiKey": false,
+        "modelCallExpected": false,
+        "sizePreset": "portrait",
+        "forbiddenErrorText": [
+          "nvapi-",
+          "sk-",
+          "Bearer "
+        ],
+        "uiNotes": [
+          "前端 bundle 不包含 API key",
+          "使用者能一眼知道不會真實呼叫 FLUX"
+        ]
+      }
+    },
+    {
+      "id": "reference-image-character-edit",
+      "category": "參考圖改圖",
+      "description": "角色一致模式需要求至少一張角色參考圖，並把參考圖用途編進 edit prompt。",
+      "input": {
+        "userPrompt": "保持角色特徵，改成在雨夜街道，半身構圖，霓虹反光。",
+        "style": "cinematic",
+        "useCase": "character",
+        "mode": "agent",
+        "negativePrompt": "distorted face, extra fingers, bad hands",
+        "seed": 0,
+        "batchCount": 1,
+        "referenceImages": [
+          {
+            "role": "character",
+            "required": true
+          },
+          {
+            "role": "style",
+            "required": false
+          }
+        ],
+        "editMode": "character"
+      },
+      "expected": {
+        "automatedTransform": false,
+        "style": "cinematic",
+        "useCase": "character",
+        "modelPreset": "dev",
+        "sizePreset": "square",
+        "generationStateSequence": [
+          "idle",
+          "compiling_prompt",
+          "generating",
+          "saving",
+          "success"
+        ],
+        "providerPromptMustPreserve": [
+          "角色一致模式",
+          "image 0 = 角色參考",
+          "雨夜街道",
+          "角色特徵"
+        ],
+        "riskFlagsContain": [
+          "臉部",
+          "手部"
+        ],
+        "uiNotes": [
+          "沒有標成角色的參考圖時不可送出",
+          "UI 明確說明不能保證完全一致",
+          "參考圖用途可排序與修改"
+        ]
+      }
+    },
+    {
+      "id": "reference-image-product-edit",
+      "category": "參考圖改圖",
+      "description": "產品照模式需要求產品參考圖，並保存背景與光線設定。",
+      "input": {
+        "userPrompt": "生成產品形象照，保持產品外觀一致，適合電商主圖。",
+        "style": "product",
+        "useCase": "product",
+        "mode": "agent",
+        "negativePrompt": "wrong logo, distorted product, messy background",
+        "seed": 0,
+        "batchCount": 1,
+        "referenceImages": [
+          {
+            "role": "product",
+            "required": true
+          },
+          {
+            "role": "composition",
+            "required": false
+          }
+        ],
+        "editMode": "product",
+        "productBackground": "pure white ecommerce background",
+        "productLighting": "bright clean commercial lighting"
+      },
+      "expected": {
+        "automatedTransform": false,
+        "style": "product",
+        "useCase": "product",
+        "modelPreset": "dev",
+        "sizePreset": "square",
+        "providerPromptMustPreserve": [
+          "產品照模式",
+          "image 0 = 產品參考",
+          "pure white ecommerce background",
+          "bright clean commercial lighting"
+        ],
+        "qaReportRequired": true,
+        "uiNotes": [
+          "沒有標成產品的參考圖時不可送出",
+          "背景與光線會寫入送出的 prompt",
+          "局部修改等未實作功能必須顯示即將推出"
+        ]
+      }
+    },
+    {
+      "id": "usage-dashboard-admin-view",
+      "category": "用量 Dashboard",
+      "description": "站長可用前端用量分頁查看 prompt-free 成本與生成摘要。",
+      "input": {
+        "userPrompt": "站長檢查今日生成用量與成本摘要。",
+        "style": "auto",
+        "useCase": "general",
+        "mode": "normal",
+        "negativePrompt": "",
+        "seed": 0,
+        "batchCount": 1,
+        "dashboardDate": "today"
+      },
+      "expected": {
+        "automatedTransform": false,
+        "providerStatus": "ready",
+        "generationState": "idle",
+        "uiNotes": [
+          "用量分頁呼叫 /api/usage",
+          "顯示今日生成圖數、失敗次數、估計成本、錯誤率與平均生成時間",
+          "不得顯示 prompt、圖片內容、完整 IP 或金鑰"
+        ]
+      }
+    }
+  ]
+}

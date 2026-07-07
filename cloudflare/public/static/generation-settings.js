@@ -2,6 +2,9 @@
   'use strict';
 
   var MAX_SEED = 2147483647;
+  var MIN_CUSTOM_DIMENSION = 256;
+  var MAX_CUSTOM_DIMENSION = 1920;
+  var CUSTOM_DIMENSION_STEP = 64;
 
   function toText(value) {
     if (value === null || value === undefined) { return ''; }
@@ -28,21 +31,45 @@
     return avoid ? base + ', avoid ' + avoid : base;
   }
 
+  function normalizeCustomDimension(value, label) {
+    var text = toText(value);
+    var number;
+    if (!text || !/^\d+$/.test(text)) {
+      throw new Error(label + '必須是 256 到 1920 之間，且為 64 的倍數');
+    }
+    number = Number(text);
+    if (!isFinite(number) || number < MIN_CUSTOM_DIMENSION || number > MAX_CUSTOM_DIMENSION || Math.floor(number) !== number || number % CUSTOM_DIMENSION_STEP !== 0) {
+      throw new Error(label + '必須是 256 到 1920 之間，且為 64 的倍數');
+    }
+    return number;
+  }
+
   function serializeSettings(settings) {
     var source = settings || {};
-    return {
-      prompt: toText(source.prompt),
+    var prompt = toText(source.prompt);
+    var providerPrompt = toText(source.providerPrompt) || prompt;
+    var result = {
+      prompt: prompt,
       avoid: toText(source.avoid),
-      providerPrompt: buildProviderPrompt(source.prompt, source.avoid),
+      providerPrompt: buildProviderPrompt(providerPrompt, source.avoid),
       model: toText(source.model) || 'schnell',
       size: toText(source.size) || 'square',
       seed: normalizeSeed(source.seed)
     };
+    if (result.size === 'custom') {
+      result.width = normalizeCustomDimension(source.width, '自訂寬度');
+      result.height = normalizeCustomDimension(source.height, '自訂高度');
+    }
+    return result;
   }
 
   root.GenerationSettings = {
     MAX_SEED: MAX_SEED,
+    MIN_CUSTOM_DIMENSION: MIN_CUSTOM_DIMENSION,
+    MAX_CUSTOM_DIMENSION: MAX_CUSTOM_DIMENSION,
+    CUSTOM_DIMENSION_STEP: CUSTOM_DIMENSION_STEP,
     normalizeSeed: normalizeSeed,
+    normalizeCustomDimension: normalizeCustomDimension,
     buildProviderPrompt: buildProviderPrompt,
     serializeSettings: serializeSettings
   };

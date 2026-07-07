@@ -13,15 +13,30 @@ binding = "ASSETS"
 # Public, non-secret config. Secret keys are set separately:
 #   npx wrangler secret put NVIDIA_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put GALLERY_ADMIN_TOKEN
+# Do not put GALLERY_ADMIN_TOKEN in [vars]; it gates GET /api/gallery for the
+# station/admin cloud gallery list and must stay server-side only.
 NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 # Gemma models served via the Gemini API.
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
 GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
+GEMINI_VISION_MODEL = "gemini-2.5-flash"
+# Optional paid visual QA for agent mode. Keep false until budget is approved.
+VISION_QA_ENABLED = "false"
+# Public Turnstile config. Public deployments should set TURNSTILE_REQUIRED to
+# "true", fill TURNSTILE_SITE_KEY, and set the secret with:
+#   npx wrangler secret put TURNSTILE_SECRET_KEY
+TURNSTILE_REQUIRED = "false"
+TURNSTILE_SITE_KEY = ""
+# Cost/usage dashboard. Worker logs structured usage_event lines and exposes
+# aggregated, prompt-free counters at GET /api/usage.
+USAGE_ESTIMATED_COST_USD_PER_IMAGE = "0.003"
+USAGE_ALERT_DAILY_GENERATIONS = "1000"
 
 # --- Edge rate limiting for /generate (per client IP) ---
-# The Worker treats env.GENERATE_RATE_LIMITER as optional: until the binding below
-# is enabled, /generate is NOT rate limited. To activate, uncomment the block,
-# GA `ratelimit` binding (wrangler 4.x). `period` accepts 10 or 60.
+# The Worker enforces this binding before /generate, /generate/batch, /edit and
+# /gallery writes. If a local/dev env lacks the binding, the Worker treats it as
+# no-op so tests and previews still run.
 [[ratelimits]]
 name = "GENERATE_RATE_LIMITER"
 namespace_id = "1001"

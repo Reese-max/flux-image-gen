@@ -50,12 +50,26 @@ const args = npmCli ? [npmCli, 'exec', '--'].concat(wranglerArgs) : wranglerArgs
 const result = await run(command, args, !npmCli && process.platform === 'win32');
 const dryRun = args.indexOf('--dry-run') !== -1;
 
-if (result.code === 0) {
-  process.exit(0);
+if (dryRun) {
+  if (hasSuccessfulDryRunOutput(result.output)) {
+    if (result.code !== 0) {
+      console.warn('[deploy] Wrangler returned non-zero, but dry-run success markers were present. Normalizing exit code to 0.');
+    } else {
+      console.log('[deploy] Wrangler dry-run output verified.');
+    }
+    process.exit(0);
+  }
+
+  if (result.code === 0) {
+    console.error('[deploy] Wrangler dry-run exited 0 but expected success markers were missing. Treating this as an unverified dry-run.');
+  } else {
+    console.error('[deploy] Wrangler dry-run failed before success markers. Confirm Cloudflare credentials, account access, and wrangler configuration, then rerun "npm run deploy:dry-run".');
+  }
+  console.error('[deploy] Expected dry-run markers: "--dry-run: exiting now." and an assets directory summary.');
+  process.exit(result.code || 1);
 }
 
-if (dryRun && hasSuccessfulDryRunOutput(result.output)) {
-  console.warn('[deploy] Wrangler returned non-zero, but dry-run success markers were present. Normalizing exit code to 0.');
+if (result.code === 0) {
   process.exit(0);
 }
 

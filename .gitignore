@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.log
+logs/*.jsonl
 .DS_Store
 output/
 *.pid
@@ -14,3 +15,6 @@ node_modules/
 dist/
 .dev.vars
 .dev.vars.*
+.antigravitycli/
+.mypy_cache/
+.ruff_cache/

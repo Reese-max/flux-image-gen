@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import base64
 import random
-from dataclasses import dataclass, replace
+import re
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx
@@ -12,9 +13,19 @@ from .demo_image import make_demo_png_data_url
 from .settings import Settings, get_settings
 
 SIZE_MAP: dict[str, tuple[int, int]] = {
+    # Backward-compatible legacy ids.
     "square": (1024, 1024),
     "landscape": (1344, 768),
     "portrait": (768, 1344),
+    # Productized use-case presets.
+    "ig_post": (1024, 1024),
+    "ppt_16_9": (1344, 768),
+    "ig_story": (768, 1344),
+    "youtube_thumb": (1344, 768),
+    "mobile_wallpaper": (768, 1664),
+    "poster_3_4": (960, 1280),
+    "a4_illustration": (896, 1280),
+    "hero_21_9": (1792, 768),
 }
 
 # The fast tier ("schnell") runs on FLUX.2 klein 4B: NVIDIA's hosted
@@ -28,6 +39,13 @@ MODEL_ENDPOINTS: dict[str, str] = {
 
 MAX_SEED = 2147483647
 SEED_ERROR_MESSAGE = f"seed 必須是 0 到 {MAX_SEED} 之間的整數"
+MIN_CUSTOM_DIMENSION = 256
+MAX_CUSTOM_DIMENSION = 1920
+CUSTOM_DIMENSION_STEP = 64
+CUSTOM_SIZE_ERROR_MESSAGE = (
+    f"自訂尺寸寬高必須是 {MIN_CUSTOM_DIMENSION} 到 {MAX_CUSTOM_DIMENSION} 之間，"
+    f"且為 {CUSTOM_DIMENSION_STEP} 的倍數"
+)
 
 # Image generation is the slowest, most expensive call — retry transient failures
 # (timeout / network / 5xx) before giving up. 429 is surfaced immediately so the
@@ -57,6 +75,8 @@ class GenerationRequest:
     model: str = "schnell"
     size: str = "square"
     seed: int | None = None
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +87,7 @@ class GenerationResult:
     width: int
     height: int
     seed: int
+    image_quality: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -92,7 +113,104 @@ class ProviderError(Exception):
         self.retry_after = retry_after
 
 
-def map_size(size: str) -> tuple[int, int]:
+def inspect_generated_image(image: str, expected_width: int, expected_height: int) -> dict[str, Any]:
+    """Return safe, non-secret image diagnostics for QAReport and debugging.
+
+    This is intentionally header-only: it never stores prompt text or image
+    bytes, and it fails open with an issue list instead of blocking a generation
+    that already succeeded at the provider.
+    """
+    issues: list[str] = []
+    score = 100
+    result: dict[str, Any] = {
+        "checked": False,
+        "mime": None,
+        "byteSize": None,
+        "width": None,
+        "height": None,
+        "expectedWidth": expected_width,
+        "expectedHeight": expected_height,
+        "issues": issues,
+        "visualQualityScore": score,
+    }
+    if not isinstance(image, str) or not image:
+        issues.append("圖片資料為空")
+        result["visualQualityScore"] = 0
+        return result
+    if image.startswith(("http://", "https://")):
+        issues.append("遠端圖片 URL 未做內嵌品質檢查")
+        result["visualQualityScore"] = 82
+        return result
+    match = re.match(r"^data:(image/[a-zA-Z0-9.+-]+);base64,(.+)$", image, re.DOTALL)
+    if not match:
+        issues.append("圖片格式不是可檢查的 data URL")
+        result["visualQualityScore"] = 45
+        return result
+    result["checked"] = True
+    result["mime"] = match.group(1)
+    try:
+        raw = base64.b64decode(re.sub(r"\s+", "", match.group(2)), validate=True)
+    except Exception:
+        # Kept broad because provider payloads can contain malformed base64 from
+        # different runtimes; this must never leak stack details to the client.
+        issues.append("圖片 base64 無法解碼")
+        result["visualQualityScore"] = 20
+        return result
+    result["byteSize"] = len(raw)
+    if len(raw) < 256:
+        issues.append("圖片資料過小，可能是損壞或佔位圖")
+        score -= 35
+    dims = _sniff_image_dimensions(raw)
+    if dims:
+        result["width"], result["height"] = dims
+        if dims != (expected_width, expected_height):
+            issues.append(f"圖片實際尺寸 {dims[0]}×{dims[1]} 與要求 {expected_width}×{expected_height} 不一致")
+            score -= 18
+    else:
+        issues.append("無法讀取圖片實際尺寸")
+        score -= 15
+    result["visualQualityScore"] = max(0, min(100, score))
+    return result
+
+
+def _sniff_image_dimensions(raw: bytes) -> tuple[int, int] | None:
+    if len(raw) >= 24 and raw[:8] == b"\x89PNG\r\n\x1a\n":
+        return int.from_bytes(raw[16:20], "big"), int.from_bytes(raw[20:24], "big")
+    if len(raw) >= 10 and raw[:4] in (b"GIF8",):
+        return int.from_bytes(raw[6:8], "little"), int.from_bytes(raw[8:10], "little")
+    if len(raw) >= 4 and raw[:3] == b"\xff\xd8\xff":
+        i = 2
+        while i + 9 < len(raw):
+            if raw[i] != 0xFF:
+                i += 1
+                continue
+            marker = raw[i + 1]
+            i += 2
+            if marker in (0xD8, 0xD9):
+                continue
+            if i + 2 > len(raw):
+                return None
+            length = int.from_bytes(raw[i : i + 2], "big")
+            if length < 2 or i + length > len(raw):
+                return None
+            if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                return int.from_bytes(raw[i + 5 : i + 7], "big"), int.from_bytes(raw[i + 3 : i + 5], "big")
+            i += length
+    return None
+
+
+def validate_custom_dimensions(width: Any, height: Any) -> tuple[int, int]:
+    if isinstance(width, bool) or isinstance(height, bool) or not isinstance(width, int) or not isinstance(height, int):
+        raise ValueError(CUSTOM_SIZE_ERROR_MESSAGE)
+    for value in (width, height):
+        if value < MIN_CUSTOM_DIMENSION or value > MAX_CUSTOM_DIMENSION or value % CUSTOM_DIMENSION_STEP != 0:
+            raise ValueError(CUSTOM_SIZE_ERROR_MESSAGE)
+    return width, height
+
+
+def map_size(size: str, width: int | None = None, height: int | None = None) -> tuple[int, int]:
+    if size == "custom":
+        return validate_custom_dimensions(width, height)
     try:
         return SIZE_MAP[size]
     except KeyError as exc:
@@ -145,10 +263,18 @@ class DemoProvider:
     async def generate(self, request: GenerationRequest) -> GenerationResult:
         prompt = validate_prompt(request.prompt)
         model = validate_model(request.model)
-        width, height = map_size(request.size)
+        width, height = map_size(request.size, request.width, request.height)
         seed = resolve_seed(request.seed, model, self.settings)
         image = make_demo_png_data_url(f"{prompt}\nseed:{seed}", width, height, model)
-        return GenerationResult(image=image, provider=self.provider_name, model=model, width=width, height=height, seed=seed)
+        return GenerationResult(
+            image=image,
+            provider=self.provider_name,
+            model=model,
+            width=width,
+            height=height,
+            seed=seed,
+            image_quality=inspect_generated_image(image, width, height),
+        )
 
 
 class NvidiaProvider:
@@ -163,7 +289,7 @@ class NvidiaProvider:
 
         prompt = validate_prompt(request.prompt)
         model = validate_model(request.model)
-        width, height = map_size(request.size)
+        width, height = map_size(request.size, request.width, request.height)
         seed = resolve_seed(request.seed, model, self.settings)
         endpoint = self._endpoint_for(model)
         payload: dict[str, Any] = {
@@ -217,7 +343,15 @@ class NvidiaProvider:
                 code="content_filtered",
             )
         image = extract_image(data)
-        return GenerationResult(image=image, provider=self.provider_name, model=model, width=width, height=height, seed=seed)
+        return GenerationResult(
+            image=image,
+            provider=self.provider_name,
+            model=model,
+            width=width,
+            height=height,
+            seed=seed,
+            image_quality=inspect_generated_image(image, width, height),
+        )
 
     def _endpoint_for(self, model: str) -> str:
         base = self.settings.nvidia_base_url.rstrip("/")
@@ -245,7 +379,7 @@ class WorkersAiProvider:
 
         prompt = validate_prompt(request.prompt)
         model = validate_model(request.model)
-        width, height = map_size(request.size)
+        width, height = map_size(request.size, request.width, request.height)
         seed = resolve_seed(request.seed, model, self.settings)
         # UI contract: seed 0 (or blank) means "random variation". klein treats
         # every seed literally, so 0 would pin the output; substitute a real
@@ -296,7 +430,13 @@ class WorkersAiProvider:
         result_payload = data.get("result") if isinstance(data, dict) else None
         image = extract_image(result_payload if result_payload is not None else data, "Workers AI")
         return GenerationResult(
-            image=image, provider=self.provider_name, model=model, width=width, height=height, seed=effective_seed
+            image=image,
+            provider=self.provider_name,
+            model=model,
+            width=width,
+            height=height,
+            seed=effective_seed,
+            image_quality=inspect_generated_image(image, width, height),
         )
 
 
@@ -479,10 +619,38 @@ async def edit_image(request: EditRequest, settings: Settings | None = None) -> 
 
 
 def to_http_error(err: ProviderError) -> tuple[dict[str, Any], int]:
-    payload: dict[str, Any] = {"error": err.message, "code": err.code}
+    payload: dict[str, Any] = {"error": sanitize_error_message(err.message), "code": err.code}
     if err.retry_after is not None:
         payload["retry_after"] = err.retry_after
     return payload, err.status_code
+
+
+def sanitize_error_message(message: str) -> str:
+    """Return a user-safe provider error.
+
+    Provider payloads and SDK exceptions can include Authorization headers,
+    API keys, or stack traces. Keep short actionable messages, but redact
+    secret-looking tokens and collapse stack traces to a generic user message.
+    """
+    text = str(message or "").strip()
+    if not text:
+        return "出圖服務回傳錯誤，請稍後再試"
+
+    lower = text.lower()
+    if "traceback" in lower or "\n  file " in lower or "stack trace" in lower:
+        return "出圖服務回傳錯誤，請稍後再試"
+
+    redactions = (
+        (r"Bearer\s+[A-Za-z0-9._~+/=-]+", "Bearer [redacted]"),
+        (r"Authorization\s*:\s*[^\s,;]+", "Authorization: [redacted]"),
+        (r"\bnvapi-[A-Za-z0-9._-]+", "nvapi-[redacted]"),
+        (r"\bsk-proj-[A-Za-z0-9._-]+", "sk-proj-[redacted]"),
+        (r"\bsk-[A-Za-z0-9._-]+", "sk-[redacted]"),
+        (r"\bcf-[A-Za-z0-9._-]{16,}", "cf-[redacted]"),
+    )
+    for pattern, replacement in redactions:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
 
 
 def is_content_filtered(data: Any) -> bool:
@@ -590,19 +758,19 @@ def _response_error_message(response: httpx.Response, provider_label: str = "NVI
         data = response.json()
     except ValueError:
         text = response.text.strip()
-        return text or fallback
+        return sanitize_error_message(text or fallback)
     if isinstance(data, dict):
         if isinstance(data.get("error"), str):
-            return data["error"]
+            return sanitize_error_message(data["error"])
         if isinstance(data.get("message"), str):
-            return data["message"]
+            return sanitize_error_message(data["message"])
         # Cloudflare shape: {"errors": [{"message": "..."}], "success": false}
         errors = data.get("errors")
         if isinstance(errors, list):
             for item in errors:
                 if isinstance(item, dict) and isinstance(item.get("message"), str):
-                    return item["message"]
+                    return sanitize_error_message(item["message"])
         if "detail" in data:
-            return f"{fallback}: {data['detail']}"
+            return sanitize_error_message(f"{fallback}: {data['detail']}")
     # Avoid leaking the raw provider payload (repr of an arbitrary dict) to clients.
     return fallback

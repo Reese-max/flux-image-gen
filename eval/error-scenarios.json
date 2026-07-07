@@ -1,0 +1,576 @@
+{
+  "schema": "flux-error-scenarios.v1",
+  "version": 1,
+  "updatedAt": "2026-07-07",
+  "description": "TASK-050 錯誤情境回歸清單。每個案例都對應自動化測試或靜態驗證證據。",
+  "scenarios": [
+    {
+      "id": "missing-api-key",
+      "title": "API key 未設定",
+      "expected": [
+        "回 missing_api_key 或 Demo 狀態",
+        "不得暴露完整金鑰"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_deployment_preflight.py",
+          "patterns": [
+            "test_deployment_preflight_rejects_secret_in_public_vars",
+            "Secret 不可放在 [vars]"
+          ]
+        },
+        {
+          "path": "tests/test_smoke_live_provider.py",
+          "patterns": [
+            "test_health_smoke_does_not_call_generate_by_default",
+            "health schema OK"
+          ]
+        },
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "missing_api_key",
+            "test_edit_route_without_cf_token_returns_clean_503"
+          ]
+        },
+        {
+          "path": "app/main.py",
+          "patterns": [
+            "hasApiKey",
+            "Demo 模式，不會真實出圖"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "provider-timeout",
+      "title": "Provider timeout",
+      "expected": [
+        "回 504 timeout",
+        "顯示友善逾時訊息"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "test_generate_timeout_returns_friendly_504"
+          ]
+        },
+        {
+          "path": "tests/test_image_service.py",
+          "patterns": [
+            "test_edit_image_timeout_maps_to_504"
+          ]
+        },
+        {
+          "path": "cloudflare/tests/worker-transform.test.mjs",
+          "patterns": [
+            "maps a Workers AI timeout to a clean 504"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "provider-500",
+      "title": "Provider 500",
+      "expected": [
+        "回乾淨錯誤碼",
+        "不得暴露 stack trace 或 key"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "test_generate_provider_500_returns_safe_error_without_stack_or_key"
+          ]
+        },
+        {
+          "path": "tests/test_image_service.py",
+          "patterns": [
+            "redacts_secrets_and_stack_traces"
+          ]
+        },
+        {
+          "path": "app/image_service.py",
+          "patterns": [
+            "sanitize_error_message"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rate-limit-exceeded",
+      "title": "Rate limit exceeded",
+      "expected": [
+        "回 429 rate_limited",
+        "保留 retry_after"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "test_generate_rate_limit_returns_retry_after"
+          ]
+        },
+        {
+          "path": "tests/test_image_service.py",
+          "patterns": [
+            "test_rate_limit_error_keeps_retry_after"
+          ]
+        },
+        {
+          "path": "cloudflare/tests/worker-transform.test.mjs",
+          "patterns": [
+            "rate limiter rejects"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "turnstile-failed",
+      "title": "Turnstile / 反機器人驗證失敗",
+      "expected": [
+        "驗證失敗不得呼叫模型",
+        "不得暴露 Turnstile secret 或上游細節"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "test_generate_requires_turnstile_before_provider_call"
+          ]
+        },
+        {
+          "path": "tests/test_turnstile.py",
+          "patterns": [
+            "test_turnstile_provider_failure_is_sanitized"
+          ]
+        },
+        {
+          "path": "cloudflare/tests/worker-transform.test.mjs",
+          "patterns": [
+            "rejects missing Turnstile token before provider access"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prompt-moderation-blocked",
+      "title": "Prompt moderation 高風險內容",
+      "expected": [
+        "高風險 prompt 不呼叫生成",
+        "拒絕原因友善且不回顯敏感全文"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "test_generate_blocks_high_risk_prompt_before_provider_call"
+          ]
+        },
+        {
+          "path": "tests/test_moderation.py",
+          "patterns": [
+            "test_blocks_fake_documents",
+            "test_blocks_minor_sensitive_content"
+          ]
+        },
+        {
+          "path": "cloudflare/tests/worker-transform.test.mjs",
+          "patterns": [
+            "blocks high-risk prompt before provider access"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "image-save-failed",
+      "title": "圖片保存失敗",
+      "expected": [
+        "顯示雲端保存失敗",
+        "本機歷史仍保留"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "雲端儲存失敗，本機歷史仍保留"
+          ]
+        },
+        {
+          "path": "app/static/app.js",
+          "patterns": [
+            "setCloudSaveStatus",
+            "本機歷史仍保留"
+          ]
+        },
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "test_gallery_route_reports_disabled_on_local_server"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "local-storage-full",
+      "title": "localStorage 滿",
+      "expected": [
+        "不白屏",
+        "歷史、風格卡與專案資料會保留較新的項目並丟棄最舊資料"
+      ],
+      "evidence": [
+        {
+          "path": "tests/frontend/history-store.test.cjs",
+          "patterns": [
+            "saveRecords drops oldest records on quota failure"
+          ]
+        },
+        {
+          "path": "tests/frontend/idea-store.test.cjs",
+          "patterns": [
+            "saveCards drops oldest cards on quota failure and keeps newer cards"
+          ]
+        },
+        {
+          "path": "tests/frontend/project-store.test.cjs",
+          "patterns": [
+            "saveProjects drops oldest projects on quota failure and keeps newer projects"
+          ]
+        },
+        {
+          "path": "app/static/history-store.js",
+          "patterns": [
+            "nextRecords.pop()"
+          ]
+        },
+        {
+          "path": "app/static/idea-store.js",
+          "patterns": [
+            "dropOldestCard"
+          ]
+        },
+        {
+          "path": "app/static/project-store.js",
+          "patterns": [
+            "dropOldestProject"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "json-import-invalid",
+      "title": "JSON 匯入格式錯誤",
+      "expected": [
+        "顯示格式錯誤",
+        "不覆蓋既有資料"
+      ],
+      "evidence": [
+        {
+          "path": "tests/frontend/idea-store.test.cjs",
+          "patterns": [
+            "匯入資料不是有效 JSON",
+            "不支援的 PromptCard schema version"
+          ]
+        },
+        {
+          "path": "tests/frontend/project-store.test.cjs",
+          "patterns": [
+            "parseProjects accepts legacy arrays and versioned collections"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "network-interrupted",
+      "title": "網路中斷",
+      "expected": [
+        "顯示 network 失敗建議",
+        "不遺失使用者輸入"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "renderFailureAdvice('network')",
+            "generate_network"
+          ]
+        },
+        {
+          "path": "tests/e2e/network-interrupted-qa.mjs",
+          "patterns": [
+            "網路中斷顯示專用建議",
+            "使用者中文輸入未遺失",
+            "失敗時不建立歷史作品"
+          ]
+        },
+        {
+          "path": "app/static/app.js",
+          "patterns": [
+            "function handleGenerateError",
+            "renderFailureAdvice('network')"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "double-submit",
+      "title": "使用者連點生成",
+      "expected": [
+        "生成中不可重複送出",
+        "按鈕 aria-busy"
+      ],
+      "evidence": [
+        {
+          "path": "tests/e2e/accessibility-keyboard-qa.mjs",
+          "patterns": [
+            "生成中按鈕宣告 busy 且不可重複送出",
+            "鍵盤重複 Enter 未造成重複請求"
+          ]
+        },
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "if(generationInFlight)",
+            "aria-busy"
+          ]
+        },
+        {
+          "path": "app/static/app.js",
+          "patterns": [
+            "if(generationInFlight)",
+            "go.setAttribute('aria-busy'"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mobile-generation",
+      "title": "手機版生成",
+      "expected": [
+        "底部固定生成列可用",
+        "多張圖可左右滑動與下載"
+      ],
+      "evidence": [
+        {
+          "path": "tests/e2e/mobile-generation-qa.mjs",
+          "patterns": [
+            "手機底部生成列固定可用",
+            "手機多張結果卡片可左右滑動",
+            "手機結果顯示保存提示"
+          ]
+        },
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "test_mobile_result_cards_can_swipe_and_save",
+            "手機固定生成列"
+          ]
+        },
+        {
+          "path": "app/static/app.js",
+          "patterns": [
+            "mobileGenerate",
+            "多張生成結果，可左右滑動挑選"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "clear-history-misclick",
+      "title": "清空歷史誤觸",
+      "expected": [
+        "二次確認",
+        "取消時不清空"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "確定要清空全部歷史記錄嗎？此動作無法復原。",
+            "已取消清空歷史"
+          ]
+        },
+        {
+          "path": "app/static/history-wall.js",
+          "patterns": [
+            "confirmAction",
+            "已取消清空歷史"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reference-image-validation",
+      "title": "參考圖角色／產品用途缺漏",
+      "expected": [
+        "角色一致模式缺少角色參考圖時不可送出",
+        "產品照模式缺少產品參考圖時不可送出",
+        "未實作局部編輯功能不得誤導為可用"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "test_reference_image_modes_and_edit_stubs_are_wired",
+            "角色一致模式需要至少一張標成「角色」的參考圖",
+            "產品照模式需要至少一張標成「產品」的參考圖"
+          ]
+        },
+        {
+          "path": "tests/frontend/image-edit.test.cjs",
+          "patterns": [
+            "composeEditPrompt records reference roles for character consistency mode",
+            "composeEditPrompt records product mode background and lighting guidance"
+          ]
+        },
+        {
+          "path": "app/static/index.html",
+          "patterns": [
+            "角色一致模式",
+            "產品照模式",
+            "即將推出"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "usage-dashboard-read-failed",
+      "title": "用量 Dashboard 讀取失敗或日期錯誤",
+      "expected": [
+        "顯示用量資料讀取失敗",
+        "API 回 bad_request 而不白屏",
+        "摘要不得包含 prompt、圖片內容、完整 IP 或金鑰"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "test_usage_dashboard_ui_is_wired",
+            "fetch('/api/usage?date='",
+            "此摘要不保存 prompt、圖片內容或原始 IP"
+          ]
+        },
+        {
+          "path": "tests/test_app.py",
+          "patterns": [
+            "test_usage_dashboard_validates_date",
+            "test_usage_dashboard_summarizes_generation_without_prompt_or_raw_ip"
+          ]
+        },
+        {
+          "path": "app/static/usage-dashboard.js",
+          "patterns": [
+            "用量資料讀取失敗",
+            "renderUsage",
+            "byErrorCode"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deep-link-onboarding-blocked",
+      "title": "非生成分頁深連結被教學彈窗遮住",
+      "expected": [
+        "#usage、#edit、#history、#projects 等深連結首次進站不自動開教學彈窗",
+        "生成分頁仍可手動開啟教學",
+        "教學彈窗不應阻擋站長工具或改圖頁主要操作"
+      ],
+      "evidence": [
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "function shouldAutoOpenTutorial",
+            "hash && hash !== 'generate'",
+            "activeTab && activeTab !== 'generate'"
+          ]
+        },
+        {
+          "path": "app/static/tutorial.js",
+          "patterns": [
+            "function shouldAutoOpenTutorial",
+            "return !hasSeenTutorial()",
+            "if (shouldAutoOpenTutorial())"
+          ]
+        },
+        {
+          "path": "app/static/tabs.js",
+          "patterns": [
+            "window.addEventListener('hashchange'",
+            "document.body.setAttribute('data-tab', name)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "share-page-prompt-privacy",
+      "title": "分享頁 prompt 隱私與再生成入口",
+      "expected": [
+        "預設分享頁不公開完整 prompt，也不把 prompt 放進再生成連結",
+        "使用者明確公開 prompt 時才顯示 prompt 與模板複製／再生成入口",
+        "公開內容需 HTML escape，避免分享頁注入"
+      ],
+      "evidence": [
+        {
+          "path": "cloudflare/tests/worker-transform.test.mjs",
+          "patterns": [
+            "GET /share/:id hides prompts by default and only renders public prompts",
+            "assert.doesNotMatch(privateHtml, /prompt=/)",
+            "public &lt;prompt&gt;"
+          ]
+        },
+        {
+          "path": "cloudflare/src/index.js",
+          "patterns": [
+            "const prompt = promptPublic ? String(metadata.prompt || \"\") : \"\";",
+            "shareTemplateUrl(promptPublic ? prompt : \"\", metadata)",
+            "此作品未公開完整 prompt。"
+          ]
+        },
+        {
+          "path": "tests/test_static_ui.py",
+          "patterns": [
+            "test_cloud_save_privacy_modal_is_wired",
+            "cloudIncludePrompt').checked = false",
+            "請先勾選確認：此連結不是登入保護的私密作品。"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cloud-delete-token-invalid",
+      "title": "雲端作品刪除授權無效",
+      "expected": [
+        "沒有刪除 token 或 token 錯誤時不得刪除 R2 圖片與 metadata",
+        "刪除連結可打開確認頁，且有效 token 可刪除圖片與 metadata",
+        "刪除 token 不得以明文寫入 metadata 或分享頁"
+      ],
+      "evidence": [
+        {
+          "path": "cloudflare/tests/worker-transform.test.mjs",
+          "patterns": [
+            "DELETE /gallery/:id deletes image and metadata only with the owner delete token",
+            "assert.equal(missingToken.status, 401)",
+            "assert.equal(JSON.stringify(metaBefore).includes(deleteToken), false)"
+          ]
+        },
+        {
+          "path": "cloudflare/src/index.js",
+          "patterns": [
+            "function handleGalleryDelete",
+            "verifyGalleryDeleteTokenHash",
+            "await bucket.delete(imageKey)"
+          ]
+        },
+        {
+          "path": "app/static/index.html",
+          "patterns": [
+            "刪除連結已保存到本機歷史",
+            "同步保存在本機歷史詳情",
+            "任何取得連結的人都可刪除此雲端作品"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -22,12 +24,18 @@ from .image_service import (
     generate_image,
     to_http_error,
     validate_seed,
+    validate_batch_count,
 )
 from .prompt_complete import complete_plain_prompt
 from .prompt_enhance import enhance_prompt
 from .prompt_llm import PromptLLMError
 from .prompt_transform import transform_plain_prompt
+from .rate_limit import check_generation_rate_limit
 from .settings import get_settings
+from .turnstile import turnstile_enabled, verify_turnstile_token
+from .moderation import moderate_prompt
+from .usage_metrics import record_usage_event, summarize_usage
+from .vision_qa import maybe_run_vision_qa
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -46,9 +54,14 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 class GeneratePayload(BaseModel):
     prompt: str
+    userPrompt: str | None = None
     model: str = "schnell"
     size: str = "square"
+    width: int | None = None
+    height: int | None = None
     seed: int | None = None
+    turnstileToken: str | None = None
+    visionQa: bool = False
 
     @field_validator("seed", mode="before")
     @classmethod
@@ -58,10 +71,15 @@ class GeneratePayload(BaseModel):
 
 class BatchGeneratePayload(BaseModel):
     prompt: str
+    userPrompt: str | None = None
     model: str = "schnell"
     size: str = "square"
+    width: int | None = None
+    height: int | None = None
     seed: int | None = None
     count: int = 1
+    turnstileToken: str | None = None
+    visionQa: bool = False
 
     @field_validator("seed", mode="before")
     @classmethod
@@ -77,6 +95,44 @@ class PromptTransformPayload(BaseModel):
 class PromptEnhancePayload(BaseModel):
     prompt: str
     effect: str = ""
+
+
+def rate_limit_response(decision):
+    body = {
+        "error": "叫用太頻繁，請稍後再試",
+        "code": "rate_limited",
+    }
+    headers = {}
+    if decision.retry_after is not None:
+        body["retry_after"] = decision.retry_after
+        headers["Retry-After"] = str(decision.retry_after)
+    if decision.limit is not None:
+        body["limit"] = decision.limit
+    if decision.remaining is not None:
+        body["remaining"] = decision.remaining
+    return JSONResponse(body, status_code=429, headers=headers)
+
+
+def turnstile_response(decision):
+    return JSONResponse(
+        {"error": decision.message, "code": decision.code},
+        status_code=decision.status_code,
+    )
+
+
+def moderation_response(decision):
+    return JSONResponse(
+        {"error": decision.message, "code": decision.code, "category": decision.category},
+        status_code=decision.status_code,
+    )
+
+
+def combined_prompt_for_moderation(provider_prompt: str, user_prompt: str | None = None) -> str:
+    return "\n".join(part for part in (user_prompt, provider_prompt) if part)
+
+
+def elapsed_ms(start: float) -> int:
+    return max(0, round((time.perf_counter() - start) * 1000))
 
 
 @app.get("/")
@@ -98,82 +154,424 @@ def service_worker() -> FileResponse:
     )
 
 
-@app.get("/health")
-def health() -> dict[str, str]:
+@app.get("/api/health")
+def api_health() -> dict[str, object]:
     settings = get_settings()
-    provider = "nvidia" if settings.nvidia_api_key.strip() else "demo"
-    if settings.image_provider.strip().lower() in {"demo", "nvidia"}:
-        provider = settings.image_provider.strip().lower()
-    return {"status": "ok", "provider": provider}
+    configured_provider = settings.image_provider.strip().lower()
+    has_nvidia_key = bool(settings.nvidia_api_key.strip())
+    has_workers_ai_key = bool(settings.cf_account_id.strip() and settings.cf_api_token.strip())
+    providers = {
+        "nvidia": has_nvidia_key,
+        "workersAI": has_workers_ai_key,
+        "modal": False,
+    }
+    provider_status = "demo"
+    mode = "demo"
+    message = "Demo 模式，不會真實出圖"
+
+    if configured_provider == "demo":
+        provider_status = "demo"
+    elif configured_provider == "nvidia":
+        if has_nvidia_key:
+            provider_status = "ready"
+            mode = "live"
+            message = "真實出圖可用"
+        else:
+            provider_status = "offline"
+            message = "出圖服務暫時不可用：NVIDIA_API_KEY 未設定"
+    elif configured_provider == "auto":
+        if has_nvidia_key or has_workers_ai_key:
+            provider_status = "ready" if has_nvidia_key else "degraded"
+            mode = "live"
+            message = "真實出圖可用" if has_nvidia_key else "部分服務可用"
+        else:
+            provider_status = "demo"
+    else:
+        provider_status = "error"
+        message = "服務設定錯誤：IMAGE_PROVIDER 只能是 auto、demo 或 nvidia"
+
+    return {
+        "status": "ok",
+        "provider": "nvidia" if has_nvidia_key else ("workers-ai" if has_workers_ai_key else "demo"),
+        "providerStatus": provider_status,
+        "mode": mode,
+        "providers": providers,
+        "hasApiKey": has_nvidia_key or has_workers_ai_key,
+        "storageAvailable": False,
+        "turnstile": {
+            "required": turnstile_enabled(settings),
+            "siteKey": settings.turnstile_site_key.strip() if turnstile_enabled(settings) else "",
+        },
+        "message": message,
+        "checkedAt": datetime.now(UTC).isoformat(),
+    }
+
+@app.get("/health")
+def health() -> dict[str, object]:
+    return api_health()
+
+
+@app.get("/api/usage")
+def api_usage(date: str | None = None):
+    settings = get_settings()
+    try:
+        return summarize_usage(date, settings=settings)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
 
 
 @app.post("/generate")
-async def generate(payload: GeneratePayload):
+async def generate(payload: GeneratePayload, request: Request):
+    started = time.perf_counter()
+    settings = get_settings()
+    moderation_decision = moderate_prompt(combined_prompt_for_moderation(payload.prompt, payload.userPrompt))
+    if not moderation_decision.allowed:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate",
+            outcome="error",
+            status_code=moderation_decision.status_code,
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="blocked",
+            error_code=moderation_decision.code,
+        )
+        return moderation_response(moderation_decision)
+    turnstile_decision = await verify_turnstile_token(payload.turnstileToken, request, settings)
+    if not turnstile_decision.allowed:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate",
+            outcome="error",
+            status_code=turnstile_decision.status_code,
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="unknown",
+            error_code=turnstile_decision.code,
+        )
+        return turnstile_response(turnstile_decision)
+    decision = check_generation_rate_limit(request, settings, route="generate")
+    if not decision.allowed:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate",
+            outcome="error",
+            status_code=429,
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="unknown",
+            error_code="rate_limited",
+        )
+        return rate_limit_response(decision)
     try:
         result = await generate_image(
-            GenerationRequest(prompt=payload.prompt, model=payload.model, size=payload.size, seed=payload.seed)
+            GenerationRequest(
+                prompt=payload.prompt,
+                model=payload.model,
+                size=payload.size,
+                width=payload.width,
+                height=payload.height,
+                seed=payload.seed,
+            ),
+            settings=settings,
         )
     except ValueError as exc:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate",
+            outcome="error",
+            status_code=400,
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="unknown",
+            error_code="bad_request",
+        )
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
     except ProviderError as exc:
         body, status = to_http_error(exc)
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate",
+            outcome="error",
+            status_code=status,
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="unknown",
+            error_code=str(body.get("code") or exc.code or "provider_error"),
+        )
         return JSONResponse(body, status_code=status)
-    return {
+    record_usage_event(
+        request=request,
+        settings=settings,
+        route="generate",
+        outcome="success",
+        status_code=200,
+        duration_ms=elapsed_ms(started),
+        model=result.model,
+        provider=result.provider,
+        image_count=1,
+    )
+    vision_qa = maybe_run_vision_qa(result.image, payload.prompt, settings) if payload.visionQa else None
+    body = {
         "image": result.image,
         "provider": result.provider,
         "model": result.model,
         "width": result.width,
         "height": result.height,
         "seed": result.seed,
+        "imageQuality": result.image_quality,
     }
+    if vision_qa:
+        body["visionQa"] = vision_qa
+    return body
 
 
 @app.post("/generate/batch")
-async def generate_batch_route(payload: BatchGeneratePayload):
+async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
+    started = time.perf_counter()
+    settings = get_settings()
     try:
+        count = validate_batch_count(payload.count)
+        moderation_decision = moderate_prompt(combined_prompt_for_moderation(payload.prompt, payload.userPrompt))
+        if not moderation_decision.allowed:
+            record_usage_event(
+                request=request,
+                settings=settings,
+                route="generate_batch",
+                outcome="error",
+                status_code=moderation_decision.status_code,
+                duration_ms=elapsed_ms(started),
+                model=payload.model,
+                provider="blocked",
+                error_code=moderation_decision.code,
+            )
+            return moderation_response(moderation_decision)
+        turnstile_decision = await verify_turnstile_token(payload.turnstileToken, request, settings)
+        if not turnstile_decision.allowed:
+            record_usage_event(
+                request=request,
+                settings=settings,
+                route="generate_batch",
+                outcome="error",
+                status_code=turnstile_decision.status_code,
+                duration_ms=elapsed_ms(started),
+                model=payload.model,
+                provider="unknown",
+                error_code=turnstile_decision.code,
+            )
+            return turnstile_response(turnstile_decision)
+        decision = check_generation_rate_limit(request, settings, route="generate_batch", cost=count)
+        if not decision.allowed:
+            record_usage_event(
+                request=request,
+                settings=settings,
+                route="generate_batch",
+                outcome="error",
+                status_code=429,
+                duration_ms=elapsed_ms(started),
+                model=payload.model,
+                provider="unknown",
+                error_code="rate_limited",
+            )
+            return rate_limit_response(decision)
         results = await generate_batch(
-            GenerationRequest(prompt=payload.prompt, model=payload.model, size=payload.size, seed=payload.seed),
-            payload.count,
+            GenerationRequest(
+                prompt=payload.prompt,
+                model=payload.model,
+                size=payload.size,
+                width=payload.width,
+                height=payload.height,
+                seed=payload.seed,
+            ),
+            count,
+            settings=settings,
         )
     except ValueError as exc:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate_batch",
+            outcome="error",
+            status_code=400,
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="unknown",
+            error_code="bad_request",
+        )
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
     except ProviderError as exc:
         body, status = to_http_error(exc)
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate_batch",
+            outcome="error",
+            status_code=status,
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="unknown",
+            error_code=str(body.get("code") or exc.code or "provider_error"),
+        )
         return JSONResponse(body, status_code=status)
-    return {
-        "images": [
-            {
+    first_result = results[0] if results else None
+    record_usage_event(
+        request=request,
+        settings=settings,
+        route="generate_batch",
+        outcome="success",
+        status_code=200,
+        duration_ms=elapsed_ms(started),
+        model=first_result.model if first_result else payload.model,
+        provider=first_result.provider if first_result else "unknown",
+        image_count=len(results),
+    )
+    images_payload = []
+    for result in results:
+        item = {
                 "image": result.image,
                 "provider": result.provider,
                 "model": result.model,
                 "width": result.width,
                 "height": result.height,
                 "seed": result.seed,
+                "imageQuality": result.image_quality,
             }
-            for result in results
-        ]
-    }
+        if payload.visionQa:
+            vision_qa = maybe_run_vision_qa(result.image, payload.prompt, settings)
+            if vision_qa:
+                item["visionQa"] = vision_qa
+        images_payload.append(item)
+    return {"images": images_payload}
 
 
 @app.post("/edit")
-async def edit(prompt: str = Form(...), images: list[UploadFile] = File(...)):
+async def edit(
+    request: Request,
+    prompt: str = Form(...),
+    images: list[UploadFile] = File(...),
+    turnstileToken: str | None = Form(None),
+):
+    started = time.perf_counter()
+    settings = get_settings()
+    moderation_decision = moderate_prompt(prompt)
+    if not moderation_decision.allowed:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="edit",
+            outcome="error",
+            status_code=moderation_decision.status_code,
+            duration_ms=elapsed_ms(started),
+            model="edit",
+            provider="blocked",
+            error_code=moderation_decision.code,
+        )
+        return moderation_response(moderation_decision)
+    turnstile_decision = await verify_turnstile_token(turnstileToken, request, settings)
+    if not turnstile_decision.allowed:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="edit",
+            outcome="error",
+            status_code=turnstile_decision.status_code,
+            duration_ms=elapsed_ms(started),
+            model="edit",
+            provider="unknown",
+            error_code=turnstile_decision.code,
+        )
+        return turnstile_response(turnstile_decision)
+    decision = check_generation_rate_limit(request, settings, route="edit")
+    if not decision.allowed:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="edit",
+            outcome="error",
+            status_code=429,
+            duration_ms=elapsed_ms(started),
+            model="edit",
+            provider="unknown",
+            error_code="rate_limited",
+        )
+        return rate_limit_response(decision)
     # 讀取 body 前先擋數量與單檔大小，避免把大量/超大部件全載進記憶體（DoS 防護）。
     if not images or len(images) > MAX_EDIT_IMAGES:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="edit",
+            outcome="error",
+            status_code=400,
+            duration_ms=elapsed_ms(started),
+            model="edit",
+            provider="unknown",
+            error_code="bad_request",
+        )
         return JSONResponse({"error": EDIT_IMAGE_COUNT_ERROR_MESSAGE, "code": "bad_request"}, status_code=400)
     for image in images:
         if image.size is not None and image.size > MAX_EDIT_IMAGE_BYTES:
+            record_usage_event(
+                request=request,
+                settings=settings,
+                route="edit",
+                outcome="error",
+                status_code=400,
+                duration_ms=elapsed_ms(started),
+                model="edit",
+                provider="unknown",
+                error_code="bad_request",
+            )
             return JSONResponse(
                 {"error": f"單張圖片不可超過 {MAX_EDIT_IMAGE_BYTES // (1024 * 1024)}MB", "code": "bad_request"},
                 status_code=400,
             )
     raw_images = tuple([await image.read() for image in images])
     try:
-        result = await edit_image(EditRequest(prompt=prompt, images=raw_images))
+        result = await edit_image(EditRequest(prompt=prompt, images=raw_images), settings=settings)
     except ValueError as exc:
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="edit",
+            outcome="error",
+            status_code=400,
+            duration_ms=elapsed_ms(started),
+            model="edit",
+            provider="unknown",
+            error_code="bad_request",
+        )
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
     except ProviderError as exc:
         body, status = to_http_error(exc)
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="edit",
+            outcome="error",
+            status_code=status,
+            duration_ms=elapsed_ms(started),
+            model="edit",
+            provider="unknown",
+            error_code=str(body.get("code") or exc.code or "provider_error"),
+        )
         return JSONResponse(body, status_code=status)
+    record_usage_event(
+        request=request,
+        settings=settings,
+        route="edit",
+        outcome="success",
+        status_code=200,
+        duration_ms=elapsed_ms(started),
+        model=result.model,
+        provider=result.provider,
+        image_count=1,
+    )
     return {
         "image": result.image,
         "provider": result.provider,
@@ -187,6 +585,14 @@ def gallery_save_unavailable():
     # The cloud gallery is backed by Cloudflare R2 and is only served by the Worker.
     # The local FastAPI dev server returns 503 so the frontend shows a clear notice.
     return JSONResponse({"error": "雲端圖庫僅在 Cloudflare 部署可用", "code": "gallery_disabled"}, status_code=503)
+
+
+@app.get("/api/gallery")
+def gallery_admin_list_unavailable():
+    # The admin cloud gallery list reads Cloudflare R2 metadata through the Worker.
+    # Local FastAPI intentionally returns the same machine-readable disabled code
+    # so the station/admin UI can show a clear fallback instead of a generic 404.
+    return JSONResponse({"error": "站長雲端圖庫僅在 Cloudflare 部署可用", "code": "gallery_disabled"}, status_code=503)
 
 
 @app.post("/prompt/transform")
