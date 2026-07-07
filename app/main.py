@@ -44,6 +44,17 @@ app = FastAPI(title="AI 圖片產生器", version="1.0.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def static_no_cache(request: Request, call_next):
+    # no-cache = 每次帶 ETag 向伺服器驗證（命中回 304），避免瀏覽器啟發式快取
+    # 讓部署後的新 CSS/JS 遲遲不生效（使用者卡舊版介面）。
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith("/static/") or path == "/service-worker.js":
+        response.headers.setdefault("Cache-Control", "no-cache")
+    return response
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     for error in exc.errors():

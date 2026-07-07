@@ -421,7 +421,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v3" in service_worker_js
+    assert "ai-image-generator-pwa-v4" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
@@ -703,9 +703,9 @@ def test_reference_image_modes_and_edit_stubs_are_wired():
     assert 'id="editProductLighting"' in html
     assert "乾淨棚拍背景" in html
     assert "明亮商業光" in html
-    assert 'class="edit-stub-tools"' in html
-    for label in ["局部修改", "換背景", "擴圖", "去背", "加文字", "調整比例"]:
-        assert f"{label}（即將推出）" in html
+    # 樁按鈕（即將推出）已於 2026-07 溫暖創作風改版移除，不應再出現空承諾 UI。
+    assert 'class="edit-stub-tools"' not in html
+    assert "（即將推出）" not in html
 
     assert "REFERENCE_ROLES" in image_edit_js
     assert "function normalizeReferenceRole" in image_edit_js

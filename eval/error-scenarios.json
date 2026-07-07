@@ -428,8 +428,7 @@
           "path": "app/static/index.html",
           "patterns": [
             "角色一致模式",
-            "產品照模式",
-            "即將推出"
+            "產品照模式"
           ]
         }
       ]
