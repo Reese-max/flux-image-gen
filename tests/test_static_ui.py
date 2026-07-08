@@ -19,19 +19,19 @@ def test_product_branding_seo_and_app_metadata_are_wired():
     html = read_static("index.html")
     manifest = read_static("manifest.webmanifest")
 
-    assert "<title>Fluxi 中文 FLUX 圖片產生器｜白話中文直接生成圖片</title>" in html
-    assert 'meta name="description" content="中文 FLUX 圖片產生器：輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。"' in html
-    assert 'property="og:title" content="Fluxi 中文 FLUX 圖片產生器"' in html
-    assert 'property="og:description" content="輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。"' in html
+    assert "<title>Fluxi 中文 AI 圖片產生器｜白話中文直接生成圖片</title>" in html
+    assert 'meta name="description" content="中文 AI 圖片產生器：輸入白話中文，自動生成簡報、社群、產品與角色圖片。"' in html
+    assert 'property="og:title" content="Fluxi 中文 AI 圖片產生器"' in html
+    assert 'property="og:description" content="輸入白話中文，自動生成簡報、社群、產品與角色圖片。"' in html
     assert 'property="og:image" content="https://flux-image-gen.irisx-tracker.workers.dev/static/og.jpg"' in html
-    assert 'name="twitter:title" content="Fluxi 中文 FLUX 圖片產生器"' in html
-    assert 'name="twitter:description" content="輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。"' in html
+    assert 'name="twitter:title" content="Fluxi 中文 AI 圖片產生器"' in html
+    assert 'name="twitter:description" content="輸入白話中文，自動生成簡報、社群、產品與角色圖片。"' in html
     assert '<span class="brand-name">Fluxi</span>' in html
     assert "打中文就出圖 · 免學提示詞 · 適合簡報和社群" in html
-    assert "Fluxi 中文 FLUX 圖片產生器 · 版本 v1.2.0" in html
-    assert '"name": "Fluxi 中文 FLUX 圖片產生器"' in manifest
+    assert "Fluxi 中文 AI 圖片產生器 · 版本 v1.2.0" in html
+    assert '"name": "Fluxi 中文 AI 圖片產生器"' in manifest
     assert '"short_name": "Fluxi 生圖"' in manifest
-    assert '"description": "輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。"' in manifest
+    assert '"description": "輸入白話中文，自動生成簡報、社群、產品與角色圖片。"' in manifest
     assert '"purpose": "any maskable"' in manifest
 
 
@@ -442,7 +442,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v7" in service_worker_js
+    assert "ai-image-generator-pwa-v8" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
@@ -526,9 +526,9 @@ def test_custom_idea_card_ui_is_wired():
     assert "createCardFromGeneration" in idea_cards_js
     assert "PromptCards" in idea_cards_js
     assert "fetch('/prompt/transform'" in idea_cards_js
-    assert "匯出風格卡 JSON 會包含完整 prompt、模型、尺寸與 Seed" in idea_cards_js
-    assert "已取消匯出風格卡 JSON" in idea_cards_js
-    assert "檔案包含 prompt 與生成設定" in idea_cards_js
+    assert "匯出的風格卡備份會包含完整描述、畫質、尺寸與畫面編號" in idea_cards_js
+    assert "已取消匯出風格卡備份" in idea_cards_js
+    assert "檔案包含描述與生成設定" in idea_cards_js
 
 
 def test_tutorial_ui_is_wired():
@@ -1018,9 +1018,9 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'saveHistoryAsStyleCard' in history_wall_js
     assert 'copyHistoryShareText' in history_wall_js
     assert 'exportHistoryJson' in history_wall_js
-    assert "匯出作品 JSON 會包含完整 prompt、Provider prompt、Seed、metadata" in history_wall_js
+    assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
     assert "已取消匯出作品 JSON" in history_wall_js
-    assert "檔案可能包含完整 prompt 與雲端刪除連結" in history_wall_js
+    assert "檔案可能包含完整描述與雲端刪除連結" in history_wall_js
     assert 'sourceRecordId' in app_js
     assert '.history-detail' in styles
     assert '.history-cloud-actions' in styles

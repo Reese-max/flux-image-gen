@@ -639,8 +639,8 @@
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
     if (!hidePrompt) {
-      lines.push('白話 prompt：' + toText(sourceRecord.prompt));
-      lines.push('Provider prompt：' + toText(sourceRecord.providerPrompt));
+      lines.push('中文描述：' + toText(sourceRecord.prompt));
+      lines.push('英文提示詞：' + toText(sourceRecord.providerPrompt));
     }
     return lines.join('\n');
   }
@@ -682,7 +682,7 @@
       setAppStatus('作品資料格式不正確，無法匯出', 'fail');
       return;
     }
-    if (root.confirm && !root.confirm('匯出作品 JSON 會包含完整 prompt、Provider prompt、Seed、metadata，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
@@ -700,7 +700,7 @@
       }
       root.URL.revokeObjectURL(url);
     }
-    setAppStatus('已匯出作品 JSON；檔案可能包含完整 prompt 與雲端刪除連結，請勿公開分享此檔。', 'done');
+    setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
   }
 
   function saveHistoryAsStyleCard() {

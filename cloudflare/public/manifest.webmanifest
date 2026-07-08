@@ -1,7 +1,7 @@
 {
-  "name": "Fluxi 中文 FLUX 圖片產生器",
+  "name": "Fluxi 中文 AI 圖片產生器",
   "short_name": "Fluxi 生圖",
-  "description": "輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。",
+  "description": "輸入白話中文，自動生成簡報、社群、產品與角色圖片。",
   "lang": "zh-Hant",
   "start_url": "/",
   "scope": "/",

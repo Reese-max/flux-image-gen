@@ -46,13 +46,13 @@ class AppRouteTests(unittest.TestCase):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn("text/html", response.headers["content-type"])
-        self.assertIn("Fluxi 中文 FLUX 圖片產生器", response.text)
+        self.assertIn("Fluxi 中文 AI 圖片產生器", response.text)
 
     def test_manifest_route_serves_webmanifest(self):
         response = self.client.get("/manifest.webmanifest")
         self.assertEqual(response.status_code, 200)
         self.assertIn("application/manifest+json", response.headers["content-type"])
-        self.assertIn("Fluxi 中文 FLUX 圖片產生器", response.text)
+        self.assertIn("Fluxi 中文 AI 圖片產生器", response.text)
 
     def test_service_worker_route_serves_js_with_scope_header(self):
         response = self.client.get("/service-worker.js")

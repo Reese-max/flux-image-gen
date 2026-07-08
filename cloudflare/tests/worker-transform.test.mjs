@@ -806,7 +806,7 @@ test('Cloudflare static shell includes v1.4 workspace and PWA assets', async () 
   assert.match(html, /rel="manifest"/);
   assert.match(html, /src="\/static\/prompt-enhancer\.js"/);
   assert.match(html, /src="\/static\/failure-advice\.js"/);
-  assert.match(manifest, /Fluxi 中文 FLUX 圖片產生器/);
+  assert.match(manifest, /Fluxi 中文 AI 圖片產生器/);
   assert.match(serviceWorker, /CACHE_NAME/);
 });
 

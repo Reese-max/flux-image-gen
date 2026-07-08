@@ -179,7 +179,7 @@
     label.className = 'lbl';
     label.textContent = card.name;
     meta.className = 'idea-meta';
-    meta.textContent = (card.providerPrompt ? 'Provider prompt' : '中文一鍵生成') + ' · ' + card.modelPreset + ' · ' + card.sizePreset;
+    meta.textContent = (card.providerPrompt ? '英文提示詞' : '中文一鍵生成') + ' · ' + card.modelPreset + ' · ' + card.sizePreset;
 
     edit.type = 'button';
     edit.className = 'card-edit';
@@ -262,8 +262,8 @@
   }
 
   function exportIdeas() {
-    if (root.confirm && !root.confirm('匯出風格卡 JSON 會包含完整 prompt、模型、尺寸與 Seed。公開分享前請先檢查內容，確定要匯出？')) {
-      setGenerationStatus('已取消匯出風格卡 JSON', 'warn');
+    if (root.confirm && !root.confirm('匯出的風格卡備份會包含完整描述、畫質、尺寸與畫面編號。公開分享前請先檢查內容，確定要匯出？')) {
+      setGenerationStatus('已取消匯出風格卡備份', 'warn');
       return;
     }
     var payload = root.IdeaStore.exportCards(cards);
@@ -280,7 +280,7 @@
     setTimeout(function () {
       root.URL.revokeObjectURL(url);
     }, 0);
-    setGenerationStatus('已匯出風格卡 JSON；檔案包含 prompt 與生成設定，公開前請先檢查。', 'done');
+    setGenerationStatus('已匯出風格卡備份；檔案包含描述與生成設定，公開前請先檢查。', 'done');
   }
 
   function importIdeas(event) {
