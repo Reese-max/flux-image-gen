@@ -174,7 +174,7 @@
             </div>
             <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
             <details class="seed-advanced">
-              <summary>自訂種子碼</summary>
+              <summary>自訂畫面編號（進階）</summary>
               <input id="seed" class="text-input" type="number" min="0" max="2147483647" step="1" inputmode="numeric" aria-describedby="seedModeHint" placeholder="留空＝每次都不一樣">
               <p class="seed-advanced-hint">同一個數字會畫出構圖相同的圖，想重現或微調時很好用。</p>
             </details>
@@ -533,7 +533,7 @@
         <div>
           <span class="section-kicker">站長工具</span>
           <h2>成本 Dashboard</h2>
-          <p>查看今日生成次數、失敗率、估計成本、模型用量與異常提醒。此摘要不保存 prompt、圖片內容或原始 IP。</p>
+          <p>查看今日生成次數、失敗率、估計成本、模型用量與異常提醒。此摘要不保存提示詞、圖片內容或原始 IP。</p>
         </div>
         <div class="history-actions">
           <label class="field" for="usageDate">
@@ -608,7 +608,7 @@
     </div><!-- /panel-usage -->
 
     <footer class="footer">
-      <div>感謝 Modal 提供部署與運算，NVIDIA 提供 FLUX 影像生成資源。未設定金鑰時會回傳本機 Demo PNG，方便驗證流程。</div>
+      <div>感謝 Modal 提供部署與運算，NVIDIA 提供 FLUX 影像生成資源。未設定金鑰時會回傳本機示意圖，方便驗證流程。</div>
       <div class="footer-meta">
         Fluxi 中文 FLUX 圖片產生器 · 版本 v1.2.0
         <span class="footer-links">
@@ -628,11 +628,11 @@
         <img id="historyDetailImage" class="history-detail-image" alt="歷史作品預覽">
         <div class="history-detail-grid">
           <section>
-            <h3>白話／使用者提示詞</h3>
+            <h3>你的中文描述</h3>
             <p id="historyDetailPrompt"></p>
           </section>
           <section>
-            <h3>最終 provider prompt</h3>
+            <h3>最終英文提示詞</h3>
             <p id="historyDetailProviderPrompt"></p>
           </section>
           <section>
@@ -640,7 +640,7 @@
             <p id="historyDetailMeta"></p>
           </section>
           <section>
-            <h3>智慧體 QA</h3>
+            <h3>AI 檢查</h3>
             <p id="historyDetailQaReport"></p>
           </section>
           <section>
@@ -670,12 +670,12 @@
         </div>
         <label class="tutorial-check" for="hidePromptInShare">
           <input id="hidePromptInShare" type="checkbox">
-          <span>分享時隱藏 prompt</span>
+          <span>分享時隱藏提示詞</span>
         </label>
-        <p class="custom-ideas-copy">匯出作品 JSON 會包含白話 prompt、Provider prompt、Seed、metadata，且可能包含雲端分享或刪除連結；公開前請先檢查。</p>
+        <p class="custom-ideas-copy">匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定，且可能包含雲端分享或刪除連結；公開前請先檢查。</p>
         <div class="modal-actions">
           <button id="downloadHistoryDetail" class="btn secondary" type="button">下載圖片</button>
-          <button id="copyHistoryPrompt" class="btn secondary" type="button">複製 prompt</button>
+          <button id="copyHistoryPrompt" class="btn secondary" type="button">複製提示詞</button>
           <button id="copyHistoryShareText" class="btn secondary" type="button">複製分享文案</button>
           <button id="saveHistoryAsStyleCard" class="btn secondary" type="button">儲存成風格卡</button>
           <button id="exportHistoryJson" class="btn secondary" type="button">匯出作品 JSON</button>
@@ -705,26 +705,26 @@
           </div>
           <label class="form-field">
             <span>中文描述</span>
-            <textarea id="ideaPromptZh" rows="3" maxlength="1200" placeholder="白話中文描述；沒有 provider prompt 時會自動整理。"></textarea>
+            <textarea id="ideaPromptZh" rows="3" maxlength="1200" placeholder="白話中文描述；沒有英文提示詞時會自動整理。"></textarea>
           </label>
           <label class="form-field">
-            <span>Provider prompt</span>
-            <textarea id="ideaPromptEn" rows="4" maxlength="2400" placeholder="可保存最終 FLUX provider prompt；有填寫時會直接使用。"></textarea>
+            <span>英文提示詞（選填）</span>
+            <textarea id="ideaPromptEn" rows="4" maxlength="2400" placeholder="可保存最終英文提示詞；有填寫時會直接使用。"></textarea>
           </label>
           <label class="form-field">
-            <span>Negative prompt</span>
-            <textarea id="ideaNegativePrompt" rows="2" maxlength="1200" placeholder="例如：low quality, blurry, watermark"></textarea>
+            <span>不想出現的東西</span>
+            <textarea id="ideaNegativePrompt" rows="2" maxlength="1200" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, watermark）"></textarea>
           </label>
           <div class="form-grid">
             <label class="form-field">
-              <span>模型 preset</span>
+              <span>畫質</span>
               <select id="ideaModel">
-                <option value="schnell">快速草稿 · FLUX.2 Klein</option>
-                <option value="dev">高品質輸出 · FLUX.1-dev</option>
+                <option value="schnell">快速（草稿）</option>
+                <option value="dev">高品質（較慢）</option>
               </select>
             </label>
             <label class="form-field">
-              <span>尺寸 preset</span>
+              <span>尺寸</span>
               <select id="ideaSize">
                 <option value="square">IG 貼文 1:1 · 1024×1024</option>
                 <option value="landscape">PPT / YouTube 16:9 · 1344×768</option>
@@ -734,11 +734,11 @@
           </div>
           <div class="form-grid">
             <label class="form-field">
-              <span>Seed</span>
+              <span>畫面編號</span>
               <input id="ideaSeed" type="number" min="0" step="1" placeholder="留空代表隨機">
             </label>
             <label class="form-field">
-              <span>Tags</span>
+              <span>標籤</span>
               <input id="ideaTags" type="text" maxlength="240" placeholder="用逗號分隔，例如：產品, PPT, 角色">
             </label>
           </div>
@@ -819,16 +819,16 @@
         </div>
         <div class="policy-copy">
           <section>
-            <h3>Prompt 與圖片會送去哪裡？</h3>
-            <p>為了整理中文描述與生成圖片，你輸入的 prompt 可能會送到後端、Gemini／Gemma 提示詞服務、NVIDIA FLUX 或 Cloudflare Workers AI。實際使用哪個 provider 取決於目前服務狀態與模型設定。</p>
+            <h3>你的描述與圖片會送去哪裡？</h3>
+            <p>為了整理中文描述與生成圖片，你輸入的描述可能會送到後端、Gemini／Gemma 提示詞服務、NVIDIA FLUX 或 Cloudflare Workers AI。實際使用哪個服務商取決於目前服務狀態與設定。</p>
           </section>
           <section>
             <h3>本機歷史與雲端保存差異</h3>
-            <p>本機歷史、風格卡與專案會存在這台瀏覽器的 localStorage。只有你點「存到雲端」並確認後，圖片才會上傳到 Cloudflare R2；metadata 會分開保存為 R2 JSON。</p>
+            <p>本機歷史、風格卡與專案會存在這台瀏覽器裡。只有你點「存到雲端」並確認後，圖片才會上傳到 Cloudflare R2；相關設定會另外分開保存。</p>
           </section>
           <section>
-            <h3>Prompt 是否公開？</h3>
-            <p>雲端保存預設不公開、也不保存完整 prompt。只有你在保存前勾選「公開並保存完整 prompt」時，prompt 才會寫入雲端 metadata。</p>
+            <h3>提示詞是否公開？</h3>
+            <p>雲端保存預設不公開、也不保存完整提示詞。只有你在保存前勾選「公開並保存完整提示詞」時，提示詞才會寫入雲端資料。</p>
           </section>
           <section>
             <h3>Cookies、localStorage 與刪除資料</h3>
@@ -840,7 +840,7 @@
           </section>
           <section>
             <h3>是否用於訓練模型？</h3>
-            <p>本站不主動拿你的 prompt 或圖片訓練自有模型。第三方 provider 如何處理資料，仍以各 provider 的服務條款與資料政策為準。</p>
+            <p>本站不主動拿你的描述或圖片訓練自有模型。第三方服務商如何處理資料，仍以各服務商的服務條款與資料政策為準。</p>
           </section>
         </div>
       </div>
@@ -854,8 +854,8 @@
         </div>
         <div class="policy-copy">
           <section>
-            <h3>模型與 provider 限制</h3>
-            <p>不同模型與服務商可能有不同使用限制。快速草稿、高品質輸出、Workers AI、NVIDIA FLUX 與未來新增模型，都應以實際 provider 條款為準。</p>
+            <h3>畫質與服務商限制</h3>
+            <p>不同畫質與服務商可能有不同使用限制。快速草稿、高品質輸出、Workers AI、NVIDIA FLUX 與未來新增的服務，都應以實際服務商條款為準。</p>
           </section>
           <section>
             <h3>生成圖能否商用？</h3>
@@ -867,7 +867,7 @@
           </section>
           <section>
             <h3>AI 生成標示建議</h3>
-            <p>若作品用於公開、商業或新聞脈絡，建議標示為 AI 生成或 AI 輔助創作，並保留 prompt、模型與日期紀錄以便追溯。</p>
+            <p>若作品用於公開、商業或新聞脈絡，建議標示為 AI 生成或 AI 輔助創作，並保留提示詞、設定與日期紀錄以便追溯。</p>
           </section>
         </div>
       </div>
@@ -885,12 +885,12 @@
             <span>先把你想看的畫面用自然中文寫下來，不需要一開始就會英文提示詞。</span>
           </li>
           <li data-tutorial-step="2">
-            <strong>轉成專業英文提示詞</strong>
-            <span>使用 Prompt helper 把中文描述轉成更適合 FLUX 的英文提示詞。</span>
+            <strong>系統自動整理成英文提示詞</strong>
+            <span>系統會把你的中文描述整理成更精準的英文提示詞，想微調也可以自己改。</span>
           </li>
           <li data-tutorial-step="3">
-            <strong>選模型與尺寸</strong>
-            <span>依照速度、品質與用途，選擇 FLUX 模型和方形、橫向或直向尺寸。</span>
+            <strong>選畫質與尺寸</strong>
+            <span>依照速度、品質與用途，選擇畫質和方形、橫向或直向尺寸。</span>
           </li>
           <li data-tutorial-step="4">
             <strong>生成、下載、收藏風格卡</strong>

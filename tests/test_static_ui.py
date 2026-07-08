@@ -766,7 +766,7 @@ def test_usage_dashboard_ui_is_wired():
     assert 'id="usageDashboard"' in html
     assert "成本 Dashboard" in html
     assert "今日生成次數、失敗率、估計成本、模型用量與異常提醒" in html
-    assert "此摘要不保存 prompt、圖片內容或原始 IP" in html
+    assert "此摘要不保存提示詞、圖片內容或原始 IP" in html
     assert 'id="usageDate"' in html
     assert 'id="refreshUsage"' in html
     assert 'id="galleryAdminToken"' in html
@@ -894,10 +894,10 @@ def test_privacy_and_license_policy_modals_are_wired():
     assert 'id="privacyPolicyModal"' in html
     assert 'id="licensePolicyModal"' in html
     assert 'id="clearLocalData"' in html
-    assert "Prompt 與圖片會送去哪裡" in html
+    assert "你的描述與圖片會送去哪裡" in html
     assert "本機歷史與雲端保存差異" in html
-    assert "本站不主動拿你的 prompt 或圖片訓練自有模型" in html
-    assert "模型與 provider 限制" in html
+    assert "本站不主動拿你的描述或圖片訓練自有模型" in html
+    assert "畫質與服務商限制" in html
     assert "生成圖能否商用" in html
     assert "不得用於違法、詐欺、仿冒證件" in html
     assert "AI 生成標示建議" in html
@@ -999,7 +999,7 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'id="saveHistoryAsStyleCard"' in html
     assert 'id="exportHistoryJson"' in html
     assert 'id="hidePromptInShare"' in html
-    assert "匯出作品 JSON 會包含白話 prompt、Provider prompt、Seed、metadata" in html
+    assert "匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定" in html
     assert 'openHistoryDetail' in history_wall_js
     assert 'renderVersionList' in history_wall_js
     assert 'renderCloudLinks' in history_wall_js

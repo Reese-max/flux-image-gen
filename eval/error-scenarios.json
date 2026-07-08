@@ -447,7 +447,7 @@
           "patterns": [
             "test_usage_dashboard_ui_is_wired",
             "fetch('/api/usage?date='",
-            "此摘要不保存 prompt、圖片內容或原始 IP"
+            "此摘要不保存提示詞、圖片內容或原始 IP"
           ]
         },
         {
