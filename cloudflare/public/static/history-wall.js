@@ -533,11 +533,12 @@
   function renderCloudLibrary() {
     var library = el('cloudLibrary');
     var list = el('cloudRecordList');
+    // 面板已移除時提早收工，避免多做一次 getCloudRecords() 全掃描。
+    if (!library || !list) { return; }
     var countNode = el('cloudLibraryCount');
     var cloudRecords = getCloudRecords();
     var empty;
     var i;
-    if (!library || !list) { return; }
     clearNode(list);
     if (countNode) {
       countNode.textContent = String(cloudRecords.length) + ' 筆雲端作品';

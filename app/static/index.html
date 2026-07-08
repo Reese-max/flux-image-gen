@@ -98,7 +98,7 @@
         <p id="plainPromptHelp" class="visually-hidden">必填。請用中文描述主體、場景、風格或用途；按生成圖片後系統會自動整理好再出圖。</p>
         <textarea id="plainPrompt" rows="3" aria-describedby="plainPromptHelp status" aria-required="true" placeholder="例如：一隻柴犬在月球吃拉麵，適合放在 PPT 封面，風格可愛但不要太像 AI"></textarea>
         <!-- 緊湊選項列：模式 segmented ＋ 風格/用途次要 select（漸進揭露，視覺降級） -->
-        <div class="composer-options" aria-label="生成選項">
+        <div class="composer-options" role="group" aria-label="生成選項">
           <div class="mode-switch" role="radiogroup" aria-label="生成模式">
             <label class="mode-option">
               <input id="modeNormal" name="generationMode" type="radio" value="normal" checked>
@@ -170,7 +170,7 @@
         <label class="final-prompt-label" for="prompt">英文提示詞（可查看、複製、編輯）</label>
         <textarea id="prompt" rows="3" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理好。"></textarea>
 
-        <div id="promptEnhancer" class="prompt-enhancer" aria-label="幫圖片加效果">
+        <div id="promptEnhancer" class="prompt-enhancer" role="group" aria-label="幫圖片加效果">
           <label class="field-label" for="effectPrompt">加效果（選填）</label>
           <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
           <div class="enhance-actions">
@@ -295,7 +295,7 @@
             <p class="custom-ideas-copy">保存常用描述、畫質、尺寸與預覽圖，點卡片即可重新套用。</p>
             <p class="custom-ideas-copy">匯出備份檔會包含完整描述、畫質與尺寸；公開分享前請先檢查內容。</p>
           </div>
-          <div class="mini-actions" aria-label="風格卡操作">
+          <div class="mini-actions" role="group" aria-label="風格卡操作">
             <button id="addIdea" class="btn mini" type="button">＋ 新增風格卡</button>
             <button id="exportIdeas" class="btn mini secondary" type="button">匯出 JSON</button>
             <label class="btn mini secondary import-label" for="importIdeas">匯入 JSON</label>
@@ -490,7 +490,7 @@
         </div>
         <button id="clearHistory" class="btn mini secondary" type="button">清空歷史</button>
       </div>
-      <div class="history-filters" aria-label="歷史篩選">
+      <div class="history-filters" role="group" aria-label="歷史篩選">
         <input id="historySearch" class="text-input" type="search" aria-label="搜尋歷史作品" placeholder="搜尋描述或標籤">
         <select id="historyModelFilter" class="text-input" aria-label="依畫質篩選">
           <option value="">所有模型</option>
@@ -532,7 +532,7 @@
     </section>
     </div><!-- /panel-history -->
 
-    <div class="tabpanel" id="panel-usage" role="tabpanel" aria-label="用量（站長工具）" hidden>
+    <div class="tabpanel" id="panel-usage" role="region" aria-label="用量（站長工具）" hidden>
     <section id="usageDashboard" class="usage-dashboard glass" aria-label="成本與生成用量 Dashboard">
       <div class="history-head">
         <div>

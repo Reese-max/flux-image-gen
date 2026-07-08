@@ -124,9 +124,15 @@
   }
 
   // 瀏覽器上一頁/下一頁或手動改網址 → 依 hash 切分頁（含 #ideas/#usage 相容路由）。
+  // hash 一律轉小寫，讓 #Ideas / #USAGE 之類也能命中；未知 hash 維持目前分頁，
+  // 並用 replaceState 把無效 hash 清掉（不觸發 hashchange，也不污染上一頁紀錄）。
   window.addEventListener('hashchange', function () {
-    var name = location.hash.replace(/^#/, '');
-    if (name && name !== current) { applyHash(name, false); }
+    var name = location.hash.replace(/^#/, '').toLowerCase();
+    if (name && name !== current) {
+      if (!applyHash(name, false) && current && window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', '#' + current);
+      }
+    }
   });
 
   // 歷史分頁的數量徽章：由 history-wall 在每次渲染後呼叫。
@@ -144,7 +150,7 @@
 
   // 初始分頁優先序：URL hash（含 #ideas/#usage 相容路由）> 上次記住的 > 第一個「生成」。
   // 舊版 localStorage 可能存著 'ideas'/'usage'，isKnown 會擋下並回退到生成分頁。
-  var fromHash = location.hash.replace(/^#/, '');
+  var fromHash = location.hash.replace(/^#/, '').toLowerCase();
   var saved = null;
   try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { saved = null; }
   if (!(fromHash && applyHash(fromHash, false)) && !(saved && activate(saved, false))) {
@@ -152,5 +158,5 @@
   }
 
   // 讓其他腳本可主動切換分頁（支援 'ideas'/'usage' 相容路由）。
-  window.showTab = function (name) { return applyHash(name, false); };
+  window.showTab = function (name) { return applyHash(String(name).toLowerCase(), false); };
 })();

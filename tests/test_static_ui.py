@@ -469,7 +469,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v10" in service_worker_js
+    assert "ai-image-generator-pwa-v11" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
@@ -871,6 +871,7 @@ def test_usage_dashboard_ui_is_wired():
 def test_usage_panel_reachable_without_tab_button():
     """#usage 沒有 tab 按鈕也要能直達：tabs.js 需支援無 tab 的 panel 顯示與切回。"""
     tabs_js = read_static("tabs.js")
+    html = read_static("index.html")
 
     assert "function showUsagePanel" in tabs_js
     assert "document.getElementById('panel-usage')" in tabs_js
@@ -881,7 +882,12 @@ def test_usage_panel_reachable_without_tab_button():
     assert "document.body.setAttribute('data-tab', 'usage')" in tabs_js
     # hash 路由與 showTab 都要吃到相容路由。
     assert "if (name === 'usage') { return showUsagePanel(); }" in tabs_js
-    assert "window.showTab = function (name) { return applyHash(name, false); };" in tabs_js
+    assert "window.showTab = function (name) { return applyHash(String(name).toLowerCase(), false); };" in tabs_js
+    # hash 大小寫正規化 + 未知 hash 用 replaceState 清掉（不污染上一頁）。
+    assert ".replace(/^#/, '').toLowerCase()" in tabs_js
+    assert "replaceState(null, '', '#' + current)" in tabs_js
+    # 用量 panel 沒有對應 tab，語意上是獨立 region 而非 tabpanel。
+    assert 'id="panel-usage" role="region"' in html
 
 
 def test_ideas_hash_redirects_into_generate_tab():
