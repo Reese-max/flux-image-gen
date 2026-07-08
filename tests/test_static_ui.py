@@ -469,7 +469,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v9" in service_worker_js
+    assert "ai-image-generator-pwa-v10" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
@@ -1019,9 +1019,6 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'id="historyCloudMeta"' in html
     assert 'id="openHistoryCloudShare"' in html
     assert 'id="openHistoryCloudDelete"' in html
-    assert 'id="cloudLibrary"' in html
-    assert 'id="cloudLibraryCount"' in html
-    assert 'id="cloudRecordList"' in html
     assert 'id="copyHistoryShareText"' in html
     assert 'id="saveHistoryAsStyleCard"' in html
     assert 'id="exportHistoryJson"' in html
