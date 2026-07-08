@@ -60,9 +60,6 @@
       <button class="tab is-active" id="tab-generate" role="tab" type="button" aria-selected="true" aria-controls="panel-generate" data-tab="generate">
         <span class="tab-ico" aria-hidden="true">✨</span><span class="tab-label">生成圖片</span>
       </button>
-      <button class="tab" id="tab-ideas" role="tab" type="button" aria-selected="false" aria-controls="panel-ideas" tabindex="-1" data-tab="ideas">
-        <span class="tab-ico" aria-hidden="true">💡</span><span class="tab-label">靈感</span>
-      </button>
       <button class="tab" id="tab-edit" role="tab" type="button" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
         <span class="tab-ico" aria-hidden="true">🖌️</span><span class="tab-label">AI 改圖</span>
       </button>
@@ -71,9 +68,6 @@
       </button>
       <button class="tab" id="tab-history" role="tab" type="button" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">
         <span class="tab-ico" aria-hidden="true">🕘</span><span class="tab-label">歷史作品</span><span class="tab-badge" id="historyTabBadge" hidden></span>
-      </button>
-      <button class="tab" id="tab-usage" role="tab" type="button" aria-selected="false" aria-controls="panel-usage" tabindex="-1" data-tab="usage">
-        <span class="tab-ico" aria-hidden="true">📊</span><span class="tab-label">用量</span>
       </button>
     </nav>
 
@@ -88,29 +82,21 @@
         <label class="final-prompt-label" for="plainPrompt">用中文描述你想要的畫面</label>
         <p id="plainPromptHelp" class="visually-hidden">必填。請用中文描述主體、場景、風格或用途；按生成圖片後系統會自動整理成 FLUX prompt。</p>
         <textarea id="plainPrompt" rows="3" aria-describedby="plainPromptHelp status" aria-required="true" placeholder="例如：一隻柴犬在月球吃拉麵，適合放在 PPT 封面，風格可愛但不要太像 AI"></textarea>
-        <div class="mode-switch" role="radiogroup" aria-label="生成模式">
-          <label class="mode-option">
-            <input id="modeNormal" name="generationMode" type="radio" value="normal" checked>
-            <span>一般模式</span>
-            <small>快速整理 prompt 後生成圖片</small>
-          </label>
-          <label class="mode-option">
-            <input id="modeAgent" name="generationMode" type="radio" value="agent">
-            <span>智慧體模式</span>
-            <small>解析需求、推薦模型尺寸，預設生成 4 張</small>
-          </label>
-        </div>
-        <div id="agentPanel" class="agent-panel" hidden>
-          <div class="agent-panel-head">
-            <strong>智慧體進度</strong>
-            <span id="agentModeSummary">等待中文需求</span>
+        <!-- 緊湊選項列：模式 segmented ＋ 風格/用途次要 select（漸進揭露，視覺降級） -->
+        <div class="composer-options" aria-label="生成選項">
+          <div class="mode-switch" role="radiogroup" aria-label="生成模式">
+            <label class="mode-option">
+              <input id="modeNormal" name="generationMode" type="radio" value="normal" checked>
+              <span>一般模式</span>
+              <small>快速整理 prompt 後生成圖片</small>
+            </label>
+            <label class="mode-option">
+              <input id="modeAgent" name="generationMode" type="radio" value="agent">
+              <span>智慧體模式</span>
+              <small>解析需求、推薦模型尺寸，預設生成 4 張</small>
+            </label>
           </div>
-          <ol id="agentSteps" class="agent-steps" aria-live="polite"></ol>
-          <div id="agentRecommendation" class="agent-recommendation"></div>
-        </div>
-
-        <div class="prompt-controls">
-          <label class="field">
+          <label class="field option-field">
             <span class="field-label">風格</span>
             <div class="select-wrap">
               <select id="promptStyle" aria-label="選擇圖片風格">
@@ -124,7 +110,7 @@
               <span class="chevron" aria-hidden="true">▾</span>
             </div>
           </label>
-          <label class="field">
+          <label class="field option-field">
             <span class="field-label">用途</span>
             <div class="select-wrap">
                 <select id="useCase" aria-label="選擇圖片用途">
@@ -142,6 +128,17 @@
               <span class="chevron" aria-hidden="true">▾</span>
             </div>
           </label>
+        </div>
+        <div id="agentPanel" class="agent-panel" hidden>
+          <div class="agent-panel-head">
+            <strong>智慧體進度</strong>
+            <span id="agentModeSummary">等待中文需求</span>
+          </div>
+          <ol id="agentSteps" class="agent-steps" aria-live="polite"></ol>
+          <div id="agentRecommendation" class="agent-recommendation"></div>
+        </div>
+
+        <div class="prompt-controls">
           <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
         </div>
         <div id="turnstileGate" class="turnstile-gate" hidden>
@@ -258,6 +255,42 @@
       <button id="saveToCloud" class="btn secondary" type="button">☁️ 存到雲端</button>
     </div>
 
+    <!-- 靈感 section：原「靈感」分頁內容併入生成分頁（#ideas hash 會捲動到這裡；元素 id 全部保留） -->
+    <section class="ideas" id="ideasSection" aria-label="提示詞靈感">
+      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下只套用 prompt，不會自動消耗額度）</span></div>
+      <div class="idea-grid">
+        <button class="idea" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><span class="emo">🏞️</span><span class="lbl">水墨山水</span></button>
+        <button class="idea" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><span class="emo">🌃</span><span class="lbl">賽博夜市</span></button>
+        <button class="idea" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><span class="emo">💎</span><span class="lbl">鑽石恐龍</span></button>
+        <button class="idea" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><span class="emo">📖</span><span class="lbl">動漫漫畫</span></button>
+        <button class="idea" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><span class="emo">⚙️</span><span class="lbl">剖面圖</span></button>
+        <button class="idea" data-prompt="an astronaut cat floating in deep space, galaxies behind, highly detailed, cinematic"><span class="emo">🐱</span><span class="lbl">太空貓</span></button>
+        <button class="idea" data-prompt="a tiny adorable miniature village, tilt-shift, soft lighting, highly detailed"><span class="emo">🏯</span><span class="lbl">微縮世界</span></button>
+        <button class="idea" data-prompt="a dreamy vaporwave beach with palm trees and a retro sun, pink and teal, 80s aesthetic"><span class="emo">🌴</span><span class="lbl">蒸氣波</span></button>
+        <button class="idea" data-prompt="a bustling city scene built entirely from colorful toy building blocks, playful, vivid colors"><span class="emo">🧱</span><span class="lbl">樂高世界</span></button>
+        <button class="idea" data-prompt="a steaming bowl of ramen, delicious, macro food photography, shallow depth of field"><span class="emo">🍜</span><span class="lbl">美食特寫</span></button>
+        <button class="idea" data-prompt="a giant mecha robot standing in a ruined city, dramatic lighting, epic, hyperrealistic"><span class="emo">🤖</span><span class="lbl">機甲戰士</span></button>
+        <button id="random" class="idea" type="button"><span class="emo">🎲</span><span class="lbl">隨機驚喜</span></button>
+      </div>
+
+      <div class="custom-ideas">
+        <div class="custom-ideas-head">
+          <div>
+            <div class="ideas-title">🧩 我的風格卡<span class="hint">（提示詞卡，儲存在這台瀏覽器）</span></div>
+            <p class="custom-ideas-copy">保存常用 prompt、模型、尺寸、Seed 與預覽圖，點卡片即可重新套用。</p>
+            <p class="custom-ideas-copy">匯出 JSON 會包含完整 prompt、模型、尺寸與 Seed；公開分享前請先檢查內容。</p>
+          </div>
+          <div class="mini-actions" aria-label="風格卡操作">
+            <button id="addIdea" class="btn mini" type="button">＋ 新增風格卡</button>
+            <button id="exportIdeas" class="btn mini secondary" type="button">匯出 JSON</button>
+            <label class="btn mini secondary import-label" for="importIdeas">匯入 JSON</label>
+            <input id="importIdeas" class="visually-hidden" type="file" accept="application/json,.json">
+          </div>
+        </div>
+        <div id="customIdeaGrid" class="idea-grid custom-grid" aria-live="polite"></div>
+      </div>
+    </section>
+
     <section id="exampleGallery" class="example-gallery glass" aria-label="範例 Gallery">
       <div class="section-heading compact">
         <span class="section-kicker">範例 Gallery</span>
@@ -340,43 +373,6 @@
       </div>
     </section>
     </div><!-- /panel-generate -->
-
-    <div class="tabpanel" id="panel-ideas" role="tabpanel" aria-labelledby="tab-ideas" hidden>
-    <section class="ideas" aria-label="提示詞靈感">
-      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下只套用 prompt，不會自動消耗額度）</span></div>
-      <div class="idea-grid">
-        <button class="idea" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><span class="emo">🏞️</span><span class="lbl">水墨山水</span></button>
-        <button class="idea" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><span class="emo">🌃</span><span class="lbl">賽博夜市</span></button>
-        <button class="idea" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><span class="emo">💎</span><span class="lbl">鑽石恐龍</span></button>
-        <button class="idea" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><span class="emo">📖</span><span class="lbl">動漫漫畫</span></button>
-        <button class="idea" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><span class="emo">⚙️</span><span class="lbl">剖面圖</span></button>
-        <button class="idea" data-prompt="an astronaut cat floating in deep space, galaxies behind, highly detailed, cinematic"><span class="emo">🐱</span><span class="lbl">太空貓</span></button>
-        <button class="idea" data-prompt="a tiny adorable miniature village, tilt-shift, soft lighting, highly detailed"><span class="emo">🏯</span><span class="lbl">微縮世界</span></button>
-        <button class="idea" data-prompt="a dreamy vaporwave beach with palm trees and a retro sun, pink and teal, 80s aesthetic"><span class="emo">🌴</span><span class="lbl">蒸氣波</span></button>
-        <button class="idea" data-prompt="a bustling city scene built entirely from colorful toy building blocks, playful, vivid colors"><span class="emo">🧱</span><span class="lbl">樂高世界</span></button>
-        <button class="idea" data-prompt="a steaming bowl of ramen, delicious, macro food photography, shallow depth of field"><span class="emo">🍜</span><span class="lbl">美食特寫</span></button>
-        <button class="idea" data-prompt="a giant mecha robot standing in a ruined city, dramatic lighting, epic, hyperrealistic"><span class="emo">🤖</span><span class="lbl">機甲戰士</span></button>
-        <button id="random" class="idea" type="button"><span class="emo">🎲</span><span class="lbl">隨機驚喜</span></button>
-      </div>
-
-      <div class="custom-ideas">
-        <div class="custom-ideas-head">
-          <div>
-            <div class="ideas-title">🧩 我的風格卡<span class="hint">（提示詞卡，儲存在這台瀏覽器）</span></div>
-            <p class="custom-ideas-copy">保存常用 prompt、模型、尺寸、Seed 與預覽圖，點卡片即可重新套用。</p>
-            <p class="custom-ideas-copy">匯出 JSON 會包含完整 prompt、模型、尺寸與 Seed；公開分享前請先檢查內容。</p>
-          </div>
-          <div class="mini-actions" aria-label="風格卡操作">
-            <button id="addIdea" class="btn mini" type="button">＋ 新增風格卡</button>
-            <button id="exportIdeas" class="btn mini secondary" type="button">匯出 JSON</button>
-            <label class="btn mini secondary import-label" for="importIdeas">匯入 JSON</label>
-            <input id="importIdeas" class="visually-hidden" type="file" accept="application/json,.json">
-          </div>
-        </div>
-        <div id="customIdeaGrid" class="idea-grid custom-grid" aria-live="polite"></div>
-      </div>
-    </section>
-    </div><!-- /panel-ideas -->
 
     <div class="tabpanel" id="panel-edit" role="tabpanel" aria-labelledby="tab-edit" hidden>
     <section class="composer glass" id="editPanel" aria-label="AI 改圖">
@@ -531,7 +527,7 @@
     </section>
     </div><!-- /panel-history -->
 
-    <div class="tabpanel" id="panel-usage" role="tabpanel" aria-labelledby="tab-usage" hidden>
+    <div class="tabpanel" id="panel-usage" role="tabpanel" aria-label="用量（站長工具）" hidden>
     <section id="usageDashboard" class="usage-dashboard glass" aria-label="成本與生成用量 Dashboard">
       <div class="history-head">
         <div>
@@ -618,6 +614,7 @@
         <span class="footer-links">
           <button id="openPrivacyPolicy" class="footer-link" type="button">隱私政策</button>
           <button id="openLicensePolicy" class="footer-link" type="button">授權與商用說明</button>
+          <a id="openUsagePanel" class="footer-link footer-admin-link" href="#usage">站長工具</a>
         </span>
       </div>
     </footer>
@@ -897,7 +894,7 @@
           </li>
           <li data-tutorial-step="4">
             <strong>生成、下載、收藏風格卡</strong>
-            <span>按下生成後可下載圖片，也能把常用題材存成風格卡下次快速重用。</span>
+            <span>按下生成後可下載圖片，也能把常用題材存成風格卡；靈感按鈕與我的風格卡都在生成分頁下方的「靈感」區，點一下即可套用。</span>
           </li>
         </ol>
         <div class="modal-actions">

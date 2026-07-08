@@ -1,9 +1,10 @@
-// 功能分頁：把「生成 / 靈感 / 改圖 / 歷史」拆成可點選切換的分頁，避免全部擠在同一頁。
+// 功能分頁：「生成圖片 / AI 改圖 / 專案 / 歷史作品」四個可點選切換的分頁。
 // 純 DOM，ES5 相容（本專案靜態 JS 需通過 ES5 檢查）。功能：
 //  - 切換時更新 ARIA 狀態、body[data-tab]（供 CSS 隱藏手機生成列等）、記住上次分頁
-//  - URL hash 深連結（#generate/#ideas/#edit/#history）：可分享/加書籤、支援上一頁/下一頁
-//  - 左右/上下/Home/End 方向鍵，以及數字鍵 1–4 快速切換
-//  - 靈感卡「點一下直接出圖」會自動切回生成分頁看結果
+//  - URL hash 深連結（#generate/#edit/#projects/#history）：可分享/加書籤、支援上一頁/下一頁
+//  - 相容 hash：#ideas 導向生成分頁並捲動到靈感 section；#usage 顯示無 tab 按鈕的
+//    站長工具 panel（footer「站長工具」連結也指到 #usage）
+//  - 左右/上下/Home/End 方向鍵，以及數字鍵（依 tabs 數量動態）快速切換
 //  - window.setHistoryCount(n)：更新歷史分頁上的數量徽章
 (function () {
   'use strict';
@@ -15,6 +16,10 @@
   if (!tabs.length) { return; }
   var STORAGE_KEY = 'imggen.activeTab';
   var current = null;
+  // 「用量」panel 沒有 tab 按鈕（站長工具，從 footer #usage 直達），需個別管理顯示。
+  var usagePanel = document.getElementById('panel-usage');
+  // 靈感 section 已併入生成分頁；#ideas hash 相容導向時捲動到這裡。
+  var ideasSection = document.getElementById('ideasSection');
 
   function nameOf(tab) { return tab.getAttribute('data-tab'); }
   function panelFor(tab) { return document.getElementById(tab.getAttribute('aria-controls')); }
@@ -35,6 +40,8 @@
       if (panel) { panel.hidden = !isActive; }
       if (isActive && focusTab) { tab.focus(); }
     });
+    // 用量 panel 不屬於任何 tab：切到任何一般分頁時一律隱藏（從 #usage 切回也適用）。
+    if (usagePanel) { usagePanel.hidden = true; }
     current = name;
     document.body.setAttribute('data-tab', name);
     try { localStorage.setItem(STORAGE_KEY, name); } catch (e) { /* 隱私模式忽略 */ }
@@ -73,25 +80,53 @@
     }
   });
 
-  // 靈感分頁的卡片是「點一下直接出圖」，但結果/狀態顯示在生成分頁；因此點到任何
-  // 會生成的靈感卡（內建 .idea、客製 .idea.custom-idea、精選 .idea）就自動切回
-  // 生成分頁。用事件委派，涵蓋動態插入的卡片；編輯鈕(.card-edit)與新增/匯出等
-  // 工具鈕沒有 .idea class，不會誤觸切頁。
-  var ideasPanel = document.getElementById('panel-ideas');
-  if (ideasPanel) {
-    ideasPanel.addEventListener('click', function (e) {
-      var node = e.target;
-      while (node && node !== ideasPanel) {
-        if (node.classList && node.classList.contains('idea')) { activate('generate', false); return; }
-        node = node.parentNode;
-      }
-    });
+  // #ideas 相容導向：平滑捲動到生成分頁內的靈感 section（尊重 prefers-reduced-motion）。
+  function scrollToIdeas() {
+    if (!ideasSection || typeof ideasSection.scrollIntoView !== 'function') { return; }
+    var reduced = false;
+    try {
+      reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    } catch (e) { reduced = false; }
+    try {
+      ideasSection.scrollIntoView(reduced ? { block: 'start' } : { behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      ideasSection.scrollIntoView();
+    }
   }
 
-  // 瀏覽器上一頁/下一頁或手動改網址 → 依 hash 切分頁。
+  // 顯示「用量」panel（無 tab 按鈕）：隱藏所有一般 panel、tab 全部取消 active。
+  // 不寫入 localStorage——站長工具不作為「上次分頁」記憶，重新整理回一般分頁。
+  function showUsagePanel() {
+    if (!usagePanel) { return false; }
+    tabs.forEach(function (tab) {
+      tab.setAttribute('aria-selected', 'false');
+      tab.setAttribute('tabindex', '-1');
+      tab.classList.remove('is-active');
+      var panel = panelFor(tab);
+      if (panel) { panel.hidden = true; }
+    });
+    usagePanel.hidden = false;
+    current = 'usage';
+    document.body.setAttribute('data-tab', 'usage');
+    if (location.hash !== '#usage') { location.hash = 'usage'; }
+    return true;
+  }
+
+  // hash 路由：一般分頁走 activate；#ideas 導向生成分頁＋捲動；#usage 顯示站長 panel。
+  function applyHash(name, focusTab) {
+    if (name === 'ideas') {
+      var switched = activate('generate', false);
+      if (switched) { scrollToIdeas(); }
+      return switched;
+    }
+    if (name === 'usage') { return showUsagePanel(); }
+    return isKnown(name) ? activate(name, focusTab) : false;
+  }
+
+  // 瀏覽器上一頁/下一頁或手動改網址 → 依 hash 切分頁（含 #ideas/#usage 相容路由）。
   window.addEventListener('hashchange', function () {
     var name = location.hash.replace(/^#/, '');
-    if (name && name !== current && isKnown(name)) { activate(name, false); }
+    if (name && name !== current) { applyHash(name, false); }
   });
 
   // 歷史分頁的數量徽章：由 history-wall 在每次渲染後呼叫。
@@ -107,14 +142,15 @@
     }
   };
 
-  // 初始分頁優先序：URL hash > 上次記住的 > 第一個「生成」。
+  // 初始分頁優先序：URL hash（含 #ideas/#usage 相容路由）> 上次記住的 > 第一個「生成」。
+  // 舊版 localStorage 可能存著 'ideas'/'usage'，isKnown 會擋下並回退到生成分頁。
   var fromHash = location.hash.replace(/^#/, '');
   var saved = null;
   try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { saved = null; }
-  if (!(fromHash && activate(fromHash, false)) && !(saved && activate(saved, false))) {
+  if (!(fromHash && applyHash(fromHash, false)) && !(saved && activate(saved, false))) {
     activate(nameOf(tabs[0]), false);
   }
 
-  // 讓其他腳本可主動切換分頁。
-  window.showTab = function (name) { return activate(name, false); };
+  // 讓其他腳本可主動切換分頁（支援 'ideas'/'usage' 相容路由）。
+  window.showTab = function (name) { return applyHash(name, false); };
 })();

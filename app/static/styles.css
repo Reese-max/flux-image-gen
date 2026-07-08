@@ -219,6 +219,76 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   border-color: var(--accent-line);
   background: var(--accent-soft);
 }
+
+/* 首屏漸進揭露：輸入框下方的緊湊選項列——模式改小型 segmented、
+   風格/用途 select 視覺降級為次要（muted、小字、無粗框），桌機一行、手機可換行 */
+.composer-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.composer-options .mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+.composer-options .mode-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  transition: background .15s var(--ease);
+}
+.composer-options .mode-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.composer-options .mode-option span {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+/* 緊湊列不放兩行說明文字（完整說明見教學與 agent panel） */
+.composer-options .mode-option small { display: none; }
+.composer-options .mode-option:hover span { color: var(--text); }
+.composer-options .mode-option:has(input:checked) {
+  background: var(--accent-soft);
+}
+.composer-options .mode-option:has(input:checked) span { color: var(--accent-2); }
+.composer-options .mode-option:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.composer-options .option-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.composer-options .option-field .field-label { padding-left: 0; white-space: nowrap; }
+.composer-options .option-field select {
+  min-width: 0;
+  padding: 7px 28px 7px 12px;
+  border-color: transparent;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.composer-options .option-field select:hover { color: var(--text); border-color: var(--line); }
+.composer-options .option-field select:focus { color: var(--text); }
+.composer-options .option-field .chevron { right: 10px; font-size: 10px; }
+/* 主生成鈕：風格/用途移入選項列後成為 composer 唯一主 CTA，佔滿整行更醒目 */
+.prompt-controls .hero-generate { flex: 1 1 auto; }
 .agent-panel {
   display: grid;
   gap: 12px;
@@ -462,6 +532,8 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 
 /* ---------- ideas ---------- */
 .ideas { margin-bottom: 24px; }
+/* 靈感 section 併入生成分頁後，#ideas hash 捲動時預留 sticky 分頁列高度 */
+#ideasSection { scroll-margin-top: 84px; }
 .ideas-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 14px; }
 .ideas-title .hint { color: var(--muted); font-weight: 400; font-size: 13px; }
 .idea-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
@@ -982,6 +1054,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   text-underline-offset: 3px;
 }
 .footer-link:hover, .footer-link:focus-visible { color: var(--text); outline: none; }
+/* 站長工具連結（#usage 直達）：比一般 footer 連結更低調 */
+.footer-admin-link { color: var(--faint); }
+.footer-admin-link:hover, .footer-admin-link:focus-visible { color: var(--muted); }
 
 /* ---------- modal ---------- */
 .modal-backdrop {
@@ -1784,7 +1859,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .tab { transition: none; }
 }
 
-/* 手機版：分頁列改單列橫向滑動（修正 6 分頁四等分擠壓造成的橫向溢出），
+/* 手機版：分頁列改單列橫向滑動（避免多分頁等分擠壓造成的橫向溢出），
    右緣以 scroll-shadow 漸層提示尚有內容（background-attachment local/scroll 技法） */
 @media (max-width: 620px) {
   .tabs {

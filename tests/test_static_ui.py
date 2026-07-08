@@ -421,7 +421,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v4" in service_worker_js
+    assert "ai-image-generator-pwa-v5" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
@@ -735,9 +735,13 @@ def test_usage_dashboard_ui_is_wired():
     usage_js = read_static("usage-dashboard.js")
     styles = read_static("styles.css")
 
-    assert 'id="tab-usage"' in html
-    assert 'aria-controls="panel-usage"' in html
+    # 階段二資訊架構：「用量」移出主導覽（無 tab 按鈕），panel 保留、由 footer 站長工具連結直達。
+    assert 'id="tab-usage"' not in html
+    assert 'data-tab="usage"' not in html
     assert 'id="panel-usage"' in html
+    assert 'id="openUsagePanel"' in html
+    assert 'href="#usage"' in html
+    assert "站長工具" in html
     assert 'id="usageDashboard"' in html
     assert "成本 Dashboard" in html
     assert "今日生成次數、失敗率、估計成本、模型用量與異常提醒" in html
@@ -814,6 +818,49 @@ def test_usage_dashboard_ui_is_wired():
     assert ".gallery-admin-list" in styles
     assert ".gallery-admin-item" in styles
     assert "body[data-tab=\"usage\"] #mobileGenerateBar" in styles
+
+
+def test_usage_panel_reachable_without_tab_button():
+    """#usage 沒有 tab 按鈕也要能直達：tabs.js 需支援無 tab 的 panel 顯示與切回。"""
+    tabs_js = read_static("tabs.js")
+
+    assert "function showUsagePanel" in tabs_js
+    assert "document.getElementById('panel-usage')" in tabs_js
+    assert "usagePanel.hidden = false" in tabs_js
+    # 顯示 usage 時所有 tab 取消 active；切回任何一般分頁時 usage panel 要再藏起。
+    assert "tab.classList.remove('is-active')" in tabs_js
+    assert "if (usagePanel) { usagePanel.hidden = true; }" in tabs_js
+    assert "document.body.setAttribute('data-tab', 'usage')" in tabs_js
+    # hash 路由與 showTab 都要吃到相容路由。
+    assert "if (name === 'usage') { return showUsagePanel(); }" in tabs_js
+    assert "window.showTab = function (name) { return applyHash(name, false); };" in tabs_js
+
+
+def test_ideas_hash_redirects_into_generate_tab():
+    """#ideas 相容導向：靈感併入生成分頁後，#ideas 需切到生成分頁並捲動到靈感 section。"""
+    html = read_static("index.html")
+    tabs_js = read_static("tabs.js")
+
+    # 靈感 tab 與 panel-ideas 容器已移除；靈感 section 併入生成分頁且元素 id 保留。
+    assert 'id="tab-ideas"' not in html
+    assert 'id="panel-ideas"' not in html
+    panel_generate = html[html.index('id="panel-generate"'):html.index("/panel-generate")]
+    for element_id in [
+        "ideasSection",
+        "random",
+        "addIdea",
+        "exportIdeas",
+        "importIdeas",
+        "customIdeaGrid",
+    ]:
+        assert f'id="{element_id}"' in panel_generate
+    # 靈感 section 要在範例 Gallery 之前。
+    assert panel_generate.index('id="ideasSection"') < panel_generate.index('id="exampleGallery"')
+
+    assert "if (name === 'ideas')" in tabs_js
+    assert "activate('generate', false)" in tabs_js
+    assert "function scrollToIdeas" in tabs_js
+    assert "scrollIntoView" in tabs_js
 
 
 def test_privacy_and_license_policy_modals_are_wired():

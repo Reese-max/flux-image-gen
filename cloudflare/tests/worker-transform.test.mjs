@@ -768,17 +768,24 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="editPanel"/);
   assert.match(html, /id="editFiles"/);
   assert.match(html, /id="editGo"/);
-  // 功能分頁：tablist + 三個分頁與面板。
+  // 功能分頁：tablist + 四個分頁與面板（階段二：靈感併入生成分頁、用量移出主導覽）。
   assert.match(html, /class="tabs" role="tablist"/);
   assert.match(html, /id="tab-generate"[\s\S]*?data-tab="generate"/);
   assert.match(html, /id="panel-generate"/);
-  assert.match(html, /id="tab-ideas"[\s\S]*?data-tab="ideas"/);
-  assert.match(html, /id="panel-ideas"/);
+  // 靈感 tab 與 panel-ideas 已移除，靈感 section 併入生成分頁。
+  assert.doesNotMatch(html, /id="tab-ideas"/);
+  assert.doesNotMatch(html, /id="panel-ideas"/);
+  assert.match(html, /id="ideasSection"/);
+  assert.match(html, /id="tab-edit"[\s\S]*?data-tab="edit"/);
   assert.match(html, /id="panel-edit"/);
   assert.match(html, /id="tab-projects"[\s\S]*?data-tab="projects"/);
   assert.match(html, /id="panel-projects"/);
   assert.match(html, /id="projectBoard"/);
   assert.match(html, /id="panel-history"/);
+  // 用量移出主導覽：無 tab-usage 按鈕，panel-usage 保留、由 footer 站長工具連結直達。
+  assert.doesNotMatch(html, /id="tab-usage"/);
+  assert.match(html, /id="panel-usage"/);
+  assert.match(html, /id="openUsagePanel"/);
   assert.match(html, /id="copySettings"/);
   assert.match(html, /id="regenerate"/);
   assert.match(html, /id="tutorialModal"/);
