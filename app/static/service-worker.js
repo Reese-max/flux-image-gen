@@ -1,7 +1,7 @@
 (function(){
   // Bump this whenever the caching strategy changes. The activate handler deletes
   // any cache that does not match, forcing a clean re-cache of current assets.
-  var CACHE_NAME = 'ai-image-generator-pwa-v8';
+  var CACHE_NAME = 'ai-image-generator-pwa-v9';
   var STATIC_URLS = [
     '/',
     '/static/styles.css',

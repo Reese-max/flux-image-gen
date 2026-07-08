@@ -35,6 +35,33 @@ def test_product_branding_seo_and_app_metadata_are_wired():
     assert '"purpose": "any maskable"' in manifest
 
 
+def test_seo_discovery_signals_are_wired():
+    """canonical、robots 與 JSON-LD 結構化資料，利於搜尋收錄與分享。"""
+    import json as _json
+
+    html = read_static("index.html")
+    assert 'rel="canonical" href="https://flux-image-gen.irisx-tracker.workers.dev/"' in html
+    assert 'name="robots" content="index,follow"' in html
+    assert 'type="application/ld+json"' in html
+
+    match = re.search(r'<script type="application/ld\+json">\s*(\{.*?\})\s*</script>', html, re.S)
+    assert match, "找不到 JSON-LD 區塊"
+    data = _json.loads(match.group(1))
+    assert data["@type"] == "WebApplication"
+    assert data["name"] == "Fluxi 中文 AI 圖片產生器"
+    assert data["inLanguage"] == "zh-Hant"
+
+
+def test_showcase_images_have_explicit_dimensions():
+    """範例圖需帶 width/height，避免版面位移（CLS）並通過最佳實務檢查。"""
+    html = read_static("index.html")
+    example_imgs = re.findall(r'<img[^>]*src="/static/examples/[^"]+\.webp"[^>]*>', html)
+    example_imgs += re.findall(r'<img class="idea-thumb"[^>]*>', html)
+    assert len(example_imgs) >= 19
+    for tag in example_imgs:
+        assert 'width="' in tag and 'height="' in tag, f"缺少尺寸：{tag[:80]}"
+
+
 def test_use_case_size_presets_are_productized():
     html = read_static("index.html")
     app_js = read_static("app.js")
@@ -271,8 +298,8 @@ def test_showcase_images_are_wired_and_present():
     styles = read_static("styles.css")
     examples_dir = STATIC_DIR / "examples"
 
-    gallery_imgs = re.findall(r'<div class="example-thumb"><img src="(/static/examples/[^"]+\.webp)"', html)
-    idea_imgs = re.findall(r'<img class="idea-thumb" src="(/static/examples/[^"]+\.webp)"', html)
+    gallery_imgs = re.findall(r'<div class="example-thumb"><img[^>]*\ssrc="(/static/examples/[^"]+\.webp)"', html)
+    idea_imgs = re.findall(r'<img class="idea-thumb"[^>]*\ssrc="(/static/examples/[^"]+\.webp)"', html)
     assert len(gallery_imgs) >= 8
     assert len(idea_imgs) >= 11
 
@@ -442,7 +469,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v8" in service_worker_js
+    assert "ai-image-generator-pwa-v9" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
