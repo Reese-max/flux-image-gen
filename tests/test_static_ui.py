@@ -27,7 +27,7 @@ def test_product_branding_seo_and_app_metadata_are_wired():
     assert 'name="twitter:title" content="Fluxi 中文 FLUX 圖片產生器"' in html
     assert 'name="twitter:description" content="輸入白話中文，自動補全 prompt，生成簡報、社群、產品與角色圖片。"' in html
     assert '<span class="brand-name">Fluxi</span>' in html
-    assert "中文原生 · 智慧體補 prompt · FLUX 出圖" in html
+    assert "打中文就出圖 · 免學提示詞 · 適合簡報和社群" in html
     assert "Fluxi 中文 FLUX 圖片產生器 · 版本 v1.2.0" in html
     assert '"name": "Fluxi 中文 FLUX 圖片產生器"' in manifest
     assert '"short_name": "Fluxi 生圖"' in manifest
@@ -220,7 +220,7 @@ def test_example_gallery_applies_prompts_without_auto_generation():
     assert 'id="exampleGallery"' in html
     assert '範例 Gallery' in html
     assert '不會直接消耗生成額度' in html
-    assert '點一下只套用 prompt，不會自動消耗額度' in html
+    assert '點一下只帶入描述，不會自動消耗額度' in html
     assert html.count('class="example-card"') >= 8
     for category in [
         "PPT 插圖",
@@ -316,7 +316,7 @@ def test_main_generation_accessibility_is_wired():
     keyboard_e2e = read_repo("tests/e2e/accessibility-keyboard-qa.mjs")
     styles = read_static("styles.css")
 
-    assert 'id="provider-pill" class="pill" title="後端服務狀態" role="status" aria-live="polite" aria-atomic="true"' in html
+    assert 'id="provider-pill" class="pill" title="服務狀態" role="status" aria-live="polite" aria-atomic="true"' in html
     assert 'id="demo-notice" class="demo-notice" role="status" aria-live="polite"' in html
     assert 'id="plainPromptHelp" class="visually-hidden"' in html
     assert 'id="plainPrompt" rows="3" aria-describedby="plainPromptHelp status" aria-required="true"' in html
@@ -442,7 +442,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v6" in service_worker_js
+    assert "ai-image-generator-pwa-v7" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
@@ -517,7 +517,7 @@ def test_custom_idea_card_ui_is_wired():
     assert 'id="ideaNegativePrompt"' in html
     assert 'id="ideaSeed"' in html
     assert 'id="ideaTags"' in html
-    assert "匯出 JSON 會包含完整 prompt、模型、尺寸與 Seed" in html
+    assert "匯出備份檔會包含完整描述、畫質與尺寸" in html
     assert 'src="/static/idea-store.js"' in html
     assert 'src="/static/idea-cards.js"' in html
     assert "IdeaStore.loadCards" in idea_cards_js

@@ -39,20 +39,20 @@
         <span class="brand-name">Fluxi</span>
         <span class="badge">v1.2.0</span>
       </div>
-      <div id="provider-pill" class="pill" title="後端服務狀態" role="status" aria-live="polite" aria-atomic="true">
+      <div id="provider-pill" class="pill" title="服務狀態" role="status" aria-live="polite" aria-atomic="true">
         <span class="dot"></span><span id="provider-text">連線中…</span>
       </div>
     </header>
 
     <div id="demo-notice" class="demo-notice" role="status" aria-live="polite" hidden>
       <span class="demo-ico" aria-hidden="true">⚠️</span>
-      <span>目前是 <b>Demo 模式</b>，產出為本機示意圖。於 <code>.env</code> 設定 <code>NVIDIA_API_KEY</code> 後即為真實 FLUX 出圖。</span>
+      <span>目前是<b>展示模式</b>，畫面上的產出為示意圖，尚未接上真實生成服務。</span>
     </div>
 
     <header class="hero">
-      <p class="eyebrow">中文原生 · 智慧體補 prompt · FLUX 出圖</p>
+      <p class="eyebrow">打中文就出圖 · 免學提示詞 · 適合簡報和社群</p>
       <h1 class="title">一句中文，<br>生成可用圖片。</h1>
-      <p class="lede">Fluxi 是中文 FLUX 圖片產生器，會把白話需求整理成適合簡報、社群、產品與角色創作的出圖 prompt。</p>
+      <p class="lede">Fluxi 會把你的中文描述，整理成適合簡報、社群、產品與角色的圖片。</p>
       <button id="openTutorial" class="mini-btn help-btn" type="button" aria-label="開啟快速教學">？教學</button>
     </header>
 
@@ -75,25 +75,25 @@
     <section class="composer glass" aria-label="圖片描述">
       <div class="prompt-tool product-first" aria-label="中文圖片創作">
         <div class="section-heading">
-          <span class="section-kicker">中文 FLUX</span>
-          <h2>中文輸入，直接生成 FLUX 圖片。</h2>
+          <span class="section-kicker">中文出圖</span>
+          <h2>中文輸入，直接生成圖片。</h2>
           <p>適合簡報插圖、社群圖、產品概念圖、角色設定與靈感草稿。</p>
         </div>
         <label class="final-prompt-label" for="plainPrompt">用中文描述你想要的畫面</label>
-        <p id="plainPromptHelp" class="visually-hidden">必填。請用中文描述主體、場景、風格或用途；按生成圖片後系統會自動整理成 FLUX prompt。</p>
+        <p id="plainPromptHelp" class="visually-hidden">必填。請用中文描述主體、場景、風格或用途；按生成圖片後系統會自動整理好再出圖。</p>
         <textarea id="plainPrompt" rows="3" aria-describedby="plainPromptHelp status" aria-required="true" placeholder="例如：一隻柴犬在月球吃拉麵，適合放在 PPT 封面，風格可愛但不要太像 AI"></textarea>
         <!-- 緊湊選項列：模式 segmented ＋ 風格/用途次要 select（漸進揭露，視覺降級） -->
         <div class="composer-options" aria-label="生成選項">
           <div class="mode-switch" role="radiogroup" aria-label="生成模式">
             <label class="mode-option">
               <input id="modeNormal" name="generationMode" type="radio" value="normal" checked>
-              <span>一般模式</span>
-              <small>快速整理 prompt 後生成圖片</small>
+              <span>快速生成</span>
+              <small>快速整理描述後生成圖片</small>
             </label>
             <label class="mode-option">
               <input id="modeAgent" name="generationMode" type="radio" value="agent">
-              <span>智慧體模式</span>
-              <small>解析需求、推薦模型尺寸，預設生成 4 張</small>
+              <span>讓 AI 幫我調設定</span>
+              <small>自動分析需求、推薦尺寸，一次生成 4 張</small>
             </label>
           </div>
           <label class="field option-field">
@@ -123,7 +123,7 @@
                   <option value="thumbnail">YouTube 縮圖 / 封面</option>
                   <option value="poster">海報</option>
                   <option value="wallpaper">手機桌布</option>
-                  <option value="hero">網頁 Hero</option>
+                  <option value="hero">網頁主視覺</option>
                 </select>
               <span class="chevron" aria-hidden="true">▾</span>
             </div>
@@ -131,7 +131,7 @@
         </div>
         <div id="agentPanel" class="agent-panel" hidden>
           <div class="agent-panel-head">
-            <strong>智慧體進度</strong>
+            <strong>AI 調整進度</strong>
             <span id="agentModeSummary">等待中文需求</span>
           </div>
           <ol id="agentSteps" class="agent-steps" aria-live="polite"></ol>
@@ -149,13 +149,13 @@
       </div>
 
       <details id="advancedSettings" class="advanced-settings">
-        <summary>進階設定：英文 prompt、Negative prompt、Seed、模型、尺寸與張數</summary>
+        <summary>進階設定：英文提示詞、不想要的元素、畫面變化、畫質、尺寸與張數</summary>
         <p class="prompt-shortcut-hint">可用下方按鈕轉成英文；鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
-        <button id="transformPrompt" class="btn secondary" type="button">轉成英文 provider prompt</button>
-        <label class="final-prompt-label" for="prompt">英文 provider prompt（可查看、複製、編輯）</label>
-        <textarea id="prompt" rows="3" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理成 FLUX prompt。"></textarea>
+        <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
+        <label class="final-prompt-label" for="prompt">英文提示詞（可查看、複製、編輯）</label>
+        <textarea id="prompt" rows="3" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理好。"></textarea>
 
-        <div id="promptEnhancer" class="prompt-enhancer" aria-label="Prompt 強化器">
+        <div id="promptEnhancer" class="prompt-enhancer" aria-label="幫圖片加效果">
           <label class="field-label" for="effectPrompt">加效果（選填）</label>
           <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
           <div class="enhance-actions">
@@ -167,7 +167,7 @@
 
         <div class="prompt-controls advanced-controls" role="group" aria-label="進階生成設定">
           <div class="field seed-field">
-            <span class="field-label">構圖模式 / Seed</span>
+            <span class="field-label">畫面變化</span>
             <div class="seed-mode" role="group" aria-label="構圖模式">
               <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
               <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
@@ -180,7 +180,7 @@
             </details>
           </div>
           <label class="field field-wide">
-            <span class="field-label">Negative prompt / 不想出現的東西</span>
+            <span class="field-label">不想出現的東西</span>
             <input id="avoid" class="text-input" type="text" maxlength="240" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, extra fingers）">
           </label>
         </div>
@@ -188,16 +188,16 @@
         <div class="composer-foot">
           <div class="controls">
             <label class="field">
-              <span class="field-label">模型</span>
+              <span class="field-label">畫質</span>
               <div class="select-wrap">
-                <select id="model" aria-label="選擇模型 preset">
+                <select id="model" aria-label="選擇畫質">
                   <!-- 快速檔自 2026-07 起改用 FLUX.2 klein 4B（NVIDIA schnell 故障期間）：本機 FastAPI 走 NVIDIA flux.2-klein-4b，Cloudflare 版走 Workers AI 同名模型 -->
-                  <option value="schnell" selected>快速草稿 · FLUX.2 Klein</option>
-                  <option value="dev">高品質輸出 · FLUX.1-dev（較慢）</option>
+                  <option value="schnell" selected>快速（草稿）</option>
+                  <option value="dev">高品質（較慢）</option>
                 </select>
                 <span class="chevron" aria-hidden="true">▾</span>
               </div>
-              <p class="model-license-hint">模型授權與商用限制依實際 provider 條款而定；商用前請自行確認第三方權利。</p>
+              <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
             </label>
             <label class="field">
               <span class="field-label">用途尺寸</span>
@@ -257,7 +257,7 @@
 
     <!-- 靈感 section：原「靈感」分頁內容併入生成分頁（#ideas hash 會捲動到這裡；元素 id 全部保留） -->
     <section class="ideas" id="ideasSection" aria-label="提示詞靈感">
-      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下只套用 prompt，不會自動消耗額度）</span></div>
+      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下只帶入描述，不會自動消耗額度）</span></div>
       <div class="idea-grid">
         <button class="idea" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><img class="idea-thumb" src="/static/examples/idea-ink.webp" alt="" loading="lazy" decoding="async"><span class="lbl">水墨山水</span></button>
         <button class="idea" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><img class="idea-thumb" src="/static/examples/idea-cyber-market.webp" alt="" loading="lazy" decoding="async"><span class="lbl">賽博夜市</span></button>
@@ -277,8 +277,8 @@
         <div class="custom-ideas-head">
           <div>
             <div class="ideas-title">🧩 我的風格卡<span class="hint">（提示詞卡，儲存在這台瀏覽器）</span></div>
-            <p class="custom-ideas-copy">保存常用 prompt、模型、尺寸、Seed 與預覽圖，點卡片即可重新套用。</p>
-            <p class="custom-ideas-copy">匯出 JSON 會包含完整 prompt、模型、尺寸與 Seed；公開分享前請先檢查內容。</p>
+            <p class="custom-ideas-copy">保存常用描述、畫質、尺寸與預覽圖，點卡片即可重新套用。</p>
+            <p class="custom-ideas-copy">匯出備份檔會包含完整描述、畫質與尺寸；公開分享前請先檢查內容。</p>
           </div>
           <div class="mini-actions" aria-label="風格卡操作">
             <button id="addIdea" class="btn mini" type="button">＋ 新增風格卡</button>
@@ -476,7 +476,7 @@
         <button id="clearHistory" class="btn mini secondary" type="button">清空歷史</button>
       </div>
       <div class="history-filters" aria-label="歷史篩選">
-        <input id="historySearch" class="text-input" type="search" placeholder="搜尋 prompt 或標籤">
+        <input id="historySearch" class="text-input" type="search" placeholder="搜尋描述或標籤">
         <select id="historyModelFilter" class="text-input">
           <option value="">所有模型</option>
           <option value="schnell">schnell</option>
