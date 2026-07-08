@@ -551,6 +551,11 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 .idea:active { transform: translateY(-1px); }
 .idea .emo { font-size: 24px; line-height: 1; }
+/* 靈感鈕真實預覽縮圖：取代 emoji，暖底作為 lazy-load 期間佔位。 */
+.idea .idea-thumb {
+  width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block;
+  border-radius: var(--radius-sm); background: var(--bg-2);
+}
 .idea .lbl { line-height: 1.2; }
 .idea .idea-meta { color: var(--faint); font-size: 11px; font-weight: 500; line-height: 1.2; }
 
@@ -593,13 +598,15 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 .example-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-sm); }
 .example-thumb {
-  min-height: 92px; display: grid; place-items: center; font-size: 34px;
+  aspect-ratio: 16 / 10; overflow: hidden; display: grid; place-items: center; font-size: 34px;
   background:
     radial-gradient(circle at 25% 20%, rgba(249, 228, 216, 0.9), transparent 40%),
     radial-gradient(circle at 78% 12%, rgba(249, 238, 211, 0.85), transparent 36%),
     linear-gradient(135deg, var(--bg-2), var(--surface-2));
   border-bottom: 1px solid var(--line);
 }
+/* 真實範例圖：cover 填滿縮圖框，暖色漸層作為 lazy-load 期間的底。 */
+.example-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .example-body { display: grid; gap: 8px; padding: 14px; }
 .example-category { color: var(--accent-2); font: 700 11px/1.2 var(--mono); letter-spacing: 0.02em; }
 .example-body h3 { margin: 0; font-size: 15px; line-height: 1.25; }

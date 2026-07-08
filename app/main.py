@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,6 +40,10 @@ from .vision_qa import maybe_run_vision_qa
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+
+# Windows 的 mimetypes 登錄檔常缺 .webp，StaticFiles 會回 text/plain。
+# 明確註冊，確保範例縮圖以 image/webp 提供。
+mimetypes.add_type("image/webp", ".webp")
 
 app = FastAPI(title="AI 圖片產生器", version="1.0.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

@@ -265,6 +265,27 @@ def test_example_gallery_applies_prompts_without_auto_generation():
     assert ".example-card" in styles
 
 
+def test_showcase_images_are_wired_and_present():
+    """範例 Gallery 縮圖與靈感鈕都改用站台自生的真實範例圖，且檔案必須存在（避免破圖）。"""
+    html = read_static("index.html")
+    styles = read_static("styles.css")
+    examples_dir = STATIC_DIR / "examples"
+
+    gallery_imgs = re.findall(r'<div class="example-thumb"><img src="(/static/examples/[^"]+\.webp)"', html)
+    idea_imgs = re.findall(r'<img class="idea-thumb" src="(/static/examples/[^"]+\.webp)"', html)
+    assert len(gallery_imgs) >= 8
+    assert len(idea_imgs) >= 11
+
+    for src in gallery_imgs + idea_imgs:
+        name = src.rsplit("/", 1)[-1]
+        assert (examples_dir / name).exists(), f"缺少範例圖：{name}"
+
+    # 縮圖走 lazy-load，且 CSS 有對應 cover 樣式。
+    assert html.count('loading="lazy"') >= 19
+    assert ".example-thumb img" in styles
+    assert ".idea .idea-thumb" in styles
+
+
 def test_share_template_links_can_prefill_generation_form_without_auto_generation():
     app_js = read_static("app.js")
 
@@ -421,7 +442,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v5" in service_worker_js
+    assert "ai-image-generator-pwa-v6" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
