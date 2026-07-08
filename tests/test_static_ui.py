@@ -469,7 +469,10 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v11" in service_worker_js
+    assert "ai-image-generator-pwa-v12" in service_worker_js
+    # HTML 文件 network-first：確保部署後回訪者第一次載入即新版。
+    assert "isDocumentRequest" in service_worker_js
+    assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
