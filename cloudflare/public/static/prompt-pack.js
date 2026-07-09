@@ -33,6 +33,10 @@
     select.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  function twoDigit(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
   function applyCard(card) {
     var app = window.ImageGenApp;
     setSelect('model', card.model);
@@ -53,7 +57,18 @@
     button.type = 'button';
     button.title = card.zh ? card.zh + '\n\n' + card.en : card.en;
     button.setAttribute('aria-label', (card.title || '精選提示詞') + (card.zh ? '：' + card.zh : ''));
-    button.appendChild(el('span', 'emo', card.emoji || '✨'));
+    if (card.preview) {
+      var img = el('img', 'idea-thumb');
+      img.width = 768;
+      img.height = 768;
+      img.src = card.preview;
+      img.alt = card.title ? card.title + '範例圖' : '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      button.appendChild(img);
+    } else {
+      button.appendChild(el('span', 'emo', card.emoji || '✨'));
+    }
     button.appendChild(el('span', 'lbl', card.title || ''));
     button.addEventListener('click', function () {
       applyCard(card);
@@ -74,28 +89,35 @@
     title.appendChild(hint);
     section.appendChild(title);
 
-    // Each category is collapsible (collapsed by default, first one open as a
-    // preview) so 72 cards take ~12 compact rows instead of a tall wall.
+    // Each category is collapsible so the full pack stays navigable even with 72 cards.
+    // Keep the first few groups open now that cards have generated thumbnails:
+    // this makes the section feel like a visual gallery while the rest remains scannable.
+    var defaultOpenCount = 2;
     categories.forEach(function (category, index) {
       var cards = (category && category.cards) || [];
       if (!cards.length) return;
       var details = el('details', 'pack-cat');
-      if (index === 0) { details.open = true; }
+      if (index < defaultOpenCount) { details.open = true; }
       var summary = el('summary', 'pack-group-label',
         (category.emoji ? category.emoji + ' ' : '') + (category.label || '') + ' (' + cards.length + ')');
       summary.style.cssText = 'cursor:pointer;margin:10px 0 6px;font-size:0.85rem;font-weight:600;opacity:0.75;';
       details.appendChild(summary);
       var grid = el('div', 'idea-grid');
-      cards.forEach(function (card) {
+      cards.forEach(function (card, cardIndex) {
         var withEmoji = card;
-        if (!card.emoji && category.emoji) {
+        if (!card.emoji || !card.preview) {
           withEmoji = {};
           for (var key in card) {
             if (Object.prototype.hasOwnProperty.call(card, key)) {
               withEmoji[key] = card[key];
             }
           }
-          withEmoji.emoji = category.emoji;
+          if (!card.emoji && category.emoji) {
+            withEmoji.emoji = category.emoji;
+          }
+          if (!card.preview && category.key) {
+            withEmoji.preview = '/static/examples/prompt-pack/' + category.key + '-' + twoDigit(cardIndex + 1) + '.webp';
+          }
         }
         grid.appendChild(buildCard(withEmoji));
       });

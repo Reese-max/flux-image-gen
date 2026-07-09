@@ -1,7 +1,7 @@
 // 功能分頁：「生成圖片 / AI 改圖 / 專案 / 歷史作品」四個可點選切換的分頁。
 // 純 DOM，ES5 相容（本專案靜態 JS 需通過 ES5 檢查）。功能：
 //  - 切換時更新 ARIA 狀態、body[data-tab]（供 CSS 隱藏手機生成列等）、記住上次分頁
-//  - URL hash 深連結（#generate/#edit/#projects/#history）：可分享/加書籤、支援上一頁/下一頁
+//  - URL hash 深連結（生成分頁使用乾淨根網址；#edit/#projects/#history 可分享/加書籤、支援上一頁/下一頁）
 //  - 相容 hash：#ideas 導向生成分頁並捲動到靈感 section；#usage 顯示無 tab 按鈕的
 //    站長工具 panel（footer「站長工具」連結也指到 #usage）
 //  - 左右/上下/Home/End 方向鍵，以及數字鍵（依 tabs 數量動態）快速切換
@@ -28,9 +28,30 @@
     return false;
   }
 
+  function cleanUrl() {
+    return location.pathname + location.search;
+  }
+
+  function updateUrlForTab(name) {
+    if (name === 'generate') {
+      if (!window.history || !window.history.replaceState || !window.history.pushState) {
+        if (location.hash === '#generate') { location.hash = ''; }
+        return;
+      }
+      if (location.hash === '#generate') {
+        window.history.replaceState(null, '', cleanUrl());
+      } else if (location.hash) {
+        window.history.pushState(null, '', cleanUrl());
+      }
+      return;
+    }
+    if (name && ('#' + name) !== location.hash) { location.hash = name; }
+  }
+
   // 套用分頁狀態（不含 hash 副作用），回傳是否成功切換。
-  function activate(name, focusTab) {
+  function activate(name, focusTab, options) {
     if (!isKnown(name)) { return false; }
+    options = options || {};
     tabs.forEach(function (tab) {
       var isActive = nameOf(tab) === name;
       tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
@@ -45,8 +66,8 @@
     current = name;
     document.body.setAttribute('data-tab', name);
     try { localStorage.setItem(STORAGE_KEY, name); } catch (e) { /* 隱私模式忽略 */ }
-    // 讓 URL 反映目前分頁（可分享/加書籤/上一頁）；只在不同時才寫，避免 hashchange 迴圈。
-    if (name && ('#' + name) !== location.hash) { location.hash = name; }
+    // 讓 URL 反映目前分頁：生成分頁是根網址，其他分頁保留 hash 深連結。
+    if (!options.keepHash) { updateUrlForTab(name); }
     return true;
   }
 
@@ -115,7 +136,7 @@
   // hash 路由：一般分頁走 activate；#ideas 導向生成分頁＋捲動；#usage 顯示站長 panel。
   function applyHash(name, focusTab) {
     if (name === 'ideas') {
-      var switched = activate('generate', false);
+      var switched = activate('generate', false, { keepHash: true });
       if (switched) { scrollToIdeas(); }
       return switched;
     }
@@ -128,9 +149,13 @@
   // 並用 replaceState 把無效 hash 清掉（不觸發 hashchange，也不污染上一頁紀錄）。
   window.addEventListener('hashchange', function () {
     var name = location.hash.replace(/^#/, '').toLowerCase();
+    if (!name && current !== 'generate') {
+      activate('generate', false);
+      return;
+    }
     if (name && name !== current) {
       if (!applyHash(name, false) && current && window.history && window.history.replaceState) {
-        window.history.replaceState(null, '', '#' + current);
+        window.history.replaceState(null, '', current === 'generate' ? cleanUrl() : '#' + current);
       }
     }
   });
