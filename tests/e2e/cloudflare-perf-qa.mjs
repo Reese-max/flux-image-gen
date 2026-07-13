@@ -35,7 +35,7 @@ const budgets = {
   lcpMs: 2500,
   cls: 0.1,
   totalTransferKb: 900,
-  scriptTransferKb: 180,
+  scriptTransferKb: 150,
   stylesheetTransferKb: 180,
   resourceCount: 40,
 };

@@ -23,7 +23,7 @@ test('applyEffect posts prompt and effect to /prompt/enhance and returns the ref
       ok: true,
       status: 200,
       json: function () {
-        return Promise.resolve({ prompt: 'a dreamy misty cat', provider: 'gemini', effect: '更夢幻' });
+        return Promise.resolve({ prompt: 'a dreamy misty cat', provider: 'gemini', effect: '更夢幻', warnings: [] });
       },
     });
   });
@@ -33,6 +33,7 @@ test('applyEffect posts prompt and effect to /prompt/enhance and returns the ref
   assert.deepEqual(sentBody, { prompt: 'a cat', effect: '更夢幻' });
   assert.equal(result.prompt, 'a dreamy misty cat');
   assert.equal(result.provider, 'gemini');
+  assert.deepEqual(result.warnings, []);
 });
 
 test('applyEffect surfaces the server error message when the response is not ok', async () => {
@@ -41,12 +42,12 @@ test('applyEffect surfaces the server error message when the response is not ok'
       ok: false,
       status: 503,
       json: function () {
-        return Promise.resolve({ error: '效果優化需要 Gemini（缺少 GEMINI_API_KEY）', code: 'missing_api_key' });
+        return Promise.resolve({ error: '效果服務暫時無法使用', code: 'provider_error' });
       },
     });
   });
 
-  await assert.rejects(() => enhancer.applyEffect('a cat', '更夢幻'), /Gemini/);
+  await assert.rejects(() => enhancer.applyEffect('a cat', '更夢幻'), /暫時無法使用/);
 });
 
 test('applyEffect throws when the response lacks a prompt', async () => {

@@ -75,6 +75,7 @@
 
   function bindTutorial() {
     var openTutorialButton = document.getElementById('openTutorial');
+    var openTutorialTopbarButton = document.getElementById('openTutorialTopbar');
     var closeTutorialButton = document.getElementById('closeTutorial');
 
     tutorialModal = document.getElementById('tutorialModal');
@@ -83,6 +84,9 @@
 
     if (openTutorialButton) {
       openTutorialButton.addEventListener('click', openTutorial);
+    }
+    if (openTutorialTopbarButton) {
+      openTutorialTopbarButton.addEventListener('click', openTutorial);
     }
     if (closeTutorialButton) {
       closeTutorialButton.addEventListener('click', function () {

@@ -81,6 +81,26 @@
     return { image: null, error: msg };
   }
 
+  var EDIT_PROVIDER_UNAVAILABLE_MESSAGE = '此環境尚未啟用 Workers AI 改圖；仍可先整理參考圖與指令，啟用後再送出。';
+
+  // 只有健康檢查明確回報 workersAI=false 時才停用，避免網路錯誤或舊版後端造成誤判。
+  function editAvailabilityFromHealth(data) {
+    var providers = data && data.providers;
+    if (providers && typeof providers === 'object' && typeof providers.workersAI === 'boolean') {
+      return {
+        available: providers.workersAI,
+        message: providers.workersAI ? '' : EDIT_PROVIDER_UNAVAILABLE_MESSAGE
+      };
+    }
+    if (data && Array.isArray(data.providerList)) {
+      return {
+        available: data.providerList.indexOf('workers-ai') !== -1,
+        message: data.providerList.indexOf('workers-ai') !== -1 ? '' : EDIT_PROVIDER_UNAVAILABLE_MESSAGE
+      };
+    }
+    return { available: null, message: '' };
+  }
+
   root.ImageEdit = {
     MAX_EDIT_IMAGES: MAX_EDIT_IMAGES,
     MAX_EDIT_DIM: MAX_EDIT_DIM,
@@ -89,7 +109,8 @@
     normalizeReferenceRole: normalizeReferenceRole,
     composeEditPrompt: composeEditPrompt,
     buildEditFormData: buildEditFormData,
-    mapEditResponse: mapEditResponse
+    mapEditResponse: mapEditResponse,
+    editAvailabilityFromHealth: editAvailabilityFromHealth
   };
 
   // ---- 以下為瀏覽器 DOM 綁定，node 測試環境不執行 ----
@@ -105,21 +126,69 @@
   var dlLink = document.getElementById('editDl');
   var statusEl = document.getElementById('editStatus');
   var stage = document.getElementById('editStage');
+  var previewBadge = document.getElementById('editPreviewBadge');
+  var referenceCount = document.getElementById('editReferenceCount');
+  var productControls = document.getElementById('editProductControls');
+  var promptLabel = document.getElementById('editPromptLabel');
   var productBackground = document.getElementById('editProductBackground');
   var productLighting = document.getElementById('editProductLighting');
-  var STAGE_PLACEHOLDER = '<span class="muted">改好的圖會出現在這裡</span>';
+  var STAGE_PLACEHOLDER = '<div class="edit-empty-state"><span aria-hidden="true">◫</span><strong>結果會顯示在這裡</strong><p>左側加入參考圖片並輸入指令後，按下「開始改圖」。</p></div>';
+  var EDIT_MODE_COPY = {
+    general: {
+      label: '改圖指令',
+      placeholder: '例如：把背景換成雨夜街道，保留主體構圖與色彩層次。'
+    },
+    character: {
+      label: '角色變化指令',
+      placeholder: '例如：保持角色臉部、髮型與服裝特徵，改成在咖啡廳看書。'
+    },
+    product: {
+      label: '產品攝影指令',
+      placeholder: '例如：保持產品外觀一致，製作適合電商首頁的高級棚拍主圖。'
+    }
+  };
 
   var selected = []; // { blob, url, name, role }
   var editMode = 'general';
+  var editInFlight = false;
+  var providerAvailable = null;
 
   function setStatus(msg, kind) {
     statusEl.textContent = msg || '';
     statusEl.className = 'status' + (kind ? ' ' + kind : '');
   }
 
+  function setPreviewState(state, label) {
+    if (!previewBadge) { return; }
+    previewBadge.setAttribute('data-state', state || 'idle');
+    previewBadge.innerHTML = '<i aria-hidden="true"></i>' + (label || '等待執行');
+  }
+
+  function updateGoButton() {
+    var disabled = editInFlight || providerAvailable === false;
+    goBtn.disabled = disabled;
+    goBtn.setAttribute('aria-disabled', disabled ? 'true' : 'false');
+  }
+
+  function applyHealth(data) {
+    var availability = editAvailabilityFromHealth(data);
+    providerAvailable = availability.available;
+    updateGoButton();
+    if (providerAvailable === false) {
+      setStatus(availability.message, 'fail');
+      setPreviewState('error', '服務不可用');
+    } else if (statusEl.textContent === EDIT_PROVIDER_UNAVAILABLE_MESSAGE) {
+      setStatus('', '');
+      setPreviewState('idle', '等待執行');
+    }
+  }
+
+  root.ImageEdit.applyHealth = applyHealth;
+
   // 清掉上一張結果並停用下載連結，避免失敗時仍殘留舊圖/可下載舊圖。
   function resetResult() {
     stage.innerHTML = STAGE_PLACEHOLDER;
+    setPreviewState('idle', '等待執行');
     dlLink.classList.add('is-disabled');
     dlLink.setAttribute('aria-disabled', 'true');
     dlLink.removeAttribute('href');
@@ -222,6 +291,14 @@
       wrap.appendChild(rm);
       thumbs.appendChild(wrap);
     });
+    if (referenceCount) {
+      referenceCount.textContent = String(selected.length) + ' / ' + String(MAX_EDIT_IMAGES);
+      referenceCount.setAttribute('aria-label', '已加入 ' + String(selected.length) + ' 張參考圖，最多 ' + String(MAX_EDIT_IMAGES) + ' 張');
+      referenceCount.classList.toggle('has-files', selected.length > 0);
+    }
+    if (dropEl) {
+      dropEl.classList.toggle('has-files', selected.length > 0);
+    }
   }
 
   // 處理一批選到的檔案：逐張縮圖（allSettled，單張失敗不拖累其他），縮好後才建
@@ -255,6 +332,8 @@
         setStatus('有 ' + failed + ' 張無法處理，已略過', '');
       } else if (dropped) {
         setStatus('超過 ' + MAX_EDIT_IMAGES + ' 張，多的已略過', '');
+      } else {
+        setStatus('已加入 ' + selected.length + ' / ' + MAX_EDIT_IMAGES + ' 張參考圖，接著輸入改圖指令', 'done');
       }
     });
   }
@@ -276,15 +355,23 @@
   window.addEventListener('drop', function (e) { e.preventDefault(); });
 
   function setEditMode(mode) {
+    var copy;
     editMode = mode === 'character' || mode === 'product' ? mode : 'general';
+    copy = EDIT_MODE_COPY[editMode];
     Array.prototype.forEach.call(document.querySelectorAll('[data-edit-mode]'), function (button) {
-      button.classList.toggle('is-active', button.getAttribute('data-edit-mode') === editMode);
+      var active = button.getAttribute('data-edit-mode') === editMode;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
-    if (editMode === 'character' && promptEl && !promptEl.value.trim()) {
-      promptEl.value = '保持角色特徵，改成在新的場景中，全身或半身構圖，角色一致但姿勢自然。';
+    if (productControls) {
+      productControls.hidden = editMode !== 'product';
     }
-    if (editMode === 'product' && promptEl && !promptEl.value.trim()) {
-      promptEl.value = '生成產品形象照，保持產品外觀一致，背景乾淨，光線專業，適合商業展示。';
+    if (promptLabel) {
+      promptLabel.textContent = copy.label;
+    }
+    if (promptEl) {
+      promptEl.placeholder = copy.placeholder;
+      promptEl.setAttribute('aria-label', copy.label);
     }
     selected.forEach(function (item) {
       if (editMode === 'character') { item.role = 'character'; }
@@ -310,25 +397,49 @@
     dlLink.href = dataUrl;
     dlLink.classList.remove('is-disabled');
     dlLink.removeAttribute('aria-disabled');
+    setPreviewState('done', '完成');
   }
 
   goBtn.addEventListener('click', function () {
+    var elapsedTimer;
+    if (providerAvailable === false) {
+      setStatus(EDIT_PROVIDER_UNAVAILABLE_MESSAGE, 'fail');
+      setPreviewState('error', '服務不可用');
+      return;
+    }
     var check = validateEditSelection(selected.length);
-    if (!check.ok) { setStatus(check.error, 'fail'); return; }
+    if (!check.ok) {
+      setStatus(check.error, 'fail');
+      setPreviewState('error', '需要參考圖');
+      return;
+    }
     if (editMode === 'character' && !selected.some(function (item) { return normalizeReferenceRole(item.role) === 'character'; })) {
       setStatus('角色一致模式需要至少一張標成「角色」的參考圖', 'fail');
+      setPreviewState('error', '檢查參考圖');
       return;
     }
     if (editMode === 'product' && !selected.some(function (item) { return normalizeReferenceRole(item.role) === 'product'; })) {
       setStatus('產品照模式需要至少一張標成「產品」的參考圖', 'fail');
+      setPreviewState('error', '檢查參考圖');
       return;
     }
     var prompt = (promptEl.value || '').trim();
-    if (!prompt) { setStatus('請輸入改圖指令', 'fail'); return; }
+    if (!prompt) {
+      setStatus('請輸入改圖指令', 'fail');
+      setPreviewState('error', '需要改圖指令');
+      return;
+    }
 
-    goBtn.disabled = true;
+    editInFlight = true;
+    updateGoButton();
     resetResult(); // 送出前先清舊結果，避免失敗時殘留可下載的舊圖
-    setStatus('AI 改圖中…（約數秒）', '');
+    setPreviewState('busy', '改圖中');
+    elapsedTimer = root.ElapsedTimer.start({
+      onTick: function (seconds) {
+        setStatus('AI 改圖中… 已用 ' + seconds + ' 秒', '');
+        goBtn.textContent = '改圖中… ' + seconds + ' 秒';
+      }
+    });
     var token = typeof readTurnstileToken === 'function' ? readTurnstileToken() : '';
     var finalPrompt = composeEditPrompt(prompt, selected, {
       mode: editMode,
@@ -347,17 +458,22 @@
         var mapped = mapEditResponse(r.ok, r.status, r.data);
         if (mapped.image) {
           showResult(mapped.image);
-          setStatus('完成 ✓', 'done');
+          setStatus('完成 ✓ · 耗時 ' + elapsedTimer.stop() + ' 秒', 'done');
         } else {
-          setStatus(mapped.error, 'fail');
+          setStatus('改圖失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + mapped.error, 'fail');
+          setPreviewState('error', '改圖失敗');
         }
       })
       .catch(function (e) {
-        setStatus('連線失敗：' + (e && e.message ? e.message : e), 'fail');
+        setStatus('連線失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + (e && e.message ? e.message : e), 'fail');
+        setPreviewState('error', '連線失敗');
       })
       .then(function () {
+        elapsedTimer.stop();
         if (typeof resetTurnstileWidget === 'function') { resetTurnstileWidget(); }
-        goBtn.disabled = false;
+        editInFlight = false;
+        updateGoButton();
+        goBtn.textContent = '✦ 開始改圖';
       });
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

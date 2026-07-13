@@ -11,7 +11,8 @@
 
 - AI 改圖（`POST /edit`）：上傳 1–4 張自訂圖片＋文字指令，交給 Cloudflare Workers AI FLUX.2 klein 做指令式編輯（換色、換背景、多圖合成、風格轉移）。前端會先把每張圖等比縮到 <512×512 再上傳；需設定 `CF_ACCOUNT_ID` / `CF_API_TOKEN`，未設定時回乾淨 503。（NVIDIA hosted 的 flux.1-kontext-dev 只支援內建範例圖、無法上傳自訂圖，故改走 Workers AI。）
 - 白話中文轉專業英文提示詞：`POST /prompt/transform` 可把中文想法轉成更適合圖片模型的英文 prompt，並可搭配風格參數調整語氣。
-- Tab 中文補全：在白話中文輸入框按 `Tab` 會呼叫 Gemma（預設 `GEMINI_COMPLETE_MODEL=gemma-4-26b-a4b-it`）把短中文描述補成更完整的繁中畫面描述。
+- 中文描述補全：按「幫我補完整」會優先呼叫 Gemma（預設 `GEMINI_COMPLETE_MODEL=gemma-4-31b-it`）把短中文描述補成更完整的繁中畫面描述；未設定金鑰或服務暫時失敗時會改用離線規則補全，`Tab` 保留標準鍵盤導覽行為。
+- 效果強化：輸入「更夢幻、加霓虹、背景虛化、黃昏光、高級精品感」等要求時優先由 Gemini 重寫提示詞；沒有金鑰或服務暫時失敗時會改用離線視覺規則，按鈕不會直接失效。
 - 客製梗卡：前端使用 `localStorage` 儲存使用者自己的點子卡，支援新增、編輯、刪除、匯出與匯入，重新整理頁面後仍會保留。
 - 使用者教學：第一次進站會自動顯示教學，也可以隨時按右上角「？教學」重新開啟。
 
@@ -24,7 +25,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - 複製設定：可一鍵複製目前圖片的提示詞、模型、尺寸與 Seed，方便分享或重現。
 - Seed 控制：`0` 或空白代表隨機；輸入固定正整數可重現同一組設定，或在原設定上微調。
 - 排除描述輔助：前端會把「不要出現什麼」合併進 prompt（例如 `avoid ...`），不會送出 NVIDIA 目前未支援的 `negative_prompt` 欄位。
-- 後端限流：FastAPI 會依 IP 對 `/generate`、`/generate/batch`、`/edit` 做硬性 rate limit；Cloudflare 版使用 `wrangler.toml` 的 `GENERATE_RATE_LIMITER` binding。達上限時回 `429 rate_limited` 與 `retry_after`，不會呼叫模型。
+- 後端限流：FastAPI 會依 IP 對 `/generate`、`/generate/batch`、`/edit` 與可能消耗 Gemini 配額的 `/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 做硬性 rate limit；Cloudflare 版使用 `wrangler.toml` 的 `GENERATE_RATE_LIMITER` binding。達上限時回 `429 rate_limited` 與 `retry_after`，不會呼叫模型。
 - Turnstile 防機器人：公開站可設定 `TURNSTILE_REQUIRED=true`、`TURNSTILE_SITE_KEY`，並把 `TURNSTILE_SECRET_KEY` 放在後端/Worker secret。前端只拿 site key，後端在呼叫模型前驗證 token；驗證失敗不會出圖。
 - Prompt moderation：`/generate`、`/generate/batch`、`/edit` 在呼叫模型前先擋高風險描述（色情、未成年敏感、血腥暴力、仿冒證件、詐欺、隱私侵犯、政治誤導與商標濫用）。拒絕訊息不回顯敏感全文。
 - 成本 Dashboard：網站「用量」分頁與 `GET /api/usage` 可查今日生成次數、失敗次數、估計成本、每模型／provider／匿名 IP 用量、錯誤率與平均生成時間。FastAPI 另寫入 `logs/usage-YYYY-MM-DD.jsonl`；Worker 輸出 `usage_event` 結構化 log。用量資料不保存 prompt、圖片內容或金鑰。
@@ -46,7 +47,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - 線上功能 QA：Cloudflare 版提供 `npm run qa:browser`，會實際點擊 Prompt 強化器、歷史牆、詳情面板、標籤、PWA 與手機底部生成列。
 - 線上效能 QA：Cloudflare 版提供 `npm run qa:perf`，會量 TTFB、FCP、LCP、CLS、資源數與傳輸量，輸出到 `cloudflare/output/playwright/cloudflare-perf-qa.json`。
 - 錯誤監控：前端會把 `window.error`、`unhandledrejection` 與生成 API 失敗送到同源 `POST /client-error`；Worker 會回 `x-request-id` 並記錄已截斷的白名單欄位。
-- 效能最佳化：已移除 Google Fonts 外部字型，改用系統字型，降低首屏 payload。
+- 效能最佳化：已移除 Google Fonts 外部字型；Cloudflare deploy copy 會壓縮 JavaScript，範例圖與額外靈感模組則延後到接近可視區才載入。
 - 變更清單：本輪提交包在 `docs/release-package-2026-06-25.md`，版本紀錄在 `CHANGELOG.md`。
 
 ## 專案位置
@@ -194,9 +195,20 @@ Request：
 }
 ```
 
+Response：
+
+```json
+{
+  "source": "一隻可愛柴犬在月球上吃拉麵",
+  "prompt": "Shiba Inu, dog, on the moon, eating ramen, adorable, soft rounded shapes, warm pastel colors, highly detailed",
+  "provider": "rule_based",
+  "warnings": []
+}
+```
+
 ### `POST /prompt/complete`
 
-把短中文描述補成較完整的繁體中文畫面描述；供前端 `plainPrompt` 按 `Tab` 使用。
+把短中文描述補成較完整的繁體中文畫面描述；供前端「幫我補完整」按鈕使用。
 
 Request：
 
@@ -214,17 +226,6 @@ Response：
   "source": "女生雨中",
   "prompt": "一位年輕女生站在夜晚的雨中街道，身穿深色外套，濕潤柏油路反射霓虹燈光，背景有柔和散景，畫面帶有電影感，氛圍安靜而孤獨。",
   "provider": "gemini",
-  "warnings": []
-}
-```
-
-Response：
-
-```json
-{
-  "source": "一隻可愛柴犬在月球上吃拉麵",
-  "prompt": "Shiba Inu, dog, on the moon, eating ramen, adorable, soft rounded shapes, warm pastel colors, highly detailed",
-  "provider": "rule_based",
   "warnings": []
 }
 ```

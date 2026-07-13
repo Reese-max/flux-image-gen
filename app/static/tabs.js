@@ -20,6 +20,81 @@
   var usagePanel = document.getElementById('panel-usage');
   // 靈感 section 已併入生成分頁；#ideas hash 相容導向時捲動到這裡。
   var ideasSection = document.getElementById('ideasSection');
+  var FEATURE_SCRIPTS = {
+    edit: ['/static/image-edit.js'],
+    projects: ['/static/project-store.js', '/static/project-board.js'],
+    history: ['/static/project-store.js', '/static/project-board.js'],
+    usage: ['/static/usage-dashboard.js']
+  };
+  var scriptLoads = {};
+  var featureLoads = {};
+
+  function loadScript(src) {
+    if (scriptLoads[src]) { return scriptLoads[src]; }
+    scriptLoads[src] = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.src = src;
+      script.onload = resolve;
+      script.onerror = function () {
+        delete scriptLoads[src];
+        reject(new Error('無法載入 ' + src));
+      };
+      document.head.appendChild(script);
+    });
+    return scriptLoads[src];
+  }
+
+  function loadFeatureScripts(name) {
+    var sources = FEATURE_SCRIPTS[name] || [];
+    var chain;
+    if (!sources.length) { return Promise.resolve(); }
+    if (featureLoads[name]) { return featureLoads[name]; }
+    chain = Promise.resolve();
+    sources.forEach(function (src) {
+      chain = chain.then(function () { return loadScript(src); });
+    });
+    featureLoads[name] = chain.then(function () {
+      var cachedHealth;
+      if (name !== 'edit' || !window.ImageEdit) { return; }
+      if (!window.ImageGenApp || typeof window.ImageGenApp.refreshProvider !== 'function') {
+        window.ImageEdit.applyHealth({});
+        return;
+      }
+      if (typeof window.ImageGenApp.getProviderHealth === 'function') {
+        cachedHealth = window.ImageGenApp.getProviderHealth();
+        if (cachedHealth) {
+          window.ImageEdit.applyHealth(cachedHealth);
+          return;
+        }
+      }
+      return window.ImageGenApp.refreshProvider().then(function () {
+        var button = document.getElementById('editGo');
+        var status = document.getElementById('editStatus');
+        if (button && button.disabled && !/尚未啟用 Workers AI 改圖/.test(status ? status.textContent : '')) {
+          window.ImageEdit.applyHealth({});
+        }
+      });
+    }).catch(function (error) {
+      delete featureLoads[name];
+      throw error;
+    });
+    return featureLoads[name];
+  }
+
+  function ensureFeatureScripts(name) {
+    loadFeatureScripts(name).catch(function (error) {
+      var statusIds = { edit: 'editStatus', projects: 'projectStatus', history: 'status', usage: 'usageStatus' };
+      var status = document.getElementById(statusIds[name] || 'status');
+      delete featureLoads[name];
+      if (status) {
+        status.textContent = '功能載入失敗，請重新整理後再試。';
+        status.classList.add('fail');
+      }
+      if (window.console && console.error) { console.error(error); }
+    });
+  }
+
+  window.ImageFeatureLoader = { load: loadFeatureScripts };
 
   function nameOf(tab) { return tab.getAttribute('data-tab'); }
   function panelFor(tab) { return document.getElementById(tab.getAttribute('aria-controls')); }
@@ -68,6 +143,7 @@
     try { localStorage.setItem(STORAGE_KEY, name); } catch (e) { /* 隱私模式忽略 */ }
     // 讓 URL 反映目前分頁：生成分頁是根網址，其他分頁保留 hash 深連結。
     if (!options.keepHash) { updateUrlForTab(name); }
+    ensureFeatureScripts(name);
     return true;
   }
 
@@ -130,6 +206,7 @@
     current = 'usage';
     document.body.setAttribute('data-tab', 'usage');
     if (location.hash !== '#usage') { location.hash = 'usage'; }
+    ensureFeatureScripts('usage');
     return true;
   }
 
@@ -155,7 +232,11 @@
     }
     if (name && name !== current) {
       if (!applyHash(name, false) && current && window.history && window.history.replaceState) {
-        window.history.replaceState(null, '', current === 'generate' ? cleanUrl() : '#' + current);
+        if (current === 'generate') {
+          window.history.replaceState(null, '', cleanUrl());
+        } else {
+          window.history.replaceState(null, '', '#' + current);
+        }
       }
     }
   });
@@ -184,4 +265,91 @@
 
   // 讓其他腳本可主動切換分頁（支援 'ideas'/'usage' 相容路由）。
   window.showTab = function (name) { return applyHash(String(name).toLowerCase(), false); };
+
+  Array.prototype.slice.call(document.querySelectorAll('[data-open-history]')).forEach(function (button) {
+    button.addEventListener('click', function () { activate('history', false); });
+  });
+
+  // 桌面畫布資訊列：同步目前畫質、尺寸、 Seed 模式與生成狀態。
+  (function initCanvasMetadata() {
+    var size = document.getElementById('size');
+    var model = document.getElementById('model');
+    var seed = document.getElementById('seed');
+    var seedRandom = document.getElementById('seedRandom');
+    var seedLock = document.getElementById('seedLock');
+    var stage = document.getElementById('stage');
+    var status = document.getElementById('status');
+    var sizeMeta = document.getElementById('canvasSizeMeta');
+    var modelMeta = document.getElementById('canvasModelMeta');
+    var seedMeta = document.getElementById('canvasSeedMeta');
+    var presetChip = document.getElementById('canvasPresetChip');
+    var stateMeta = document.getElementById('canvasStateMeta');
+    var statusbar = document.getElementById('canvasStatusbar');
+
+    function selectedText(select) {
+      return select && select.selectedIndex >= 0 ? select.options[select.selectedIndex].text : '';
+    }
+    function sizeText() {
+      var text = selectedText(size);
+      var match = text.match(/（([^）]+)）/);
+      if (size && size.value === 'custom') {
+        var width = document.getElementById('customWidth');
+        var height = document.getElementById('customHeight');
+        return (width ? width.value : '') + ' × ' + (height ? height.value : '');
+      }
+      return match ? match[1].replace('×', ' × ') : '自動尺寸';
+    }
+    function updateSettings() {
+      var currentSize = sizeText();
+      var currentModel = model && model.value === 'dev' ? '高品質' : '快速草稿';
+      var locked = seedLock && seedLock.getAttribute('aria-pressed') === 'true';
+      var currentSeed = locked && seed && seed.value ? 'Seed ' + seed.value : (locked ? 'Seed 鎖定' : 'Seed 自動');
+      if (sizeMeta) { sizeMeta.textContent = currentSize; }
+      if (presetChip) { presetChip.textContent = currentSize; }
+      if (modelMeta) { modelMeta.textContent = currentModel; }
+      if (seedMeta) { seedMeta.textContent = currentSeed; }
+    }
+    function updateState() {
+      var busy = stage && stage.getAttribute('aria-busy') === 'true';
+      var text = status ? status.textContent : '';
+      var state = 'idle';
+      var label = '待命';
+      if (busy) { state = 'busy'; label = '生成中'; }
+      else if (/完成/.test(text)) { state = 'done'; label = '完成'; }
+      else if (/失敗|出錯|請先/.test(text)) { state = 'error'; label = '需要處理'; }
+      if (stateMeta) { stateMeta.textContent = label; }
+      if (statusbar) { statusbar.setAttribute('data-state', state); }
+    }
+    function bindChange(element) {
+      if (!element) { return; }
+      element.addEventListener('change', updateSettings);
+      element.addEventListener('input', updateSettings);
+      element.addEventListener('click', function () { window.setTimeout(updateSettings, 0); });
+    }
+
+    bindChange(size);
+    bindChange(model);
+    bindChange(seed);
+    bindChange(seedRandom);
+    bindChange(seedLock);
+    bindChange(document.getElementById('customWidth'));
+    bindChange(document.getElementById('customHeight'));
+    updateSettings();
+    updateState();
+
+    if (typeof MutationObserver !== 'undefined') {
+      if (stage) {
+        new MutationObserver(updateState).observe(stage, { attributes: true, attributeFilter: ['aria-busy'], childList: true, subtree: true });
+      }
+      if (status) {
+        new MutationObserver(updateState).observe(status, { childList: true, subtree: true, characterData: true });
+      }
+      if (seedRandom) {
+        new MutationObserver(updateSettings).observe(seedRandom, { attributes: true, attributeFilter: ['aria-pressed'] });
+      }
+      if (seedLock) {
+        new MutationObserver(updateSettings).observe(seedLock, { attributes: true, attributeFilter: ['aria-pressed'] });
+      }
+    }
+  })();
 })();

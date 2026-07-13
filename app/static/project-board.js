@@ -369,6 +369,12 @@
   }
 
   function renderProjectBoard() {
+    var deleteButton = el('deleteProject');
+    var hasActiveProject = Boolean(getActiveProject());
+    if (deleteButton) {
+      deleteButton.hidden = !hasActiveProject;
+      deleteButton.disabled = !hasActiveProject;
+    }
     renderProjectList();
     renderProjectDetail();
   }
@@ -393,10 +399,16 @@
     if (deleteButton) { deleteButton.addEventListener('click', deleteActiveProject); }
   }
 
-  document.addEventListener('DOMContentLoaded', function () {
+  function initProjectBoard() {
     loadProjectBoard();
     bindProjectEvents();
-  });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initProjectBoard);
+  } else {
+    initProjectBoard();
+  }
   document.addEventListener('imagegen:generated', renderProjectBoard);
 
   root.ProjectBoard = {

@@ -33,6 +33,10 @@ var R_EXTRAS = [
 ];
 
 var MAX_SEED = 2147483647;
+var WORKSPACE_STORAGE_KEY = 'fluxiGenerationWorkspace.v1';
+var WORKSPACE_DEFAULT_WIDTH = 390;
+var WORKSPACE_MIN_WIDTH = 320;
+var WORKSPACE_MAX_WIDTH = 560;
 var generationInFlight = false;
 var lastGeneration = null;
 var seedMode = 'random';
@@ -41,10 +45,13 @@ var pendingPwaRegistration = null;
 var pwaRefreshing = false;
 var hadServiceWorkerController = false;
 var providerStatus = 'checking';
+var lastProviderHealth = null;
 var generationState = 'idle';
 var generationMode = 'normal';
 var agentAnalysis = null;
 var turnstileState = { required: false, siteKey: '', widgetId: null, scriptLoading: false };
+var retryBlockedUntil = 0;
+var retryCountdownTimer = null;
 
 var AGENT_STEP_DEFS = [
   { id: 'parse', label: '解析需求' },
@@ -72,7 +79,7 @@ var GENERATION_STATE_COPY = {
   compiling_prompt: '正在整理提示詞…',
   generating: '正在生成圖片…',
   saving: '正在保存作品…',
-  success: '🎨 再生成圖片',
+  success: '🎨 生成圖片',
   error: '重試',
   cancelled: '已取消'
 };
@@ -251,6 +258,54 @@ function errorMessage(error){
   if(error.message){ return error.message; }
   return String(error);
 }
+function parseRetryAfter(value){
+  var seconds = Number(value);
+  var deadline;
+  if(isFinite(seconds) && seconds > 0){ return Math.ceil(seconds); }
+  deadline = Date.parse(String(value || ''));
+  return isNaN(deadline) ? 0 : Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+}
+function retrySecondsRemaining(){
+  return retryBlockedUntil > Date.now() ? Math.ceil((retryBlockedUntil - Date.now()) / 1000) : 0;
+}
+function clearRetryCountdown(){
+  if(retryCountdownTimer){ clearInterval(retryCountdownTimer); }
+  retryCountdownTimer = null;
+  retryBlockedUntil = 0;
+}
+function startRetryCountdown(seconds){
+  clearRetryCountdown();
+  seconds = parseRetryAfter(seconds);
+  if(!seconds){ return; }
+  retryBlockedUntil = Date.now() + seconds * 1000;
+  updateGenerateButtons();
+  retryCountdownTimer = setInterval(function(){
+    if(retrySecondsRemaining()){
+      updateGenerateButtons();
+      return;
+    }
+    clearRetryCountdown();
+    updateGenerateButtons();
+  }, 250);
+}
+function generationErrorFromResponse(response, data){
+  var status = response && response.status ? response.status : 0;
+  var code = data && data.code ? String(data.code) : '';
+  var adviceCode;
+  var retryAfter = data && data.retry_after !== undefined ? data.retry_after : (response && response.headers ? response.headers.get('retry-after') : '');
+  if(!code && status === 429){ code = 'rate_limited'; }
+  if(!code && status === 503){ code = 'service_unavailable'; }
+  if(!code && status === 504){ code = 'timeout'; }
+  adviceCode = status === 429 ? 'rate_limited' : code;
+  if(status === 503 && code !== 'missing_api_key'){ adviceCode = 'service_unavailable'; }
+  return {
+    code: code || 'unknown',
+    adviceCode: adviceCode || 'unknown',
+    message: data && (data.error || data.message) ? String(data.error || data.message) : ('HTTP ' + status),
+    requestId: responseRequestId(response) || (data && data.requestId ? data.requestId : ''),
+    retryAfter: parseRetryAfter(retryAfter)
+  };
+}
 function reportClientError(error, context){
   var details = context || {};
   var payload = {
@@ -349,8 +404,13 @@ function updateGenerateButtons(){
   var baseText = GENERATION_STATE_COPY[generationState] || GENERATION_STATE_COPY.idle;
   var text = baseText;
   var disabled = generationInFlight;
+  var retrySeconds = retrySecondsRemaining();
   if(!generationInFlight && generationState === 'idle' && providerStatus === 'demo'){
     text = '🎨 Demo 生成圖片';
+  }
+  if(!generationInFlight && retrySeconds){
+    text = retrySeconds + ' 秒後可重試';
+    disabled = true;
   }
   if(!generationInFlight && (providerStatus === 'offline' || providerStatus === 'error')){
     disabled = true;
@@ -806,7 +866,10 @@ function applyAgentSuggestion(id){
   if(id === 'ppt'){ if(useCase){ useCase.value = 'ppt'; } if(size){ size.value = 'ppt_16_9'; } if(plain){ plain.value = current + '，適合簡報封面，留白充足，16:9 橫式構圖'; } }
   if(id === 'remove_text'){ if(plain){ plain.value = current + '，畫面不要出現任何文字、標語或 Logo'; } if(avoid){ avoid.value = (avoid.value ? avoid.value + ', ' : '') + 'text, logo, watermark, gibberish'; } }
   if(id === 'product_light'){ if(style){ style.value = 'product'; } if(useCase){ useCase.value = 'product'; } if(plain){ plain.value = current + '，產品攝影棚光，乾淨背景，細緻反光，高級商業攝影'; } }
-  if(el('prompt')){ el('prompt').value = ''; }
+  if(el('prompt')){
+    el('prompt').value = '';
+    el('prompt').removeAttribute('data-auto-source');
+  }
   updateMobileGenerateSummary();
   setGenerationState('idle');
   setStatus('已套用智慧體建議，可再次按生成圖片', 'done');
@@ -940,13 +1003,20 @@ function describeAgentRecommendation(analysis){
 }
 function prepareAgentFlow(){
   var source = el('plainPrompt') ? el('plainPrompt').value.trim() : '';
+  var hasProviderPrompt = !!(el('prompt') && el('prompt').value.trim());
   setAgentPanelVisible(true);
   resetAgentSteps();
   setAgentSummary('解析中文需求中');
   setAgentStep('parse', 'running', '讀取中文描述');
   agentAnalysis = analyzeIntentForAgent();
   setAgentStep('parse', 'success', agentAnalysis.subject ? '主體：' + agentAnalysis.subject : '尚未明確指定主體');
-  setAgentStep('complete', 'success', agentAnalysis.missingFields.length ? '已補預設構圖並提示缺漏' : '需求已足夠');
+  if(hasProviderPrompt){
+    setAgentStep('complete', 'success', '使用已編輯的英文提示詞');
+  }else if(agentAnalysis.missingFields.length){
+    setAgentStep('complete', 'running', '生成前將補足視覺細節');
+  }else{
+    setAgentStep('complete', 'success', '需求已足夠');
+  }
   setAgentStep('select', 'running', '推薦模型與尺寸');
   applyAgentSelection(agentAnalysis);
   setAgentStep('select', 'success', '模型與尺寸已套用');
@@ -1025,25 +1095,23 @@ function reloadPwaVersion(){
 function renderStageText(stage, text, cls){
   var node = document.createElement('span');
   if(cls){ node.className = cls; }
-  if(cls === 'err'){
-    node.setAttribute('role', 'alert');
-  }
   node.textContent = text;
   stage.classList.remove('has-failure-advice');
   stage.classList.remove('has-batch-results');
   stage.classList.remove('has-mobile-save');
   stage.setAttribute('aria-busy', 'false');
+  stage.setAttribute('aria-live', cls === 'err' ? 'off' : 'polite');
   clearNode(stage);
   stage.appendChild(node);
 }
-function renderFailureAdvice(code){
+function renderFailureAdvice(code, context){
   var advice;
   var stage = el('stage');
   var box;
   var title;
   var list;
   if(!window.FailureAdvice || !stage){ return; }
-  advice = window.FailureAdvice.getAdvice(code);
+  advice = window.FailureAdvice.getAdvice(code, context);
   box = document.createElement('div');
   title = document.createElement('strong');
   list = document.createElement('ul');
@@ -1092,6 +1160,126 @@ function updateCustomSizeVisibility(){
   var box = el('customSizeFields');
   var size = el('size');
   if(box && size){ box.hidden = size.value !== 'custom'; }
+}
+function clampWorkspaceWidth(value){
+  var width = Number(value);
+  if(!isFinite(width)){ width = WORKSPACE_DEFAULT_WIDTH; }
+  return Math.max(WORKSPACE_MIN_WIDTH, Math.min(WORKSPACE_MAX_WIDTH, Math.round(width)));
+}
+function persistWorkspaceState(width, collapsed){
+  try{
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify({
+      width: clampWorkspaceWidth(width),
+      collapsed: !!collapsed
+    }));
+  }catch(error){}
+}
+function applyWorkspaceState(width, collapsed, shouldPersist){
+  var workspace = el('generationWorkspace');
+  var divider = el('workspaceDivider');
+  var toggle = el('toggleGenerationControls');
+  var nextWidth = clampWorkspaceWidth(width);
+  var isCollapsed = !!collapsed;
+  if(!workspace){ return; }
+  workspace.style.setProperty('--control-panel-width', nextWidth + 'px');
+  workspace.classList.toggle('is-controls-collapsed', isCollapsed);
+  workspace.setAttribute('data-control-width', String(nextWidth));
+  if(divider){ divider.setAttribute('aria-valuenow', String(nextWidth)); }
+  if(toggle){
+    toggle.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+    toggle.setAttribute('aria-label', isCollapsed ? '展開生成設定面板' : '收合生成設定面板');
+    toggle.title = isCollapsed ? '展開生成設定' : '收合生成設定';
+  }
+  if(shouldPersist){ persistWorkspaceState(nextWidth, isCollapsed); }
+}
+function readWorkspaceState(){
+  var parsed;
+  try{
+    parsed = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) || '{}');
+  }catch(error){
+    parsed = {};
+  }
+  return {
+    width: clampWorkspaceWidth(parsed.width),
+    collapsed: !!parsed.collapsed
+  };
+}
+function setPreviewScaleMode(mode){
+  var stage = el('stage');
+  var fit = el('previewFit');
+  var actual = el('previewActual');
+  var showActual = mode === 'actual';
+  if(stage){ stage.classList.toggle('is-actual-size', showActual); }
+  if(fit){
+    fit.classList.toggle('is-active', !showActual);
+    fit.setAttribute('aria-pressed', showActual ? 'false' : 'true');
+  }
+  if(actual){
+    actual.classList.toggle('is-active', showActual);
+    actual.setAttribute('aria-pressed', showActual ? 'true' : 'false');
+  }
+}
+function initGenerationWorkspace(){
+  var workspace = el('generationWorkspace');
+  var divider = el('workspaceDivider');
+  var toggle = el('toggleGenerationControls');
+  var state;
+  var resizing = false;
+  var startX = 0;
+  var startWidth = WORKSPACE_DEFAULT_WIDTH;
+  function finishResize(){
+    if(!resizing){ return; }
+    resizing = false;
+    workspace.classList.remove('is-resizing');
+    document.body.classList.remove('is-workspace-resizing');
+    persistWorkspaceState(Number(workspace.getAttribute('data-control-width')), false);
+  }
+  if(!workspace){ return; }
+  state = readWorkspaceState();
+  applyWorkspaceState(state.width, state.collapsed, false);
+  if(toggle){
+    toggle.addEventListener('click', function(){
+      var collapsed = workspace.classList.contains('is-controls-collapsed');
+      var width = Number(workspace.getAttribute('data-control-width')) || WORKSPACE_DEFAULT_WIDTH;
+      applyWorkspaceState(width, !collapsed, true);
+      if(collapsed && el('plainPrompt')){ el('plainPrompt').focus(); }
+    });
+  }
+  if(divider){
+    divider.addEventListener('pointerdown', function(event){
+      if(event.button !== 0 || (window.matchMedia && !window.matchMedia('(min-width: 981px)').matches)){ return; }
+      event.preventDefault();
+      resizing = true;
+      startX = event.clientX;
+      startWidth = Number(workspace.getAttribute('data-control-width')) || WORKSPACE_DEFAULT_WIDTH;
+      workspace.classList.remove('is-controls-collapsed');
+      workspace.classList.add('is-resizing');
+      document.body.classList.add('is-workspace-resizing');
+      if(divider.setPointerCapture){ divider.setPointerCapture(event.pointerId); }
+    });
+    divider.addEventListener('pointermove', function(event){
+      if(!resizing){ return; }
+      applyWorkspaceState(startWidth + event.clientX - startX, false, false);
+    });
+    divider.addEventListener('pointerup', finishResize);
+    divider.addEventListener('pointercancel', finishResize);
+    divider.addEventListener('dblclick', function(){
+      applyWorkspaceState(WORKSPACE_DEFAULT_WIDTH, false, true);
+    });
+    divider.addEventListener('keydown', function(event){
+      var width = Number(workspace.getAttribute('data-control-width')) || WORKSPACE_DEFAULT_WIDTH;
+      var nextWidth = width;
+      if(event.key === 'ArrowLeft'){ nextWidth = width - 16; }
+      else if(event.key === 'ArrowRight'){ nextWidth = width + 16; }
+      else if(event.key === 'Home'){ nextWidth = WORKSPACE_MIN_WIDTH; }
+      else if(event.key === 'End'){ nextWidth = WORKSPACE_MAX_WIDTH; }
+      else { return; }
+      event.preventDefault();
+      applyWorkspaceState(nextWidth, false, true);
+    });
+  }
+  if(el('previewFit')){ el('previewFit').addEventListener('click', function(){ setPreviewScaleMode('fit'); }); }
+  if(el('previewActual')){ el('previewActual').addEventListener('click', function(){ setPreviewScaleMode('actual'); }); }
 }
 function setResultActionsVisible(on){
   var resultActions = el('resultActions');
@@ -1156,6 +1344,26 @@ function scrollToComposerAndFocus(){
   }
   promptField.focus();
 }
+function revealResultStage(shouldFocus){
+  var stage = el('stage');
+  var scrollTarget = el('generationPreview') || el('resultHeading') || stage;
+  var reduceMotion;
+  if(!stage){ return; }
+  reduceMotion = typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.requestAnimationFrame(function(){
+    if(typeof scrollTarget.scrollIntoView === 'function'){
+      scrollTarget.scrollIntoView({ behavior: shouldFocus || reduceMotion ? 'auto' : 'smooth', block: 'start' });
+    }
+    if(shouldFocus){
+      try{
+        stage.focus({ preventScroll: true });
+      }catch(error){
+        stage.focus();
+      }
+    }
+  });
+}
 function readGenerationSettings(){
   var userPrompt = el('plainPrompt') ? el('plainPrompt').value : '';
   var providerPrompt = el('prompt') ? el('prompt').value : '';
@@ -1171,13 +1379,26 @@ function readGenerationSettings(){
     seed: computeSeedForGeneration()
   });
 }
+function clearAutoProviderPrompt(){
+  var promptField = el('prompt');
+  if(!promptField || !promptField.getAttribute('data-auto-source')){ return false; }
+  promptField.value = '';
+  promptField.removeAttribute('data-auto-source');
+  return true;
+}
 function setGenerationSettings(settings){
   var source = settings || {};
   if(Object.prototype.hasOwnProperty.call(source, 'prompt')){
     if(el('plainPrompt')){ el('plainPrompt').value = source.prompt || ''; }
-    if(el('prompt')){ el('prompt').value = source.providerPrompt || source.prompt || ''; }
+    if(el('prompt')){
+      el('prompt').value = source.providerPrompt || source.prompt || '';
+      el('prompt').removeAttribute('data-auto-source');
+    }
   }
-  if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){ el('prompt').value = source.providerPrompt || ''; }
+  if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
+    el('prompt').value = source.providerPrompt || '';
+    el('prompt').removeAttribute('data-auto-source');
+  }
   if(Object.prototype.hasOwnProperty.call(source, 'avoid') && el('avoid')){ el('avoid').value = source.avoid || ''; }
   if(Object.prototype.hasOwnProperty.call(source, 'model')){ el('model').value = source.model || 'schnell'; }
   if(Object.prototype.hasOwnProperty.call(source, 'size')){ el('size').value = normalizeSizePreset(source.size); }
@@ -1192,9 +1413,13 @@ function setNextGenerationSourceRecord(id){
 function applyPromptEnhancement(){
   var promptField = el('prompt');
   var effectField = el('effectPrompt');
+  var effectButton = el('applyEffect');
+  var elapsedTimer;
+  var autoSource;
   if(!window.PromptEnhancer || !promptField || !effectField){ return; }
   var base = promptField.value.trim();
   var effect = effectField.value.trim();
+  autoSource = promptField.getAttribute('data-auto-source');
   if(!base){
     setStatus('請先輸入或轉出英文提示詞', 'fail');
     return;
@@ -1204,12 +1429,35 @@ function applyPromptEnhancement(){
     if(effectField.focus){ effectField.focus(); }
     return;
   }
-  setStatus('AI 套用效果中…', 'busy');
+  if(effectButton){
+    effectButton.disabled = true;
+    effectButton.setAttribute('aria-busy', 'true');
+  }
+  elapsedTimer = window.ElapsedTimer.start({
+    onTick: function(seconds){
+      setStatus('AI 套用效果中… 已用 ' + seconds + ' 秒', 'busy');
+      if(effectButton){ effectButton.textContent = '套用中… ' + seconds + ' 秒'; }
+    }
+  });
   window.PromptEnhancer.applyEffect(base, effect).then(function(result){
     promptField.value = result.prompt;
-    setStatus('已用 AI 套用效果', 'done');
+    if(autoSource){
+      promptField.setAttribute('data-auto-source', autoSource);
+    }else{
+      promptField.removeAttribute('data-auto-source');
+    }
+    var providerLabel = result.provider === 'gemini' ? 'Gemini' : '離線強化';
+    var message = '已套用效果 · ' + providerLabel + ' · 耗時 ' + elapsedTimer.stop() + ' 秒';
+    if(result.warnings && result.warnings.length){ message += ' · ' + result.warnings.join('、'); }
+    setStatus(message, 'done');
   }, function(error){
-    setStatus('套用效果失敗：' + error.message, 'fail');
+    setStatus('套用效果失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + error.message, 'fail');
+  }).then(function(){
+    if(effectButton){
+      effectButton.disabled = false;
+      effectButton.removeAttribute('aria-busy');
+      effectButton.textContent = '用 AI 套用效果';
+    }
   });
 }
 function progressCopy(model, seconds){
@@ -1343,278 +1591,6 @@ function onSeedManualInput(){
   }
 }
 
-function setCloudSaveStatus(text, cls){
-  var status = el('cloudSaveStatus');
-  if(!status){ return; }
-  status.textContent = text || '';
-  status.className = 'form-status' + (cls ? ' ' + cls : '');
-}
-function setCloudFallbackInfo(on){
-  var box = el('cloudFallbackInfo');
-  if(box){ box.hidden = !on; }
-}
-function setCloudShareInfo(shareUrl){
-  var box = el('cloudShareInfo');
-  var input = el('cloudShareUrl');
-  if(!box || !input){ return; }
-  if(shareUrl){
-    input.value = shareUrl;
-    box.hidden = false;
-  } else {
-    input.value = '';
-    box.hidden = true;
-  }
-}
-function setCloudDeleteInfo(deleteUrl){
-  var box = el('cloudDeleteInfo');
-  var input = el('cloudDeleteUrl');
-  if(!box || !input){ return; }
-  if(deleteUrl){
-    input.value = deleteUrl;
-    box.hidden = false;
-  } else {
-    input.value = '';
-    box.hidden = true;
-  }
-}
-function persistCloudSaveToHistory(data, shareUrl, deleteUrl){
-  var patch;
-  var updatedGeneration;
-  var key;
-  var records;
-  var savedRecords;
-  var storageText = 'R2';
-  if(!lastGeneration || !lastGeneration.id || !window.ImageHistoryStore || typeof window.ImageHistoryStore.updateRecord !== 'function'){
-    return;
-  }
-  if(data && data.storage && typeof data.storage === 'object'){
-    storageText = String(data.storage.image || 'R2') + ' / ' + String(data.storage.metadata || 'metadata');
-  }
-  patch = {
-    cloudShareUrl: shareUrl || '',
-    cloudDeleteUrl: deleteUrl || '',
-    cloudSavedAt: new Date().toISOString(),
-    cloudPromptPublic: !!(data && data.promptPublic),
-    cloudStorage: storageText
-  };
-  updatedGeneration = shallowClone(lastGeneration);
-  for(key in patch){
-    if(Object.prototype.hasOwnProperty.call(patch, key)){
-      updatedGeneration[key] = patch[key];
-    }
-  }
-  lastGeneration = updatedGeneration;
-  try{
-    records = window.ImageHistoryStore.loadRecords();
-    savedRecords = window.ImageHistoryStore.saveRecords(window.ImageHistoryStore.updateRecord(records, lastGeneration.id, patch));
-    document.dispatchEvent(new CustomEvent('history-record-updated', { detail: { id: lastGeneration.id, patch: patch, records: savedRecords } }));
-  } catch(error){
-    reportClientError(error, { type: 'gallery_history_link' });
-  }
-}
-function downloadCloudFallbackImage(){
-  var link;
-  if(!lastGeneration || !lastGeneration.image){
-    setCloudSaveStatus('沒有可下載的本機圖片。', 'fail');
-    return;
-  }
-  link = document.createElement('a');
-  link.href = lastGeneration.image;
-  link.download = slugify(lastGeneration.prompt || lastGeneration.providerPrompt || 'flux') + '_local_' + timestamp() + extensionFromImageData(lastGeneration.image);
-  try{
-    document.body.appendChild(link);
-    link.click();
-    setCloudSaveStatus('已下載本機圖片；雲端保存尚未完成。', 'done');
-  } finally {
-    if(link.parentNode){ link.parentNode.removeChild(link); }
-  }
-}
-function exportCloudFallbackJson(){
-  var payload;
-  var blob;
-  var url;
-  var link;
-  if(!lastGeneration){
-    setCloudSaveStatus('沒有可匯出的本機作品資料。', 'fail');
-    return;
-  }
-  if(!window.URL || typeof window.URL.createObjectURL !== 'function'){
-    setCloudSaveStatus('瀏覽器不支援匯出本機作品 JSON。', 'fail');
-    return;
-  }
-  payload = shallowClone(lastGeneration);
-  payload.exportedAt = new Date().toISOString();
-  payload.exportReason = 'cloud_save_fallback';
-  blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-  url = window.URL.createObjectURL(blob);
-  link = document.createElement('a');
-  link.href = url;
-  link.download = 'local-generation-' + slugify(lastGeneration.id || lastGeneration.prompt || 'flux') + '.json';
-  try{
-    document.body.appendChild(link);
-    link.click();
-    setCloudSaveStatus('已匯出本機作品 JSON；檔案包含 prompt 與生成設定，公開前請先檢查。', 'done');
-  } finally {
-    if(link.parentNode){ link.parentNode.removeChild(link); }
-    window.URL.revokeObjectURL(url);
-  }
-}
-function copyCloudShareUrl(){
-  var input = el('cloudShareUrl');
-  if(!input || !input.value){
-    setCloudSaveStatus('沒有可複製的分享連結。', 'fail');
-    return;
-  }
-  copyText(input.value).then(function(){
-    setCloudSaveStatus('分享連結已複製。', 'done');
-  }, function(){
-    setCloudSaveStatus('複製分享連結失敗，請手動複製。', 'fail');
-  });
-}
-function copyCloudDeleteUrl(){
-  var input = el('cloudDeleteUrl');
-  if(!input || !input.value){
-    setCloudSaveStatus('沒有可複製的刪除連結。', 'fail');
-    return;
-  }
-  copyText(input.value).then(function(){
-    setCloudSaveStatus('刪除連結已複製。打開後可確認刪除；請妥善保存，任何取得連結的人都可刪除此作品。', 'done');
-  }, function(){
-    setCloudSaveStatus('複製刪除連結失敗，請手動複製。', 'fail');
-  });
-}
-function closeCloudSaveModal(){
-  var modal = el('cloudSaveModal');
-  if(modal && window.ModalA11y && typeof window.ModalA11y.close === 'function'){
-    window.ModalA11y.close(modal);
-  } else if(modal){
-    modal.hidden = true;
-  }
-  setCloudSaveStatus('', '');
-  setCloudFallbackInfo(false);
-  setCloudShareInfo('');
-  setCloudDeleteInfo('');
-}
-function openCloudSaveModal(){
-  var modal = el('cloudSaveModal');
-  if(!lastGeneration || !lastGeneration.image){
-    setStatus('先生成一張圖，才能存到雲端', 'warn');
-    return;
-  }
-  if(!modal){
-    uploadToCloud();
-    return;
-  }
-  if(el('cloudIncludePrompt')){ el('cloudIncludePrompt').checked = false; }
-  if(el('cloudAcknowledge')){ el('cloudAcknowledge').checked = false; }
-  setCloudFallbackInfo(false);
-  setCloudShareInfo('');
-  setCloudDeleteInfo('');
-  setCloudSaveStatus('請先確認雲端保存規則。', 'warn');
-  if(window.ModalA11y && typeof window.ModalA11y.open === 'function'){
-    window.ModalA11y.open(modal, el('cloudAcknowledge'));
-  } else {
-    modal.hidden = false;
-    if(el('cloudAcknowledge')){ el('cloudAcknowledge').focus(); }
-  }
-}
-function buildCloudSavePayload(){
-  var includePrompt = !!(el('cloudIncludePrompt') && el('cloudIncludePrompt').checked);
-  var styleValue = el('promptStyle') ? el('promptStyle').value : 'auto';
-  var useCaseValue = el('useCase') ? el('useCase').value : 'auto';
-  var meta = {
-    title: 'Fluxi 作品：' + selectedOptionText('useCase', '自動用途') + '／' + selectedOptionText('promptStyle', '自動風格'),
-    seed: lastGeneration.seed,
-    model: lastGeneration.model,
-    size: lastGeneration.size,
-    width: lastGeneration.width,
-    height: lastGeneration.height,
-    style: styleValue,
-    styleLabel: selectedOptionText('promptStyle', '自動風格'),
-    useCase: useCaseValue,
-    useCaseLabel: selectedOptionText('useCase', '自動用途'),
-    mode: lastGeneration.mode || 'normal',
-    visibility: 'unlisted',
-    promptPublic: includePrompt
-  };
-  if(includePrompt){
-    meta.prompt = lastGeneration.providerPrompt || lastGeneration.prompt || '';
-  }
-  return {
-    image: lastGeneration.image,
-    meta: meta
-  };
-}
-function uploadToCloud(){
-  var btn = el('saveToCloud');
-  var confirmButton = el('confirmCloudSave');
-  if(!lastGeneration || !lastGeneration.image){
-    setStatus('先生成一張圖，才能存到雲端', 'warn');
-    return;
-  }
-  if(el('cloudAcknowledge') && !el('cloudAcknowledge').checked){
-    setCloudSaveStatus('請先勾選確認：此連結不是登入保護的私密作品。', 'fail');
-    return;
-  }
-  if(btn){ btn.disabled = true; }
-  if(confirmButton){ confirmButton.disabled = true; }
-  setStatus('☁️ 上傳中…', 'busy');
-  setCloudSaveStatus('上傳中…', 'busy');
-  setCloudFallbackInfo(false);
-  var galleryHeaders = {'Content-Type': 'application/json'};
-  if(lastGeneration.galleryToken){ galleryHeaders['X-Gallery-Token'] = lastGeneration.galleryToken; }
-  fetch('/gallery', {
-    method: 'POST',
-    headers: galleryHeaders,
-    body: JSON.stringify(buildCloudSavePayload())
-  }).then(function(response){
-    return response.json().then(function(data){
-      if(response.status === 503){
-        setStatus('☁️ 雲端圖庫尚未啟用；作品仍保留在本機歷史。', 'warn');
-        setCloudSaveStatus('雲端圖庫尚未啟用（部署並設定 R2 後可用），本機歷史仍保留。', 'warn');
-        setCloudFallbackInfo(true);
-        return;
-      }
-      if(!response.ok){
-        setStatus('❌ 雲端儲存失敗，本機歷史仍保留：' + (data && data.error ? data.error : ('HTTP ' + response.status)), 'fail');
-        setCloudSaveStatus('儲存失敗，本機歷史仍保留：' + (data && data.error ? data.error : ('HTTP ' + response.status)), 'fail');
-        setCloudFallbackInfo(true);
-        return;
-      }
-      var sharePath = data && data.shareUrl ? data.shareUrl : data.url;
-      var url = location.origin + sharePath;
-      var deleteUrl = data && data.deleteUrl ? location.origin + data.deleteUrl : '';
-      setCloudShareInfo(url);
-      if(deleteUrl){ setCloudDeleteInfo(deleteUrl); }
-      persistCloudSaveToHistory(data, url, deleteUrl);
-      return copyText(url).then(function(){
-        setStatus('☁️ 已存雲端，分享連結已複製：' + sharePath, 'done');
-        setCloudSaveStatus('已存到 R2；metadata 已分開保存。分享連結已複製，刪除連結已寫入本機歷史。', 'done');
-      }, function(){
-        setStatus('☁️ 已存雲端（複製失敗，請手動複製）：' + sharePath, 'warn');
-        setCloudSaveStatus('已存到 R2；metadata 已分開保存。複製失敗，請手動複製分享連結；刪除連結已寫入本機歷史：' + sharePath, 'warn');
-      });
-    });
-  }, function(err){
-    reportClientError(err, { type: 'gallery_save' });
-    setStatus('❌ 雲端儲存失敗，本機歷史仍保留：' + err.message, 'fail');
-    setCloudSaveStatus('雲端儲存失敗，本機歷史仍保留：' + err.message, 'fail');
-    setCloudFallbackInfo(true);
-  }).then(function(){
-    if(btn){ btn.disabled = false; }
-    if(confirmButton){ confirmButton.disabled = false; }
-  }, function(){
-    if(btn){ btn.disabled = false; }
-    if(confirmButton){ confirmButton.disabled = false; }
-    setStatus('❌ 雲端儲存失敗，請稍後再試；本機歷史仍保留', 'fail');
-    setCloudSaveStatus('雲端儲存失敗，請稍後再試；本機歷史仍保留。', 'fail');
-    setCloudFallbackInfo(true);
-  });
-}
-function saveToCloud(){
-  openCloudSaveModal();
-}
-
 function openPolicyModal(id, focusId){
   var modal = el(id);
   var focusTarget = focusId ? el(focusId) : null;
@@ -1642,8 +1618,9 @@ function clearLocalData(){
     if(window.ImageHistoryStore && window.ImageHistoryStore.STORAGE_KEY){ keys.push(window.ImageHistoryStore.STORAGE_KEY); }
     if(window.IdeaStore && window.IdeaStore.STORAGE_KEY){ keys.push(window.IdeaStore.STORAGE_KEY); }
     if(window.IdeaStore && window.IdeaStore.LEGACY_STORAGE_KEY){ keys.push(window.IdeaStore.LEGACY_STORAGE_KEY); }
-    if(window.ImageProjectStore && window.ImageProjectStore.STORAGE_KEY){ keys.push(window.ImageProjectStore.STORAGE_KEY); }
+    keys.push(window.ImageProjectStore && window.ImageProjectStore.STORAGE_KEY ? window.ImageProjectStore.STORAGE_KEY : 'aiImageProjects.v1');
     keys.push('aiImageTutorialSeen.v1');
+    keys.push(WORKSPACE_STORAGE_KEY);
     try {
       for(i = 0; i < keys.length; i += 1){
         window.localStorage.removeItem(keys[i]);
@@ -1665,6 +1642,18 @@ function readBatchCount(){
 
 function renderBatchResults(stage, images, base){
   var grid;
+  var viewer;
+  var mainFrame;
+  var mainImageWrap;
+  var mainImage;
+  var mainMeta;
+  var mainBadge;
+  var mainQa;
+  var mainActions;
+  var mainSeed;
+  var mainLock;
+  var mainDownload;
+  var thumbButtons = [];
   var qaReports = [];
   var bestIndex = -1;
   var bestReport = null;
@@ -1673,6 +1662,42 @@ function renderBatchResults(stage, images, base){
   var outcome = null;
   var isAgent = isAgentMode();
   var i;
+  function selectImage(index){
+    var item = images[index];
+    var image = validateImageUrl(item.image);
+    var qaReport = isAgent ? qaReports[index] : null;
+    var qaScore;
+    var fallback = getSizeDimensions(base.size);
+    var j;
+    mainImage.src = image;
+    mainImage.alt = '生成圖片變體第 ' + String(index + 1) + ' 張';
+    mainImage.width = typeof item.width === 'number' ? item.width : fallback.width;
+    mainImage.height = typeof item.height === 'number' ? item.height : fallback.height;
+    mainSeed.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
+    mainDownload.href = image;
+    mainDownload.download = slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image);
+    mainLock.onclick = function(){
+      if(lockCompositionSeed(item.seed)){
+        setStatus('已鎖定構圖（種子碼 ' + item.seed + '），改描述後生成就能微調', 'done');
+      }
+    };
+    mainBadge.hidden = !(isAgent && index === bestIndex);
+    clearNode(mainQa);
+    if(qaReport){
+      qaScore = qaAverage(qaReport);
+      mainQa.hidden = false;
+      mainQa.textContent = 'QA ' + qaScore + '/100 · ' + qaReport.reason;
+      if(qaReport.detectedIssues && qaReport.detectedIssues.length){
+        mainQa.textContent += ' 問題：' + qaReport.detectedIssues.join('；');
+      }
+      appendQaDetails(mainQa, qaReport);
+    }else{
+      mainQa.hidden = true;
+    }
+    for(j = 0; j < thumbButtons.length; j += 1){
+      thumbButtons[j].setAttribute('aria-pressed', j === index ? 'true' : 'false');
+    }
+  }
   stage.classList.remove('has-failure-advice');
   stage.classList.add('has-batch-results');
   stage.classList.add('has-mobile-save');
@@ -1711,6 +1736,44 @@ function renderBatchResults(stage, images, base){
       text: '推薦最佳圖：第 ' + String(bestIndex + 1) + ' 張。原因：' + bestReport.reason + ' QA 綜合分數 ' + qaAverage(bestReport) + '/100。'
     };
   }
+  viewer = document.createElement('div');
+  viewer.className = 'batch-viewer';
+  mainFrame = document.createElement('div');
+  mainFrame.className = 'batch-main-frame';
+  mainImageWrap = document.createElement('div');
+  mainImageWrap.className = 'batch-main-image-wrap';
+  mainImage = document.createElement('img');
+  mainImage.className = 'batch-main-image';
+  mainImageWrap.appendChild(mainImage);
+  mainMeta = document.createElement('div');
+  mainMeta.className = 'batch-main-meta';
+  mainBadge = document.createElement('span');
+  mainBadge.className = 'batch-best-badge';
+  mainBadge.textContent = '推薦最佳圖';
+  mainBadge.hidden = true;
+  mainQa = document.createElement('div');
+  mainQa.className = 'batch-qa';
+  mainQa.hidden = true;
+  mainActions = document.createElement('div');
+  mainActions.className = 'batch-card-actions';
+  mainSeed = document.createElement('span');
+  mainSeed.className = 'batch-seed';
+  mainLock = document.createElement('button');
+  mainLock.type = 'button';
+  mainLock.className = 'btn mini secondary';
+  mainLock.textContent = '🔒 鎖定';
+  mainDownload = document.createElement('a');
+  mainDownload.className = 'btn mini secondary';
+  mainDownload.textContent = '⬇ 下載';
+  mainActions.appendChild(mainSeed);
+  mainActions.appendChild(mainLock);
+  mainActions.appendChild(mainDownload);
+  mainMeta.appendChild(mainBadge);
+  mainMeta.appendChild(mainQa);
+  mainMeta.appendChild(mainActions);
+  mainFrame.appendChild(mainImageWrap);
+  mainFrame.appendChild(mainMeta);
+
   grid = document.createElement('div');
   grid.className = 'batch-grid';
   grid.setAttribute('role', 'list');
@@ -1718,64 +1781,30 @@ function renderBatchResults(stage, images, base){
   images.forEach(function(item, index){
     var image = validateImageUrl(item.image);
     var card = document.createElement('div');
+    var thumb = document.createElement('button');
     var img = document.createElement('img');
-    var actions = document.createElement('div');
-    var seedTag = document.createElement('span');
-    var lockBtn = document.createElement('button');
-    var dlLink = document.createElement('a');
+    var label = document.createElement('span');
     var fallback = getSizeDimensions(base.size);
     var qaReport = isAgent ? qaReports[index] : null;
-    var qaBox;
-    var badge;
-    var qaScore;
 
     card.className = 'batch-card' + (isAgent && index === bestIndex ? ' is-recommended' : '');
     card.setAttribute('role', 'listitem');
-    if(isAgent && index === bestIndex){
-      badge = document.createElement('div');
-      badge.className = 'batch-best-badge';
-      badge.textContent = '推薦最佳圖';
-      card.appendChild(badge);
-    }
+    thumb.type = 'button';
+    thumb.className = 'batch-thumb';
+    thumb.setAttribute('aria-label', '檢視第 ' + String(index + 1) + ' 張生成圖片');
+    thumb.setAttribute('aria-pressed', 'false');
     img.src = image;
     img.alt = '生成圖片變體第 ' + String(index + 1) + ' 張';
     img.loading = 'lazy';
-    card.appendChild(img);
-
-    if(qaReport){
-      qaScore = qaAverage(qaReport);
-      qaBox = document.createElement('div');
-      qaBox.className = 'batch-qa';
-      qaBox.textContent = 'QA ' + qaScore + '/100 · ' + qaReport.reason;
-      if(qaReport.detectedIssues && qaReport.detectedIssues.length){
-        qaBox.textContent += ' 問題：' + qaReport.detectedIssues.join('；');
-      }
-      appendQaDetails(qaBox, qaReport);
-      card.appendChild(qaBox);
-    }
-
-    seedTag.className = 'batch-seed';
-    seedTag.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
-
-    lockBtn.type = 'button';
-    lockBtn.className = 'btn mini secondary';
-    lockBtn.textContent = '🔒 鎖定';
-    lockBtn.addEventListener('click', function(){
-      if(lockCompositionSeed(item.seed)){
-        setStatus('已鎖定構圖（種子碼 ' + item.seed + '），改描述後生成就能微調', 'done');
-      }
+    label.className = 'batch-thumb-label';
+    label.textContent = '第 ' + String(index + 1) + ' 張' + (isAgent && index === bestIndex ? ' · 推薦' : '');
+    thumb.appendChild(img);
+    thumb.appendChild(label);
+    thumb.addEventListener('click', function(){
+      selectImage(index);
     });
-
-    dlLink.className = 'btn mini secondary';
-    dlLink.textContent = '⬇ 下載';
-    dlLink.href = image;
-    dlLink.download = slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image);
-
-    actions.className = 'batch-card-actions';
-    actions.appendChild(seedTag);
-    actions.appendChild(lockBtn);
-    actions.appendChild(dlLink);
-    card.appendChild(actions);
+    thumbButtons.push(thumb);
+    card.appendChild(thumb);
     grid.appendChild(card);
 
     document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: {
@@ -1799,8 +1828,11 @@ function renderBatchResults(stage, images, base){
       nextSuggestions: isAgent ? suggestions : []
     }}));
   });
+  viewer.appendChild(mainFrame);
+  viewer.appendChild(grid);
   stage.appendChild(createMobileSaveHint());
-  stage.appendChild(grid);
+  stage.appendChild(viewer);
+  selectImage(isAgent && bestIndex >= 0 ? bestIndex : 0);
   if(isAgent){ renderAgentOutcome(outcome); }
   return outcome;
 }
@@ -1961,10 +1993,16 @@ function compileProviderPromptIfNeeded(settings){
       if(!data.prompt){
         throw new Error('轉換結果缺少提示詞');
       }
-      if(finalPromptField){ finalPromptField.value = data.prompt; }
+      if(finalPromptField){
+        finalPromptField.value = data.prompt;
+        finalPromptField.setAttribute('data-auto-source', source);
+      }
       settings.providerPrompt = GenerationSettings.buildProviderPrompt(data.prompt, settings.avoid);
       settings.prompt = source;
-      if(isAgentMode()){ setAgentStep('prompt', 'success', '已產生 provider prompt'); }
+      if(isAgentMode()){
+        setAgentStep('complete', 'success', '已依風格補足視覺細節');
+        setAgentStep('prompt', 'success', '已產生 provider prompt');
+      }
       return settings;
     });
   });
@@ -1972,10 +2010,13 @@ function compileProviderPromptIfNeeded(settings){
 
 function generate(options){
   var opts = options || {};
-  if(generationInFlight){
+  var activeTrigger = opts.triggerButton || document.activeElement;
+  var triggerButton = activeTrigger && (activeTrigger.id === 'go' || activeTrigger.id === 'mobileGenerate') ? activeTrigger : null;
+  if(generationInFlight || retrySecondsRemaining()){
     pendingSourceRecordId = '';
     return Promise.resolve();
   }
+  if(retryCountdownTimer){ clearRetryCountdown(); }
   var stage = el('stage');
   var btn = el('go');
   var dl = el('dl');
@@ -1987,6 +2028,7 @@ function generate(options){
   var spinner;
   var t0;
   var timer;
+  var flowStartedAt = typeof opts.startedAt === 'number' ? opts.startedAt : performance.now();
   enableDownload(false);
   setResultActionsVisible(false);
   generationMode = getGenerationMode();
@@ -1999,9 +2041,8 @@ function generate(options){
   }catch(error){
     pendingSourceRecordId = '';
     setFieldInvalid(el('plainPrompt'), error.message);
-    renderStageText(stage, error.message, 'err');
     setStatus('❌ ' + error.message, 'fail');
-    setGenerationState('error');
+    setGenerationState('idle');
     return Promise.resolve();
   }
 
@@ -2014,9 +2055,8 @@ function generate(options){
     pendingSourceRecordId = '';
     setFieldInvalid(el('plainPrompt'), '請先輸入描述文字');
     setStatus('請先輸入描述文字', 'fail');
-    renderStageText(stage, '請先輸入描述文字', 'err');
-    setGenerationState('error');
-    if(el('plainPrompt') && el('plainPrompt').focus){ el('plainPrompt').focus(); }
+    setGenerationState('idle');
+    scrollToComposerAndFocus();
     return Promise.resolve();
   }
 
@@ -2024,17 +2064,28 @@ function generate(options){
     generationInFlight = true;
     setFieldInvalid(el('plainPrompt'), '');
     setGenerationState('compiling_prompt');
+    var compileTimer = window.ElapsedTimer.start({
+      startedAt: flowStartedAt,
+      onTick: function(seconds){
+        setStatus('AI 正在整理提示詞… 已用 ' + seconds + ' 秒', 'busy');
+      }
+    });
     return compileProviderPromptIfNeeded(settings).then(function(){
+      compileTimer.stop();
       generationInFlight = false;
-      return generate({ skipAgentPrepare: true });
+      return generate({ skipAgentPrepare: true, startedAt: flowStartedAt, triggerButton: triggerButton });
     }, function(error){
+      var compileSeconds = compileTimer.stop();
       generationInFlight = false;
       pendingSourceRecordId = '';
       reportClientError(error, { type: 'prompt_compile' });
       renderStageText(stage, '提示詞整理失敗：' + error.message, 'err');
-      setStatus('❌ 提示詞整理失敗：' + error.message, 'fail');
+      setStatus('❌ 提示詞整理失敗（耗時 ' + compileSeconds + ' 秒）：' + error.message, 'fail');
       setGenerationState('error');
-      if(isAgentMode()){ setAgentStep('prompt', 'error', error.message); }
+      if(isAgentMode()){
+        setAgentStep('complete', 'error', error.message);
+        setAgentStep('prompt', 'error', error.message);
+      }
     });
   }
 
@@ -2051,13 +2102,15 @@ function generate(options){
   stage.classList.remove('has-failure-advice');
   stage.classList.remove('has-batch-results');
   stage.classList.remove('has-mobile-save');
+  stage.setAttribute('aria-live', 'polite');
   spinner = document.createElement('div');
   spinner.className = 'skeleton';
   spinner.setAttribute('role', 'status');
   spinner.setAttribute('aria-label', '正在生成圖片');
   clearNode(stage);
   stage.appendChild(spinner);
-  t0 = performance.now();
+  revealResultStage(false);
+  t0 = flowStartedAt;
   timer = setInterval(function(){
     var s = ((performance.now() - t0) / 1000).toFixed(1);
     setStatus(progressCopy(model, s), 'busy');
@@ -2069,26 +2122,33 @@ function generate(options){
     updateGenerateButtons();
   }
 
-  function handleGenerateError(err){
-    var errMsg;
-    reportClientError(err, { type: 'generate_network' });
+  function showGenerateFailure(failure, reportType, originalError){
+    var message = failure.message || '產圖失敗';
+    reportClientError(originalError || new Error(message), {
+      type: reportType,
+      requestId: failure.requestId || '',
+      source: failure.code || 'unknown'
+    });
     clearInterval(timer);
     setResultActionsVisible(false);
-    errMsg = document.createElement('span');
-    errMsg.className = 'err';
-    errMsg.setAttribute('role', 'alert');
-    errMsg.textContent = '出錯了：' + err.message;
-    stage.classList.remove('has-failure-advice');
-    stage.classList.remove('has-batch-results');
-    stage.classList.remove('has-mobile-save');
-    stage.setAttribute('aria-busy', 'false');
-    clearNode(stage);
-    stage.appendChild(errMsg);
-    renderFailureAdvice('network');
+    renderStageText(stage, '出錯了：' + message + requestIdSuffix(failure.requestId), 'err');
+    renderFailureAdvice(failure.adviceCode || failure.code || 'unknown', { retryAfter: failure.retryAfter });
+    revealResultStage(false);
     pendingSourceRecordId = '';
-    setStatus('❌ 失敗：' + err.message, 'fail');
+    generationInFlight = false;
+    setStatus('❌ 失敗：' + message + requestIdSuffix(failure.requestId), 'fail');
     setGenerationState('error');
-    if(isAgentMode()){ setAgentStep('generate', 'error', err.message); }
+    if(failure.retryAfter){ startRetryCountdown(failure.retryAfter); }
+    if(triggerButton && typeof triggerButton.focus === 'function'){
+      try{ triggerButton.focus({ preventScroll: true }); }catch(focusError){ triggerButton.focus(); }
+    }
+    if(isAgentMode()){ setAgentStep('generate', 'error', message); }
+  }
+
+  function handleGenerateError(err){
+    var raw = errorMessage(err);
+    var message = /failed to fetch|networkerror|err_failed|load failed/i.test(raw) ? '網路連線中斷' : (raw || '網路連線中斷');
+    showGenerateFailure({ code: 'network', adviceCode: 'network', message: message, requestId: '', retryAfter: 0 }, 'generate_network', err);
   }
 
   var batchCount = readBatchCount();
@@ -2115,24 +2175,14 @@ function generate(options){
         var note;
         var batchOutcome;
         if(!response.ok){
-          var requestId = responseRequestId(response) || (data && data.requestId ? data.requestId : '');
-          var backendMessage = data && data.error ? data.error : ('HTTP ' + response.status);
-          reportClientError(new Error(backendMessage), { type: 'generate_batch_backend', requestId: requestId, source: data && data.code ? data.code : 'unknown' });
-          clearInterval(timer);
-          setResultActionsVisible(false);
-          stage.classList.remove('has-failure-advice');
-          renderStageText(stage, '出錯了：' + backendMessage + requestIdSuffix(requestId), 'err');
-          renderFailureAdvice(data && data.code ? data.code : 'unknown');
-          pendingSourceRecordId = '';
-          setStatus('❌ 失敗：' + backendMessage + requestIdSuffix(requestId), 'fail');
-          setGenerationState('error');
-          if(isAgentMode()){ setAgentStep('generate', 'error', backendMessage); }
+          showGenerateFailure(generationErrorFromResponse(response, data), 'generate_batch_backend');
           return;
         }
         clearInterval(timer);
         secs = ((performance.now() - t0) / 1000).toFixed(1);
         images = (data && Array.isArray(data.images)) ? data.images : [];
         batchOutcome = renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size });
+        revealResultStage(true);
         setResultActionsVisible(false);
         pendingSourceRecordId = '';
         note = providerNoteFor(images[0] && images[0].provider);
@@ -2187,8 +2237,6 @@ function generate(options){
     })
   }).then(function(response){
     return response.json().then(function(data){
-      var backendMessage;
-      var backendErrMsg;
       var secs;
       var image;
       var img;
@@ -2202,30 +2250,7 @@ function generate(options){
       var qaBox;
 
       if(!response.ok){
-        var requestId = responseRequestId(response) || (data && data.requestId ? data.requestId : '');
-        backendMessage = data && data.error ? data.error : ('HTTP ' + response.status);
-        reportClientError(new Error(backendMessage), {
-          type: 'generate_backend',
-          requestId: requestId,
-          source: data && data.code ? data.code : 'unknown'
-        });
-        clearInterval(timer);
-        setResultActionsVisible(false);
-        backendErrMsg = document.createElement('span');
-        backendErrMsg.className = 'err';
-        backendErrMsg.setAttribute('role', 'alert');
-        backendErrMsg.textContent = '出錯了：' + backendMessage + requestIdSuffix(requestId);
-        stage.classList.remove('has-failure-advice');
-        stage.classList.remove('has-batch-results');
-        stage.classList.remove('has-mobile-save');
-        stage.setAttribute('aria-busy', 'false');
-        clearNode(stage);
-        stage.appendChild(backendErrMsg);
-        renderFailureAdvice(data && data.code ? data.code : 'unknown');
-        pendingSourceRecordId = '';
-        setStatus('❌ 失敗：' + backendMessage + requestIdSuffix(requestId), 'fail');
-        setGenerationState('error');
-        if(isAgentMode()){ setAgentStep('generate', 'error', backendMessage); }
+        showGenerateFailure(generationErrorFromResponse(response, data), 'generate_backend');
         return;
       }
 
@@ -2242,6 +2267,7 @@ function generate(options){
       clearNode(stage);
       stage.appendChild(img);
       stage.appendChild(createMobileSaveHint());
+      revealResultStage(true);
       qaReport = generationMode === 'agent' ? createQaReport('single-result', 0, 1, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size }, data, agentAnalysis) : null;
       if(qaReport){
         qaReport.recommendation = qaReport.recommendation === 'retry' ? 'retry' : 'keep';
@@ -2272,7 +2298,6 @@ function generate(options){
         width: typeof data.width === 'number' ? data.width : fallbackDimensions.width,
         height: typeof data.height === 'number' ? data.height : fallbackDimensions.height,
         provider: typeof data.provider === 'string' ? data.provider : '',
-        galleryToken: typeof data.galleryToken === 'string' ? data.galleryToken : '',
         sourceRecordId: pendingSourceRecordId,
         mode: generationMode === 'agent' ? 'agent' : 'normal',
         qaReport: generationMode === 'agent' ? qaReport : null,
@@ -2379,6 +2404,10 @@ function getLastGeneration(){
   return lastGeneration ? shallowClone(lastGeneration) : null;
 }
 
+function getProviderHealth(){
+  return lastProviderHealth;
+}
+
 window.ImageGenApp = {
   generate: generate,
   setPromptAndGenerate: setPromptAndGenerate,
@@ -2391,6 +2420,8 @@ window.ImageGenApp = {
   copyText: copyText,
   setStatus: setStatus,
   prepareAgentFlow: prepareAgentFlow,
+  refreshProvider: refreshProvider,
+  getProviderHealth: getProviderHealth,
   el: el
 };
 window.ModalA11y = {
@@ -2405,6 +2436,7 @@ function showDemoNotice(on){
 }
 function providerDisplayName(provider){
   if(provider === 'workers-ai'){ return 'Workers AI'; }
+  if(provider === 'nvidia-fallback'){ return 'NVIDIA FLUX 備援'; }
   if(provider === 'nvidia'){ return 'NVIDIA FLUX'; }
   return provider;
 }
@@ -2422,8 +2454,9 @@ function providerListFromHealth(data){
   return list;
 }
 function providerNoteFor(provider){
-  if(provider === 'demo'){ return '（Demo 圖，設定 NVIDIA_API_KEY 後可真實產圖）'; }
+  if(provider === 'demo'){ return '（示範圖片，圖片服務連接後可產生正式圖片）'; }
   if(provider === 'workers-ai'){ return '（Workers AI FLUX）'; }
+  if(provider === 'nvidia-fallback'){ return '（Workers AI 忙碌，已自動改用 NVIDIA FLUX 備援）'; }
   return '（NVIDIA FLUX）';
 }
 function setSelectIfOptionExists(id, value){
@@ -2481,11 +2514,15 @@ function refreshProvider(){
   return fetch('/api/health').then(function(res){
     return res.json();
   }).then(function(data){
+    lastProviderHealth = data || {};
     var status = data && data.providerStatus ? data.providerStatus : 'demo';
     var providers = providerListFromHealth(data);
     message = data && data.message ? data.message : (PROVIDER_STATUS_COPY[status] || PROVIDER_STATUS_COPY.error);
     setProviderStatus(status, message);
     configureTurnstile(data && data.turnstile ? data.turnstile : null);
+    if(window.ImageEdit && typeof window.ImageEdit.applyHealth === 'function'){
+      window.ImageEdit.applyHealth(data);
+    }
     if(status === 'ready'){
       pill.className = 'pill online';
       text.textContent = message + (providers.length ? ' · ' + providers.map(providerDisplayName).join(' + ') : '');
@@ -2508,8 +2545,12 @@ function refreshProvider(){
       showDemoNotice(false);
     }
   }).catch(function(){
+    lastProviderHealth = { providers: { workersAI: false }, providerList: [] };
     configureTurnstile(null);
     setProviderStatus('offline');
+    if(window.ImageEdit && typeof window.ImageEdit.applyHealth === 'function'){
+      window.ImageEdit.applyHealth(lastProviderHealth);
+    }
     pill.className = 'pill offline';
     text.textContent = PROVIDER_STATUS_COPY.offline;
     showDemoNotice(false);
@@ -2518,6 +2559,7 @@ function refreshProvider(){
 
 document.addEventListener('DOMContentLoaded', function(){
   registerServiceWorker();
+  initGenerationWorkspace();
   setGenerationState('idle');
   syncGenerationModeUi();
   refreshProvider();
@@ -2528,17 +2570,6 @@ document.addEventListener('DOMContentLoaded', function(){
   if(el('regenerate')){ el('regenerate').addEventListener('click', regenerate); }
   if(el('copySettings')){ el('copySettings').addEventListener('click', copySettings); }
   if(el('copyPrompt')){ el('copyPrompt').addEventListener('click', copyPrompt); }
-  if(el('saveToCloud')){ el('saveToCloud').addEventListener('click', saveToCloud); }
-  if(el('confirmCloudSave')){ el('confirmCloudSave').addEventListener('click', uploadToCloud); }
-  if(el('downloadCloudFallbackImage')){ el('downloadCloudFallbackImage').addEventListener('click', downloadCloudFallbackImage); }
-  if(el('exportCloudFallbackJson')){ el('exportCloudFallbackJson').addEventListener('click', exportCloudFallbackJson); }
-  if(el('copyCloudShareUrl')){ el('copyCloudShareUrl').addEventListener('click', copyCloudShareUrl); }
-  if(el('copyCloudDeleteUrl')){ el('copyCloudDeleteUrl').addEventListener('click', copyCloudDeleteUrl); }
-  if(el('closeCloudSave')){ el('closeCloudSave').addEventListener('click', closeCloudSaveModal); }
-  if(el('cloudLocalOnly')){ el('cloudLocalOnly').addEventListener('click', function(){
-    closeCloudSaveModal();
-    setStatus('已取消雲端保存；作品仍保留在本機歷史。', 'warn');
-  }); }
   if(el('openPrivacyPolicy')){ el('openPrivacyPolicy').addEventListener('click', function(){ openPolicyModal('privacyPolicyModal', 'closePrivacyPolicy'); }); }
   if(el('closePrivacyPolicy')){ el('closePrivacyPolicy').addEventListener('click', function(){ closePolicyModal('privacyPolicyModal'); }); }
   if(el('openLicensePolicy')){ el('openLicensePolicy').addEventListener('click', function(){ openPolicyModal('licensePolicyModal', 'closeLicensePolicy'); }); }
@@ -2550,7 +2581,22 @@ document.addEventListener('DOMContentLoaded', function(){
   if(el('useComposition')){ el('useComposition').addEventListener('click', useComposition); }
   updateSeedModeUi();
   if(el('applyEffect')){ el('applyEffect').addEventListener('click', applyPromptEnhancement); }
-  if(el('plainPrompt')){ el('plainPrompt').addEventListener('input', function(){ setFieldInvalid(el('plainPrompt'), ''); if(!generationInFlight){ setGenerationState('idle'); } }); }
+  if(el('plainPrompt')){
+    el('plainPrompt').addEventListener('input', function(){
+      var promptField = el('prompt');
+      var autoSource = promptField ? promptField.getAttribute('data-auto-source') : '';
+      if(promptField && autoSource && autoSource !== el('plainPrompt').value.trim()){
+        clearAutoProviderPrompt();
+      }
+      setFieldInvalid(el('plainPrompt'), '');
+      if(!generationInFlight){ setGenerationState('idle'); }
+    });
+  }
+  if(el('prompt')){
+    el('prompt').addEventListener('input', function(){
+      el('prompt').removeAttribute('data-auto-source');
+    });
+  }
   if(el('prompt')){ el('prompt').addEventListener('input', function(){ setFieldInvalid(el('prompt'), ''); if(!generationInFlight){ setGenerationState('idle'); } }); }
   if(el('modeNormal')){ el('modeNormal').addEventListener('change', syncGenerationModeUi); }
   if(el('modeAgent')){ el('modeAgent').addEventListener('change', syncGenerationModeUi); }
@@ -2573,7 +2619,12 @@ document.addEventListener('DOMContentLoaded', function(){
   }
   updateMobileGenerateSummary();
   if(el('useCase')){ el('useCase').addEventListener('change', updateMobileGenerateSummary); }
-  if(el('promptStyle')){ el('promptStyle').addEventListener('change', updateMobileGenerateSummary); }
+  if(el('promptStyle')){
+    el('promptStyle').addEventListener('change', function(){
+      clearAutoProviderPrompt();
+      updateMobileGenerateSummary();
+    });
+  }
   if(el('size')){ el('size').addEventListener('change', function(){ updateCustomSizeVisibility(); if(!generationInFlight){ setGenerationState('idle'); } }); }
   if(el('customWidth')){ el('customWidth').addEventListener('input', function(){ if(!generationInFlight){ setGenerationState('idle'); } }); }
   if(el('customHeight')){ el('customHeight').addEventListener('input', function(){ if(!generationInFlight){ setGenerationState('idle'); } }); }

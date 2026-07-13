@@ -21,6 +21,7 @@ VALID_PROVIDER_STATUS = {"checking", "demo", "ready", "degraded", "offline", "er
 VALID_MODES = {"demo", "live"}
 SAFE_PROMPT = "一隻柴犬在月球吃拉麵，PPT 插圖，明亮背景"
 PROVIDER_PROMPT = "A shiba inu eating ramen on the moon, bright presentation illustration, clean composition"
+USER_AGENT = "Fluxi-Deployment-Smoke/1.0"
 
 
 class SmokeFailure(RuntimeError):
@@ -46,7 +47,7 @@ def normalize_base_url(value: str) -> str:
 
 def read_json(url: str, *, method: str = "GET", payload: dict[str, Any] | None = None, timeout: float = 20.0) -> HttpResult:
     body_bytes = None
-    headers = {"Accept": "application/json"}
+    headers = {"Accept": "application/json", "User-Agent": USER_AGENT}
     if payload is not None:
         body_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         headers["Content-Type"] = "application/json"

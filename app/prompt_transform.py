@@ -4,7 +4,12 @@ from dataclasses import dataclass
 import logging
 import re
 
-from .prompt_llm import PromptLLMError, codex_transform_prompt, llm_transform_prompt
+from .prompt_llm import (
+    MAX_PROMPT_SOURCE_LENGTH,
+    PromptLLMError,
+    codex_transform_prompt,
+    llm_transform_prompt,
+)
 from .settings import get_settings
 
 _log = logging.getLogger(__name__)
@@ -130,6 +135,8 @@ def transform_plain_prompt(source: str, style: str = "auto") -> PromptTransformR
     source_text = (source or "").strip()
     if not source_text:
         raise ValueError("請先輸入白話描述")
+    if len(source_text) > MAX_PROMPT_SOURCE_LENGTH:
+        raise ValueError("描述太長")
 
     normalized_style = _normalize_style(style)
     resolved_style = _resolve_style(source_text, normalized_style)

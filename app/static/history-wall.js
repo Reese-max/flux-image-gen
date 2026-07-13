@@ -271,12 +271,21 @@
 
   function updateBatchToolbar() {
     var toolbar = el('historyBatchBar');
+    var filters = el('historyFilters');
+    var clearHistoryButton = el('clearHistory');
     var countNode = el('historySelectionCount');
     var deleteButton = el('deleteSelectedHistory');
     var clearButton = el('clearHistorySelection');
     var count = getSelectedRecordIds().length;
     if (toolbar) {
       toolbar.hidden = records.length === 0;
+    }
+    if (filters) {
+      filters.hidden = records.length === 0;
+    }
+    if (clearHistoryButton) {
+      clearHistoryButton.hidden = records.length === 0;
+      clearHistoryButton.disabled = records.length === 0;
     }
     if (countNode) {
       countNode.textContent = count ? '已選取 ' + String(count) + ' 筆歷史作品' : '尚未選取作品';
@@ -722,15 +731,31 @@
     var record = getSelectedRecord();
     var select = el('historyProjectSelect');
     var projectId = select ? toText(select.value) : '';
+    function addRecord() {
+      var added;
+      if (!root.ProjectBoard || typeof root.ProjectBoard.addRecordToProject !== 'function') {
+        setAppStatus('專案功能尚未就緒', 'fail');
+        return;
+      }
+      added = root.ProjectBoard.addRecordToProject(record.id, projectId);
+      setAppStatus(added ? '已加入專案' : '請先建立或選取專案', added ? 'done' : 'warn');
+    }
     if (!record) {
       setAppStatus('尚無可加入專案的作品', 'warn');
       return;
     }
-    if (!root.ProjectBoard || typeof root.ProjectBoard.addRecordToProject !== 'function') {
+    if (root.ProjectBoard && typeof root.ProjectBoard.addRecordToProject === 'function') {
+      addRecord();
+      return;
+    }
+    if (!root.ImageFeatureLoader || typeof root.ImageFeatureLoader.load !== 'function') {
       setAppStatus('專案功能尚未就緒', 'fail');
       return;
     }
-    root.ProjectBoard.addRecordToProject(record.id, projectId);
+    setAppStatus('正在載入專案功能…', 'busy');
+    root.ImageFeatureLoader.load('history').then(addRecord).catch(function () {
+      setAppStatus('專案功能載入失敗，請重新整理後再試', 'fail');
+    });
   }
 
   function regenerateHistoryDetail() {
@@ -907,6 +932,7 @@
   function renderHistoryWall() {
     var grid = el('historyGrid');
     var empty;
+    var startButton;
     var visibleRecords = [];
     var i;
 
@@ -916,11 +942,24 @@
     // 更新歷史分頁上的數量徽章（總數，與篩選無關）。
     if (typeof root.setHistoryCount === 'function') { root.setHistoryCount(records.length); }
     renderCloudLibrary();
-
     if (!records.length) {
       empty = document.createElement('div');
       empty.className = 'history-empty';
       empty.textContent = '尚無歷史記錄。成功生成圖片後會出現在這裡。';
+      startButton = document.createElement('button');
+      startButton.type = 'button';
+      startButton.id = 'historyEmptyGenerate';
+      startButton.className = 'btn primary history-empty-cta';
+      startButton.textContent = '去生成第一張';
+      startButton.addEventListener('click', function () {
+        if (typeof root.showTab === 'function') { root.showTab('generate'); }
+        if (typeof root.scrollToComposerAndFocus === 'function') {
+          root.scrollToComposerAndFocus();
+        } else if (el('plainPrompt')) {
+          el('plainPrompt').focus();
+        }
+      });
+      empty.appendChild(startButton);
       grid.appendChild(empty);
       updateBatchToolbar();
       return;

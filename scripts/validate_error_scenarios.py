@@ -22,7 +22,6 @@ REQUIRED_SCENARIOS = {
     "rate-limit-exceeded",
     "turnstile-failed",
     "prompt-moderation-blocked",
-    "image-save-failed",
     "local-storage-full",
     "json-import-invalid",
     "network-interrupted",

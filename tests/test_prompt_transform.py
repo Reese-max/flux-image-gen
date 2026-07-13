@@ -28,6 +28,10 @@ def test_transform_blank_source_raises_value_error():
     with pytest.raises(ValueError, match="請先輸入白話描述"):
         transform_plain_prompt("   ")
 
+def test_transform_rejects_oversized_source():
+    with pytest.raises(ValueError, match="描述太長"):
+        transform_plain_prompt("圖" * 2001)
+
 
 def test_transform_cinematic_taipei_night_market_rain_prompt():
     result = transform_plain_prompt("台北夜市下雨的街景", style="cinematic")

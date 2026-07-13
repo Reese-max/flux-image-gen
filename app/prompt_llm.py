@@ -28,6 +28,7 @@ with _CONSTANTS_PATH.open(encoding="utf-8") as _constants_file:
     _CONSTANTS = json.load(_constants_file)
 
 MAX_ATTEMPTS = _CONSTANTS["geminiMaxAttempts"]
+COMPLETION_MAX_ATTEMPTS = _CONSTANTS["geminiCompleteMaxAttempts"]
 RETRYABLE_STATUS = frozenset(_CONSTANTS["geminiRetryableStatus"])
 SYSTEM_INSTRUCTION = _CONSTANTS["systemInstruction"]
 RESPONSE_SCHEMA = _CONSTANTS["responseSchema"]
@@ -35,9 +36,13 @@ STYLE_HINTS = _CONSTANTS["styleHints"]
 ENHANCE_SYSTEM_INSTRUCTION = _CONSTANTS["enhanceSystemInstruction"]
 ENHANCE_RESPONSE_SCHEMA = _CONSTANTS["enhanceResponseSchema"]
 COMPLETION_SYSTEM_INSTRUCTION = _CONSTANTS["completionSystemInstruction"]
-COMPLETION_RESPONSE_SCHEMA = _CONSTANTS["completionResponseSchema"]
 COMPLETION_STYLE_HINTS = _CONSTANTS["completionStyleHints"]
 MAX_LLM_PROMPT_LENGTH = _CONSTANTS["maxLlmPromptLength"]
+MAX_PROMPT_SOURCE_LENGTH = _CONSTANTS["maxPromptSourceLength"]
+MAX_ENHANCE_PROMPT_LENGTH = _CONSTANTS["maxEnhancePromptLength"]
+MAX_ENHANCE_EFFECT_LENGTH = _CONSTANTS["maxEnhanceEffectLength"]
+ENHANCE_FALLBACK_RULES = _CONSTANTS["enhanceFallbackRules"]
+ENHANCE_FALLBACK_DEFAULT_MODIFIER = _CONSTANTS["enhanceFallbackDefaultModifier"]
 # Backoff between transient retries, so an immediate re-hit on a 429 doesn't
 # just fail again. Mirrors the image service's linear backoff.
 RETRY_BACKOFF_SECONDS = 0.5
@@ -99,27 +104,36 @@ def llm_complete_prompt(source: str, style: str, settings: Settings | None = Non
         "system_instruction": {"parts": [{"text": COMPLETION_SYSTEM_INSTRUCTION}]},
         "contents": [{"role": "user", "parts": [{"text": user_text}]}],
         "generationConfig": {
-            "temperature": 0.35,
-            "maxOutputTokens": 450,
-            "responseMimeType": "application/json",
-            "responseSchema": COMPLETION_RESPONSE_SCHEMA,
+            "temperature": 0.2,
+            "maxOutputTokens": 300,
+            "responseMimeType": "text/plain",
         },
     }
-    model = getattr(resolved_settings, "gemini_complete_model", "gemma-4-26b-a4b-it")
+    model = getattr(resolved_settings, "gemini_complete_model", "gemma-4-31b-it")
     url = (
         f"{resolved_settings.gemini_base_url.rstrip('/')}"
         f"/models/{model}:generateContent"
     )
     headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
-    timeout = resolved_settings.prompt_llm_timeout_seconds
+    timeout = getattr(
+        resolved_settings,
+        "gemini_complete_timeout_seconds",
+        _CONSTANTS["geminiCompleteTimeoutMs"] / 1000,
+    )
 
     last_error: PromptLLMError | None = None
-    for attempt in range(MAX_ATTEMPTS):
+    for attempt in range(COMPLETION_MAX_ATTEMPTS):
         try:
-            return _request_prompt(url, headers, payload, timeout)
+            return _request_prompt(
+                url,
+                headers,
+                payload,
+                timeout,
+                response_parser=_parse_gemini_plain_text_response,
+            )
         except _RetryableError as exc:
             last_error = PromptLLMError(str(exc))
-            if attempt + 1 >= MAX_ATTEMPTS:
+            if attempt + 1 >= COMPLETION_MAX_ATTEMPTS:
                 break
             time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("gemini completion request failed")
@@ -237,7 +251,13 @@ def _parse_codex_response(data: dict) -> str:
     return text
 
 
-def _request_prompt(url: str, headers: dict, payload: dict, timeout: float) -> str:
+def _request_prompt(
+    url: str,
+    headers: dict,
+    payload: dict,
+    timeout: float,
+    response_parser=None,
+) -> str:
     try:
         with httpx.Client(timeout=timeout) as client:
             response = client.post(url, headers=headers, json=payload)
@@ -258,7 +278,8 @@ def _request_prompt(url: str, headers: dict, payload: dict, timeout: float) -> s
     except ValueError as exc:
         raise PromptLLMError("gemini returned non-JSON response") from exc
 
-    return _parse_gemini_response(data)
+    parser = response_parser or _parse_gemini_response
+    return parser(data)
 
 
 def _build_user_text(source: str, style: str) -> str:
@@ -272,7 +293,10 @@ def _build_enhance_user_text(prompt: str, effect: str) -> str:
 
 def _build_complete_user_text(source: str, style: str) -> str:
     style_hint = COMPLETION_STYLE_HINTS.get(style, COMPLETION_STYLE_HINTS["auto"])
-    return f"{style_hint}\n\n原始描述：\n{source.strip()}"
+    return (
+        f"{style_hint}\n\n原始描述：\n{source.strip()}"
+        "\n\n請立即只輸出補完整後的一段繁體中文描述，不要分析、翻譯或列點。"
+    )
 
 
 def _parse_gemini_response(data: dict) -> str:
@@ -292,6 +316,42 @@ def _parse_gemini_response(data: dict) -> str:
 
     if len(text) > MAX_LLM_PROMPT_LENGTH:
         text = text[:MAX_LLM_PROMPT_LENGTH].rstrip(" ,")
+    return text
+
+
+def _parse_gemini_plain_text_response(data: dict) -> str:
+    feedback = data.get("promptFeedback") or {}
+    if feedback.get("blockReason"):
+        raise PromptLLMError(f"gemini blocked prompt: {feedback.get('blockReason')}")
+
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise PromptLLMError("gemini returned no candidates")
+
+    parts = (candidates[0].get("content") or {}).get("parts") or []
+    text = _strip_wrapping("".join(part.get("text", "") for part in parts))
+    if not text:
+        raise PromptLLMError("gemini returned empty text")
+    cjk_count = sum("\u3400" <= char <= "\u9fff" for char in text)
+    forbidden_labels = (
+        "input",
+        "task",
+        "constraints",
+        "subject",
+        "output",
+        "original description",
+    )
+    if (
+        "\n" in text
+        or "\r" in text
+        or text.lstrip().startswith(("* ", "# ", "- "))
+        or any(label in text.lower() for label in forbidden_labels)
+        or cjk_count < max(12, int(len(text) * 0.45))
+    ):
+        raise PromptLLMError("gemini returned non-plain Chinese completion")
+
+    if len(text) > MAX_LLM_PROMPT_LENGTH:
+        text = text[:MAX_LLM_PROMPT_LENGTH].rstrip("，。,.；; ")
     return text
 
 

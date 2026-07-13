@@ -6,6 +6,9 @@
   'use strict';
 
   var PACK_URL = '/static/prompt-pack.json';
+  var TRANSPARENT_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+  var lazyObserver = null;
+  var hfIdeasRequested = false;
 
   function ready(fn) {
     if (document.readyState === 'loading') {
@@ -20,6 +23,46 @@
     if (className) node.className = className;
     if (text != null) node.textContent = text;
     return node;
+  }
+
+  function revealImage(img) {
+    var source = img && img.getAttribute('data-src');
+    if (!source) return;
+    img.src = source;
+    img.removeAttribute('data-src');
+  }
+
+  function observeLazyImages(root) {
+    var images = (root || document).querySelectorAll('img[data-src]');
+    if (!images.length) return;
+    if (!window.IntersectionObserver) {
+      Array.prototype.forEach.call(images, revealImage);
+      return;
+    }
+    if (!lazyObserver) {
+      lazyObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (!entry.isIntersecting) return;
+          lazyObserver.unobserve(entry.target);
+          revealImage(entry.target);
+        });
+      }, { rootMargin: '100px 0px' });
+    }
+    Array.prototype.forEach.call(images, function (img) {
+      if (!img.getAttribute('src')) {
+        img.src = TRANSPARENT_PLACEHOLDER;
+      }
+      lazyObserver.observe(img);
+    });
+  }
+
+  function loadHfIdeas() {
+    if (hfIdeasRequested) return;
+    hfIdeasRequested = true;
+    var script = document.createElement('script');
+    script.src = '/static/hf-ideas.js';
+    script.defer = true;
+    document.head.appendChild(script);
   }
 
   function setSelect(id, value) {
@@ -61,7 +104,7 @@
       var img = el('img', 'idea-thumb');
       img.width = 768;
       img.height = 768;
-      img.src = card.preview;
+      img.setAttribute('data-src', card.preview);
       img.alt = card.title ? card.title + '範例圖' : '';
       img.loading = 'lazy';
       img.decoding = 'async';
@@ -78,51 +121,69 @@
 
   function render(pack) {
     var categories = (pack && pack.categories) || [];
+    var totalCards = 0;
     if (!categories.length) return;
+
+    categories.forEach(function (category) {
+      totalCards += ((category && category.cards) || []).length;
+    });
 
     var section = el('section', 'ideas prompt-pack');
     section.setAttribute('aria-label', '精選提示詞');
 
     var title = el('div', 'ideas-title');
     title.appendChild(document.createTextNode('✨ 精選提示詞'));
-    var hint = el('span', 'hint', '（為 FLUX 調校 · 點一下直接出圖）');
+    var hint = el('span', 'hint', '（展開後再選擇，不會自動消耗額度）');
     title.appendChild(hint);
     section.appendChild(title);
 
-    // Each category is collapsible so the full pack stays navigable even with 72 cards.
-    // Keep the first few groups open now that cards have generated thumbnails:
-    // this makes the section feel like a visual gallery while the rest remains scannable.
-    var defaultOpenCount = 2;
-    categories.forEach(function (category, index) {
-      var cards = (category && category.cards) || [];
-      if (!cards.length) return;
-      var details = el('details', 'pack-cat');
-      if (index < defaultOpenCount) { details.open = true; }
-      var summary = el('summary', 'pack-group-label',
-        (category.emoji ? category.emoji + ' ' : '') + (category.label || '') + ' (' + cards.length + ')');
-      summary.style.cssText = 'cursor:pointer;margin:10px 0 6px;font-size:0.85rem;font-weight:600;opacity:0.75;';
-      details.appendChild(summary);
-      var grid = el('div', 'idea-grid');
-      cards.forEach(function (card, cardIndex) {
-        var withEmoji = card;
-        if (!card.emoji || !card.preview) {
-          withEmoji = {};
-          for (var key in card) {
-            if (Object.prototype.hasOwnProperty.call(card, key)) {
-              withEmoji[key] = card[key];
+    var browser = el('details', 'prompt-pack-browser');
+    var browserSummary = el('summary', 'pack-browser-summary', '瀏覽全部精選提示詞（' + totalCards + '）');
+    var browserContent = el('div', 'prompt-pack-content');
+    var mounted = false;
+    browser.appendChild(browserSummary);
+    browser.appendChild(browserContent);
+    section.appendChild(browser);
+
+    browser.addEventListener('toggle', function () {
+      if (!browser.open || mounted) return;
+      mounted = true;
+      categories.forEach(function (category) {
+        var cards = (category && category.cards) || [];
+        var categoryMounted = false;
+        if (!cards.length) return;
+        var details = el('details', 'pack-cat');
+        var summary = el('summary', 'pack-group-label',
+          (category.emoji ? category.emoji + ' ' : '') + (category.label || '') + ' (' + cards.length + ')');
+        details.appendChild(summary);
+        details.addEventListener('toggle', function () {
+          if (!details.open || categoryMounted) return;
+          categoryMounted = true;
+          var grid = el('div', 'idea-grid');
+          cards.forEach(function (card, cardIndex) {
+            var withEmoji = card;
+            if (!card.emoji || !card.preview) {
+              withEmoji = {};
+              for (var key in card) {
+                if (Object.prototype.hasOwnProperty.call(card, key)) {
+                  withEmoji[key] = card[key];
+                }
+              }
+              if (!card.emoji && category.emoji) {
+                withEmoji.emoji = category.emoji;
+              }
+              if (!card.preview && category.key) {
+                withEmoji.preview = '/static/examples/prompt-pack/' + category.key + '-' + twoDigit(cardIndex + 1) + '.webp';
+              }
             }
-          }
-          if (!card.emoji && category.emoji) {
-            withEmoji.emoji = category.emoji;
-          }
-          if (!card.preview && category.key) {
-            withEmoji.preview = '/static/examples/prompt-pack/' + category.key + '-' + twoDigit(cardIndex + 1) + '.webp';
-          }
-        }
-        grid.appendChild(buildCard(withEmoji));
+            grid.appendChild(buildCard(withEmoji));
+          });
+          details.appendChild(grid);
+          observeLazyImages(grid);
+        });
+        browserContent.appendChild(details);
       });
-      details.appendChild(grid);
-      section.appendChild(details);
+      loadHfIdeas();
     });
 
     var anchor = document.querySelector('section.ideas');
@@ -139,6 +200,7 @@
   }
 
   ready(function () {
+    observeLazyImages(document);
     fetch(PACK_URL, { cache: 'no-cache' })
       .then(function (res) {
         if (!res.ok) throw new Error('prompt-pack HTTP ' + res.status);
@@ -151,13 +213,5 @@
           console.warn('[prompt-pack] failed to load:', err && err.message);
         }
       });
-  });
-
-  // Load the optional live HF prompt-sampling panel without touching index.html.
-  ready(function () {
-    var s = document.createElement('script');
-    s.src = '/static/hf-ideas.js';
-    s.defer = true;
-    document.head.appendChild(s);
   });
 })();

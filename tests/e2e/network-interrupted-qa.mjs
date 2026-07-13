@@ -139,6 +139,7 @@ async function main() {
   const page = await context.newPage();
   const errors = [];
   const promptText = '一隻柴犬在月球吃拉麵，PPT 插圖，明亮背景';
+  let failureScenario = 'network';
 
   page.on('pageerror', (error) => errors.push(error.message));
   page.on('console', (message) => {
@@ -146,15 +147,33 @@ async function main() {
       errors.push(message.text());
     }
   });
-  await page.route('**/generate', (route) => route.abort('failed'));
-  await page.route('**/generate/batch', (route) => route.abort('failed'));
+  const failGenerate = (route) => {
+    if (failureScenario === 'rate_limited') {
+      return route.fulfill({
+        status: 429,
+        headers: { 'content-type': 'application/json', 'retry-after': '2', 'x-request-id': 'rate-limit-e2e' },
+        body: JSON.stringify({ message: '今天生成次數已達上限', code: 'rate_limited', retry_after: 2 }),
+      });
+    }
+    if (failureScenario === 'service_unavailable') {
+      return route.fulfill({
+        status: 503,
+        headers: { 'content-type': 'application/json', 'x-request-id': 'service-e2e' },
+        body: JSON.stringify({ message: '圖片服務維護中，請稍後再試', code: 'nvidia_error' }),
+      });
+    }
+    return route.abort('failed');
+  };
+  await page.route('**/generate', failGenerate);
+  await page.route('**/generate/batch', failGenerate);
 
   try {
     await page.goto(url + '/', { waitUntil: 'networkidle', timeout: 60000 });
     await closeTutorialIfOpen(page);
     await page.waitForSelector('#go:not([disabled])', { timeout: 15000 });
     await page.fill('#plainPrompt', promptText);
-    await page.locator('#go').click({ force: true });
+    await page.focus('#go');
+    await page.keyboard.press('Enter');
     await page.waitForFunction(() => {
       return !!document.querySelector('.failure-advice') || /失敗|出錯|提示詞整理失敗/.test((document.querySelector('#status') || {}).textContent || '');
     }, null, { timeout: 20000 });
@@ -169,6 +188,34 @@ async function main() {
     ok('使用者中文輸入未遺失', promptAfterFailure === promptText, promptAfterFailure);
     ok('失敗時不建立歷史作品', !historyValue, historyValue || '');
     ok('重試按鈕文案可見', (await page.locator('#go').textContent()).indexOf('重試') !== -1);
+    const activeAfterFailure = await page.evaluate(() => ({ id: document.activeElement?.id || '', tag: document.activeElement?.tagName || '' }));
+    ok('錯誤後焦點保留在重試按鈕', activeAfterFailure.id === 'go', JSON.stringify(activeAfterFailure));
+
+    failureScenario = 'rate_limited';
+    await page.locator('#go').click();
+    await page.waitForFunction(() => /今天生成次數已達上限/.test((document.querySelector('#status') || {}).textContent || ''), null, { timeout: 10000 });
+    const rateLimitState = await page.evaluate(() => ({
+      status: document.querySelector('#status')?.textContent || '',
+      stage: document.querySelector('#stage')?.textContent || '',
+      button: document.querySelector('#go')?.textContent || '',
+      disabled: !!document.querySelector('#go')?.disabled,
+    }));
+    ok('429 保留後端訊息', /今天生成次數已達上限/.test(rateLimitState.status), JSON.stringify(rateLimitState));
+    ok('429 顯示 retry_after 倒數並暫停重送', rateLimitState.disabled && /2 秒後/.test(rateLimitState.button + rateLimitState.stage), JSON.stringify(rateLimitState));
+    ok('429 不建議修改 prompt 或模型', !/seed|縮短 prompt|另一個模型/i.test(rateLimitState.stage), rateLimitState.stage);
+    await page.waitForFunction(() => !document.querySelector('#go')?.disabled, null, { timeout: 5000 });
+
+    failureScenario = 'service_unavailable';
+    await page.locator('#go').click();
+    await page.waitForFunction(() => /圖片服務維護中/.test((document.querySelector('#status') || {}).textContent || ''), null, { timeout: 10000 });
+    const unavailableState = await page.evaluate(() => ({
+      status: document.querySelector('#status')?.textContent || '',
+      stage: document.querySelector('#stage')?.textContent || '',
+      disabled: !!document.querySelector('#go')?.disabled,
+    }));
+    ok('503 保留後端訊息並歸因服務端', /圖片服務維護中/.test(unavailableState.status) && /服務暫時不可用/.test(unavailableState.stage), JSON.stringify(unavailableState));
+    ok('503 不要求使用者修改 prompt', !/seed|縮短 prompt|另一個模型/i.test(unavailableState.stage), unavailableState.stage);
+    ok('503 允許稍後手動重試', unavailableState.disabled === false, JSON.stringify(unavailableState));
 
     await page.screenshot({ path: screenshotPath, fullPage: true });
     ok('network QA 截圖輸出', fs.existsSync(screenshotPath), screenshotPath);

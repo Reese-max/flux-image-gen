@@ -11,7 +11,7 @@ TINY_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAA
 
 
 def run_server(health, generate_status=200, generate_body=None):
-    state = {"generate_count": 0, "last_generate_payload": None}
+    state = {"generate_count": 0, "last_generate_payload": None, "last_user_agent": None}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format, *args):
@@ -26,12 +26,14 @@ def run_server(health, generate_status=200, generate_body=None):
             self.wfile.write(encoded)
 
         def do_GET(self):
+            state["last_user_agent"] = self.headers.get("user-agent")
             if self.path == "/api/health":
                 self._json(200, health)
                 return
             self._json(404, {"error": "not found"})
 
         def do_POST(self):
+            state["last_user_agent"] = self.headers.get("user-agent")
             if self.path == "/generate":
                 state["generate_count"] += 1
                 length = int(self.headers.get("content-length") or "0")
@@ -83,6 +85,7 @@ def test_health_smoke_does_not_call_generate_by_default():
     assert payload["status"] == "PASS"
     assert "health schema OK" in payload["checks"][0]
     assert state["generate_count"] == 0
+    assert state["last_user_agent"] == "Fluxi-Deployment-Smoke/1.0"
 
 
 def test_live_generate_requires_explicit_cost_confirmation():

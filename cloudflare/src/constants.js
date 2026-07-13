@@ -30,7 +30,9 @@ export const MAX_JSON_BYTES = 64 * 1024;
 // image. Sized for MAX_GALLERY_IMAGE_BYTES × 4/3 plus meta headroom.
 export const MAX_GALLERY_JSON_BYTES = 8 * 1024 * 1024;
 export const MAX_PROMPT_LENGTH = 900;
-export const MAX_TRANSFORM_SOURCE_LENGTH = 2000;
+export const MAX_TRANSFORM_SOURCE_LENGTH = sharedConstants.maxPromptSourceLength;
+export const MAX_ENHANCE_PROMPT_LENGTH = sharedConstants.maxEnhancePromptLength;
+export const MAX_ENHANCE_EFFECT_LENGTH = sharedConstants.maxEnhanceEffectLength;
 export const MAX_GALLERY_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_SEED = 2147483647;
 export const CJK_PATTERN = /[㐀-䶿一-鿿豈-﫿]/;
@@ -134,6 +136,8 @@ export const GEMINI_DEFAULT_MODEL = sharedConstants.geminiDefaultModel;
 export const GEMINI_COMPLETE_DEFAULT_MODEL = sharedConstants.geminiCompleteDefaultModel;
 export const GEMINI_DEFAULT_BASE_URL = sharedConstants.geminiDefaultBaseUrl;
 export const GEMINI_MAX_ATTEMPTS = sharedConstants.geminiMaxAttempts;
+export const GEMINI_COMPLETE_MAX_ATTEMPTS = sharedConstants.geminiCompleteMaxAttempts;
+export const GEMINI_COMPLETE_TIMEOUT_MS = sharedConstants.geminiCompleteTimeoutMs;
 export const GEMINI_RETRYABLE_STATUS = new Set(sharedConstants.geminiRetryableStatus);
 export const GEMINI_SYSTEM_INSTRUCTION = sharedConstants.systemInstruction;
 export const GEMINI_RESPONSE_SCHEMA = sharedConstants.responseSchema;
@@ -143,6 +147,8 @@ export const GEMINI_COMPLETION_RESPONSE_SCHEMA = sharedConstants.completionRespo
 export const GEMINI_COMPLETION_STYLE_HINTS = sharedConstants.completionStyleHints;
 export const GEMINI_ENHANCE_SYSTEM_INSTRUCTION = sharedConstants.enhanceSystemInstruction;
 export const GEMINI_ENHANCE_RESPONSE_SCHEMA = sharedConstants.enhanceResponseSchema;
+export const ENHANCE_FALLBACK_RULES = sharedConstants.enhanceFallbackRules;
+export const ENHANCE_FALLBACK_DEFAULT_MODIFIER = sharedConstants.enhanceFallbackDefaultModifier;
 
 // Image generation retry policy — mirrors app/image_service.py. Retry transient
 // failures (network / 5xx); 429 is surfaced immediately so the client honours retry_after.
@@ -154,6 +160,9 @@ export const IMAGE_RETRY_BACKOFF_MS = 500;
 // waits until the edge kills the whole request as an ugly 1101. Mirrors the
 // FastAPI request_timeout_seconds + 504 "timeout" mapping.
 export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
+// Workers AI normally completes well below this threshold. Fail over before the
+// old 2 × 60s retry path turns a transient model stall into a two-minute wait.
+export const WORKERS_AI_FETCH_TIMEOUT_MS = 45_000;
 
 // Workers AI model backing the UI's "fast" tier. FLUX.2 klein 4B is a 4-step
 // distilled model (schnell-class speed) that, unlike @cf/...flux-1-schnell,

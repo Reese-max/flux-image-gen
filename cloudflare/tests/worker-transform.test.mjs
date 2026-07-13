@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { transformSync } from 'esbuild';
 import { inspectGeneratedImage } from '../src/image.js';
 import worker, { resetUsageMetrics, transformPlainPrompt } from '../src/index.js';
 
@@ -193,7 +194,7 @@ test('POST /prompt/complete uses Gemma Chinese completion model', async () => {
             content: {
               parts: [
                 {
-                  text: '{"prompt": "一位年輕女生站在夜晚雨中的街道，濕潤柏油路反射霓虹燈光，畫面具有電影感。"}',
+                  text: '一位年輕女生站在夜晚雨中的街道，濕潤柏油路反射霓虹燈光，畫面具有電影感。',
                 },
               ],
             },
@@ -214,8 +215,37 @@ test('POST /prompt/complete uses Gemma Chinese completion model', async () => {
     assert.equal(data.provider, 'gemini');
     assert.equal(data.source, '女生雨中');
     assert.match(data.prompt, /霓虹燈/);
-    assert.match(calledUrl, /gemma-4-26b-a4b-it:generateContent/);
+    assert.match(calledUrl, /gemma-4-31b-it:generateContent/);
     assert.match(providerPayload.system_instruction.parts[0].text, /繁體中文/);
+    assert.match(providerPayload.system_instruction.parts[0].text, /不要輸出 JSON/);
+    assert.equal(providerPayload.generationConfig.responseMimeType, 'text/plain');
+    assert.equal(Object.hasOwn(providerPayload.generationConfig, 'responseSchema'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /prompt/complete aborts a hung Gemma call and falls back without retrying', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let sawSignal = false;
+  globalThis.fetch = async (_url, init) => {
+    calls += 1;
+    sawSignal = Boolean(init && init.signal);
+    throw new DOMException('The operation timed out.', 'TimeoutError');
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
+      fakeEnv({ GEMINI_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'rule_based');
+    assert.match(data.warnings[0], /Gemma 暫時不可用/);
+    assert.equal(sawSignal, true, 'Gemma completion fetch must use an AbortSignal');
+    assert.equal(calls, 1, 'interactive completion must not retry after a timeout');
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -229,7 +259,37 @@ test('POST /prompt/complete validates blank source', async () => {
   assert.equal(data.code, 'bad_request');
 });
 
-test('POST /prompt/complete unwraps nested JSON prompt strings from Gemma', async () => {
+test('paid prompt routes reject oversized text before provider access', async () => {
+  const transform = await worker.fetch(
+    jsonRequest('/prompt/transform', { source: '圖'.repeat(2001) }),
+    fakeEnv({ GEMINI_API_KEY: 'test-key' })
+  );
+  assert.equal(transform.status, 400);
+  assert.equal((await transform.json()).error, '描述太長');
+
+  const complete = await worker.fetch(
+    jsonRequest('/prompt/complete', { source: '圖'.repeat(2001) }),
+    fakeEnv({ GEMINI_API_KEY: 'test-key' })
+  );
+  assert.equal(complete.status, 400);
+  assert.equal((await complete.json()).error, '描述太長');
+
+  const longPrompt = await worker.fetch(
+    jsonRequest('/prompt/enhance', { prompt: 'a'.repeat(4001), effect: '更夢幻' }),
+    fakeEnv({ GEMINI_API_KEY: 'test-key' })
+  );
+  assert.equal(longPrompt.status, 400);
+  assert.equal((await longPrompt.json()).error, '提示詞太長');
+
+  const longEffect = await worker.fetch(
+    jsonRequest('/prompt/enhance', { prompt: 'a cat', effect: '夢'.repeat(501) }),
+    fakeEnv({ GEMINI_API_KEY: 'test-key' })
+  );
+  assert.equal(longEffect.status, 400);
+  assert.equal((await longEffect.json()).error, '效果描述太長');
+});
+
+test('POST /prompt/complete returns plain Traditional Chinese text from Gemma', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(
@@ -239,7 +299,7 @@ test('POST /prompt/complete unwraps nested JSON prompt strings from Gemma', asyn
             content: {
               parts: [
                 {
-                  text: '{"prompt": "{\\"prompt\\": \\"一位女生站在雨中的霓虹街道。\\"}"}',
+                  text: '  一位女生站在雨中的霓虹街道。  ',
                 },
               ],
             },
@@ -262,23 +322,62 @@ test('POST /prompt/complete unwraps nested JSON prompt strings from Gemma', asyn
   }
 });
 
-test('POST /prompt/complete requires Gemini key', async () => {
+test('POST /prompt/complete rejects Gemma analysis text and uses plain Chinese fallback', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: '* Input: 女生雨中\n* Task: Expand the description into Traditional Chinese.',
+                },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
+      fakeEnv({ GEMINI_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'rule_based');
+    assert.equal(data.prompt.includes('\n'), false);
+    assert.match(data.prompt, /電影光影/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /prompt/complete falls back locally without Gemini key', async () => {
   const response = await worker.fetch(jsonRequest('/prompt/complete', { source: '一隻貓' }), fakeEnv());
   const data = await response.json();
 
-  assert.equal(response.status, 503);
-  assert.equal(data.code, 'missing_api_key');
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'rule_based');
+  assert.match(data.prompt, /主體清楚/);
+  assert.match(data.warnings[0], /離線補全/);
 });
 
-test('POST /prompt/enhance requires Gemini key', async () => {
+test('POST /prompt/enhance falls back locally without Gemini key', async () => {
   const response = await worker.fetch(
     jsonRequest('/prompt/enhance', { prompt: 'a cat on a windowsill', effect: '更夢幻' }),
     fakeEnv()
   );
   const data = await response.json();
 
-  assert.equal(response.status, 503);
-  assert.equal(data.code, 'missing_api_key');
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'rule_based');
+  assert.match(data.prompt, /dreamy ethereal atmosphere/);
+  assert.match(data.warnings[0], /離線效果強化/);
 });
 
 test('POST /prompt/enhance validates blank prompt and blank effect', async () => {
@@ -739,21 +838,20 @@ test('POST /generate rejects non-integer seed values', async () => {
 
 test('Cloudflare static shell includes synced feature scripts and modals', async () => {
   const html = await readFile(new URL('../public/index.html', import.meta.url), 'utf8');
+  const tabsJs = await readFile(new URL('../public/static/tabs.js', import.meta.url), 'utf8');
   const expectedScripts = [
     '/static/tabs.js',
     '/static/generation-settings.js',
+    '/static/elapsed-timer.js',
     '/static/prompt-enhancer.js',
     '/static/failure-advice.js',
     '/static/app.js',
-    '/static/image-edit.js',
+    '/static/canvas-viewport.js',
     '/static/prompt-transform.js',
     '/static/idea-store.js',
     '/static/idea-cards.js',
     '/static/history-store.js',
     '/static/history-wall.js',
-    '/static/project-store.js',
-    '/static/project-board.js',
-    '/static/usage-dashboard.js',
     '/static/tutorial.js',
     '/static/prompt-pack.js',
   ];
@@ -792,7 +890,11 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="usageDashboard"/);
   assert.match(html, /<link rel="stylesheet" href="\/static\/styles\.css">/);
   assert.deepEqual(new Set(scriptSrcs), new Set(expectedScripts));
+  for (const lazyScript of ['/static/image-edit.js', '/static/project-store.js', '/static/project-board.js', '/static/usage-dashboard.js']) {
+    assert.match(tabsJs, new RegExp(lazyScript.replaceAll('.', '\\.')));
+  }
   assert.ok(scriptSrcs.indexOf('/static/generation-settings.js') < scriptSrcs.indexOf('/static/app.js'));
+  assert.ok(scriptSrcs.indexOf('/static/elapsed-timer.js') < scriptSrcs.indexOf('/static/app.js'));
 });
 
 test('Cloudflare static shell includes v1.4 workspace and PWA assets', async () => {
@@ -810,7 +912,7 @@ test('Cloudflare static shell includes v1.4 workspace and PWA assets', async () 
   assert.match(serviceWorker, /CACHE_NAME/);
 });
 
-test('Cloudflare static assets stay byte-for-byte synced with FastAPI static assets', async () => {
+test('Cloudflare static assets stay synced with readable FastAPI sources', async () => {
   const appStaticRoot = new URL('../../app/static/', import.meta.url);
   const cloudflareStaticRoot = new URL('../public/static/', import.meta.url);
   const rootAssets = ['index.html', 'manifest.webmanifest', 'service-worker.js'];
@@ -820,11 +922,22 @@ test('Cloudflare static assets stay byte-for-byte synced with FastAPI static ass
   assert.deepEqual(cloudflareStaticFiles, appStaticFiles);
 
   for (const relativePath of cloudflareStaticFiles) {
-    assert.equal(
-      await sha256(new URL(relativePath, cloudflareStaticRoot)),
-      await sha256(new URL(relativePath, appStaticRoot)),
-      `${relativePath} should match app/static`
-    );
+    if (relativePath.endsWith('.js')) {
+      const source = await readFile(new URL(relativePath, appStaticRoot), 'utf8');
+      const deployed = await readFile(new URL(relativePath, cloudflareStaticRoot), 'utf8');
+      const expected = transformSync(source, {
+        loader: 'js',
+        minify: true,
+        target: 'es2018',
+      }).code;
+      assert.equal(deployed, expected, `${relativePath} should be the minified app/static source`);
+    } else {
+      assert.equal(
+        await sha256(new URL(relativePath, cloudflareStaticRoot)),
+        await sha256(new URL(relativePath, appStaticRoot)),
+        `${relativePath} should match app/static`
+      );
+    }
   }
 
   for (const asset of rootAssets) {
@@ -834,6 +947,17 @@ test('Cloudflare static assets stay byte-for-byte synced with FastAPI static ass
       `${asset} should match app/static`
     );
   }
+});
+
+test('Cloudflare sync script recursively covers nested static assets', async () => {
+  const syncScript = await readFile(new URL('../scripts/sync-static.mjs', import.meta.url), 'utf8');
+
+  assert.match(syncScript, /entry\.isDirectory\(\)/);
+  assert.match(syncScript, /visit\(path\.join\(directory, entry\.name\), relativePath\)/);
+  assert.match(syncScript, /path\.join\(publicStaticDir, relativePath\)/);
+  assert.match(syncScript, /expectedStaticFiles/);
+  assert.match(syncScript, /unlinkSync\(stalePath\)/);
+  assert.match(syncScript, /\(stale\)/);
 });
 
 test('Cloudflare deploy wrapper is wired and normalizes known Wrangler success output', async () => {
@@ -861,7 +985,7 @@ test('Cloudflare Wrangler auth checker diagnoses login and dry-run gates', async
   const checker = await readFile(new URL('../scripts/check-wrangler-auth.mjs', import.meta.url), 'utf8');
 
   assert.match(checker, /wrangler whoami/);
-  assert.match(checker, /wrangler deploy --dry-run/);
+  assert.match(checker, /project dry-run wrapper/);
   assert.match(checker, /CLOUDFLARE_API_TOKEN/);
   assert.match(checker, /npx wrangler login/);
   assert.match(checker, /redactOutput/);
@@ -872,6 +996,8 @@ test('Cloudflare Wrangler auth checker diagnoses login and dry-run gates', async
   assert.match(checker, /Raw Wrangler output was hidden/);
   assert.match(checker, /hasWhoamiSuccess/);
   assert.match(checker, /hasConfigSuccess/);
+  assert.match(checker, /runDeployDryRun/);
+  assert.match(checker, /scripts\/deploy\.mjs/);
   assert.match(checker, /isLikelyCrashExit/);
   assert.match(checker, /formatExitCode/);
   assert.match(checker, /process\.versions\.node/);
@@ -923,6 +1049,7 @@ test('Cloudflare package exposes repeatable performance QA scripts', async () =>
   assert.match(perfScript, /layout-shift/);
   assert.match(perfScript, /transferSize/);
   assert.match(perfScript, /response\.body\(\)/);
+  assert.match(perfScript, /scriptTransferKb:\s*150/);
 });
 
 test('POST /generate retries a transient 5xx then succeeds', async () => {
@@ -1673,6 +1800,41 @@ test('POST /generate model=schnell retries once and succeeds on Workers AI', asy
   // Streams cannot be replayed: the retry must rebuild the multipart form.
   assert.equal(ai.calls[1].fields.prompt, 'a cat');
   assert.equal(ai.calls[1].fields.seed, '42');
+});
+
+test('POST /generate model=schnell falls back to NVIDIA dev after a Workers AI failure', async () => {
+  const originalFetch = globalThis.fetch;
+  let nvidiaBody = null;
+  globalThis.fetch = async function (_url, init) {
+    nvidiaBody = JSON.parse(init.body);
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const ai = fakeAi(new Error('model overloaded'));
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'landscape', seed: 42 }),
+      fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'nvidia-fallback');
+    assert.equal(data.model, 'dev');
+    assert.equal(data.width, 1344);
+    assert.equal(data.height, 768);
+    assert.equal(data.seed, 42);
+    assert.equal(ai.calls.length, 1, 'must fail over instead of repeating the stalled Workers AI call');
+    assert.equal(nvidiaBody.prompt, 'a cat');
+    assert.equal(nvidiaBody.width, 1344);
+    assert.equal(nvidiaBody.height, 768);
+    assert.equal(nvidiaBody.seed, 42);
+    assert.equal(nvidiaBody.steps, 30);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('POST /generate model=schnell extracts alternate Workers AI response shapes', async () => {

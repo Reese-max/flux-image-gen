@@ -10,17 +10,21 @@
       title: '叫用太頻繁',
       steps: ['稍候再試。', '先複製目前設定，避免重打。']
     },
+    service_unavailable: {
+      title: '服務暫時不可用',
+      steps: ['圖片服務目前無法使用，請稍後再試。', '目前輸入內容仍保留，不需要修改描述。']
+    },
     timeout: {
       title: '產圖逾時',
-      steps: ['先改用 schnell 模型測試構圖。', '縮短 prompt 或換一個 seed。']
+      steps: ['服務目前較忙，請直接重試一次。', '若仍逾時，可換一個 seed、縮短 prompt，或暫時改用高品質模型。']
     },
     bad_provider_response: {
       title: '影像服務回應異常',
       steps: ['重試一次。', '如果持續失敗，改用較短 prompt 或稍後再試。']
     },
     missing_api_key: {
-      title: '缺少 NVIDIA 金鑰',
-      steps: ['本機請設定 NVIDIA_API_KEY。', 'Cloudflare 請使用 wrangler secret put NVIDIA_API_KEY。']
+      title: '圖片服務尚未連接',
+      steps: ['目前無法產生正式圖片。', '請稍後再試或聯絡站方。']
     },
     bad_request: {
       title: '請求格式需要調整',
@@ -37,13 +41,19 @@
     return String(value).trim();
   }
 
-  function getAdvice(code) {
+  function getAdvice(code, context) {
     var key = toText(code) || 'unknown';
+    var details = context || {};
     var advice = MAP[key] || {
       title: '產圖失敗',
-      steps: ['請稍後重試。', '也可以換 seed、縮短 prompt，或改用 schnell 模型。']
+      steps: ['請稍後重試。', '若持續失敗，請保留追蹤 ID 供站方查詢。']
     };
-    return { code: key, title: advice.title, steps: advice.steps.slice() };
+    var steps = advice.steps.slice();
+    var retryAfter = Math.max(0, parseInt(details.retryAfter, 10) || 0);
+    if (key === 'rate_limited' && retryAfter) {
+      steps[0] = '請在 ' + retryAfter + ' 秒後重試。';
+    }
+    return { code: key, title: advice.title, steps: steps };
   }
 
   root.FailureAdvice = { getAdvice: getAdvice };

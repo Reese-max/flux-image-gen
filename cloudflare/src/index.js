@@ -1,7 +1,7 @@
 // Cloudflare Worker entry: serves the static SPA and routes the JSON API.
 // Request handlers live here; pure helpers are split into sibling modules
 // (constants / http / prompt / image / gallery). Mirrors the Python backend.
-import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP } from "./constants.js";
+import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP } from "./constants.js";
 import {
   HttpError,
   checkRateLimit,
@@ -984,8 +984,21 @@ async function handlePromptEnhance(request, env) {
   }
 
   try {
+    const prompt = String(payload.prompt || "").trim();
+    const effect = String(payload.effect || "").trim();
+    if (prompt.length > MAX_ENHANCE_PROMPT_LENGTH) {
+      return json({ error: "提示詞太長", code: "bad_request" }, 400);
+    }
+    if (effect.length > MAX_ENHANCE_EFFECT_LENGTH) {
+      return json({ error: "效果描述太長", code: "bad_request" }, 400);
+    }
     const result = await enhancePrompt(payload.prompt, payload.effect, env);
-    return json({ prompt: result.prompt, provider: result.provider, effect: result.effect });
+    return json({
+      prompt: result.prompt,
+      provider: result.provider,
+      effect: result.effect,
+      warnings: result.warnings || [],
+    });
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
     console.error(JSON.stringify({ event: "gemini_enhance_failed", error: String(e) }));

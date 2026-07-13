@@ -1,9 +1,8 @@
 (function (root) {
   'use strict';
 
-  // Effect optimisation is Gemini-backed: the user describes the effect they want
-  // (usually in Chinese) and the server rewrites the English prompt to include it.
-  // Returns a promise resolving to { prompt, provider }; callers own DOM + status.
+  // Effect optimisation prefers Gemini and falls back to server-side local rules.
+  // Returns { prompt, provider, warnings }; callers own DOM + status.
   function applyEffect(prompt, effect) {
     return fetch('/prompt/enhance', {
       method: 'POST',
@@ -17,7 +16,11 @@
         if (!data.prompt) {
           throw new Error('優化結果缺少提示詞');
         }
-        return { prompt: data.prompt, provider: data.provider };
+        return {
+          prompt: data.prompt,
+          provider: data.provider,
+          warnings: data.warnings || []
+        };
       });
     });
   }

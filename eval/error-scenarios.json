@@ -184,35 +184,6 @@
       ]
     },
     {
-      "id": "image-save-failed",
-      "title": "圖片保存失敗",
-      "expected": [
-        "顯示雲端保存失敗",
-        "本機歷史仍保留"
-      ],
-      "evidence": [
-        {
-          "path": "tests/test_static_ui.py",
-          "patterns": [
-            "雲端儲存失敗，本機歷史仍保留"
-          ]
-        },
-        {
-          "path": "app/static/app.js",
-          "patterns": [
-            "setCloudSaveStatus",
-            "本機歷史仍保留"
-          ]
-        },
-        {
-          "path": "tests/test_app.py",
-          "patterns": [
-            "test_gallery_route_reports_disabled_on_local_server"
-          ]
-        }
-      ]
-    },
-    {
       "id": "local-storage-full",
       "title": "localStorage 滿",
       "expected": [
@@ -292,8 +263,8 @@
         {
           "path": "tests/test_static_ui.py",
           "patterns": [
-            "renderFailureAdvice('network')",
-            "generate_network"
+            "function showGenerateFailure",
+            "renderFailureAdvice(failure.adviceCode || failure.code || 'unknown'"
           ]
         },
         {
@@ -307,8 +278,9 @@
         {
           "path": "app/static/app.js",
           "patterns": [
-            "function handleGenerateError",
-            "renderFailureAdvice('network')"
+            "function showGenerateFailure",
+            "adviceCode: 'network'",
+            "'generate_network'"
           ]
         }
       ]
@@ -331,14 +303,14 @@
         {
           "path": "tests/test_static_ui.py",
           "patterns": [
-            "if(generationInFlight)",
+            "if(generationInFlight || retrySecondsRemaining())",
             "aria-busy"
           ]
         },
         {
           "path": "app/static/app.js",
           "patterns": [
-            "if(generationInFlight)",
+            "if(generationInFlight || retrySecondsRemaining())",
             "go.setAttribute('aria-busy'"
           ]
         }
@@ -525,14 +497,6 @@
             "shareTemplateUrl(promptPublic ? prompt : \"\", metadata)",
             "此作品未公開完整 prompt。"
           ]
-        },
-        {
-          "path": "tests/test_static_ui.py",
-          "patterns": [
-            "test_cloud_save_privacy_modal_is_wired",
-            "cloudIncludePrompt').checked = false",
-            "請先勾選確認：此連結不是登入保護的私密作品。"
-          ]
         }
       ]
     },
@@ -559,14 +523,6 @@
             "function handleGalleryDelete",
             "verifyGalleryDeleteTokenHash",
             "await bucket.delete(imageKey)"
-          ]
-        },
-        {
-          "path": "app/static/index.html",
-          "patterns": [
-            "刪除連結已保存到本機歷史",
-            "同步保存在本機歷史詳情",
-            "任何取得連結的人都可刪除此雲端作品"
           ]
         }
       ]

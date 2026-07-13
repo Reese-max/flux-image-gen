@@ -52,10 +52,19 @@
       <div class="brand">
         <span class="logo" aria-hidden="true">✦</span>
         <span class="brand-name">Fluxi</span>
-        <span class="badge">v1.2.0</span>
+        <span class="badge">v1.4.0</span>
       </div>
-      <div id="provider-pill" class="pill" title="服務狀態" role="status" aria-live="polite" aria-atomic="true">
-        <span class="dot"></span><span id="provider-text">連線中…</span>
+      <div class="workspace-context" aria-label="目前工作區">
+        <span>創作工作區</span>
+        <i aria-hidden="true">/</i>
+        <strong>新作品</strong>
+      </div>
+      <div class="topbar-actions">
+        <span class="shortcut-hint"><kbd>1–4</kbd> 切換工具</span>
+        <button id="openTutorialTopbar" class="topbar-help" type="button" aria-label="開啟快速教學" title="快速教學">?</button>
+        <div id="provider-pill" class="pill" title="服務狀態" role="status" aria-live="polite" aria-atomic="true">
+          <span class="dot"></span><span id="provider-text">連線中…</span>
+        </div>
       </div>
     </header>
 
@@ -72,22 +81,34 @@
     </header>
 
     <nav class="tabs" role="tablist" aria-label="功能分頁">
-      <button class="tab is-active" id="tab-generate" role="tab" type="button" aria-selected="true" aria-controls="panel-generate" data-tab="generate">
-        <span class="tab-ico" aria-hidden="true">✨</span><span class="tab-label">生成圖片</span>
+      <button class="tab is-active" id="tab-generate" role="tab" type="button" aria-label="生成圖片" aria-selected="true" aria-controls="panel-generate" data-tab="generate">
+        <span class="tab-ico" aria-hidden="true">✦</span><span class="tab-label">生成圖片</span><span class="tab-mobile-label" aria-hidden="true">生成</span>
       </button>
-      <button class="tab" id="tab-edit" role="tab" type="button" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
-        <span class="tab-ico" aria-hidden="true">🖌️</span><span class="tab-label">AI 改圖</span>
+      <button class="tab" id="tab-edit" role="tab" type="button" aria-label="AI 改圖" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
+        <span class="tab-ico" aria-hidden="true">◫</span><span class="tab-label">AI 改圖</span><span class="tab-mobile-label" aria-hidden="true">改圖</span>
       </button>
-      <button class="tab" id="tab-projects" role="tab" type="button" aria-selected="false" aria-controls="panel-projects" tabindex="-1" data-tab="projects">
-        <span class="tab-ico" aria-hidden="true">📁</span><span class="tab-label">專案</span>
+      <button class="tab" id="tab-projects" role="tab" type="button" aria-label="專案" aria-selected="false" aria-controls="panel-projects" tabindex="-1" data-tab="projects">
+        <span class="tab-ico" aria-hidden="true">▣</span><span class="tab-label">專案</span><span class="tab-mobile-label" aria-hidden="true">專案</span>
       </button>
-      <button class="tab" id="tab-history" role="tab" type="button" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">
-        <span class="tab-ico" aria-hidden="true">🕘</span><span class="tab-label">歷史作品</span><span class="tab-badge" id="historyTabBadge" hidden></span>
+      <button class="tab" id="tab-history" role="tab" type="button" aria-label="歷史作品" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">
+        <span class="tab-ico" aria-hidden="true">◷</span><span class="tab-label">歷史作品</span><span class="tab-mobile-label" aria-hidden="true">歷史</span><span class="tab-badge" id="historyTabBadge" hidden></span>
       </button>
     </nav>
 
     <div class="tabpanel" id="panel-generate" role="tabpanel" aria-labelledby="tab-generate">
-    <section class="composer glass" aria-label="圖片描述">
+    <div class="generation-workspace" id="generationWorkspace">
+      <aside class="generation-controls glass" id="generationControls" aria-label="生成設定面板">
+        <div class="workspace-panel-head">
+          <div class="workspace-panel-title">
+            <span class="section-kicker">創作控制台</span>
+            <strong>描述與生成設定</strong>
+          </div>
+          <button id="toggleGenerationControls" class="workspace-icon-btn" type="button" aria-label="收合生成設定面板" aria-expanded="true" aria-controls="generationControlsBody" title="收合生成設定">
+            <span aria-hidden="true">‹</span>
+          </button>
+        </div>
+        <div class="generation-controls-body" id="generationControlsBody">
+    <section class="composer" aria-label="圖片描述">
       <div class="prompt-tool product-first" aria-label="中文圖片創作">
         <div class="section-heading">
           <span class="section-kicker">中文出圖</span>
@@ -96,7 +117,7 @@
         </div>
         <label class="final-prompt-label" for="plainPrompt">用中文描述你想要的畫面</label>
         <p id="plainPromptHelp" class="visually-hidden">必填。請用中文描述主體、場景、風格或用途；按生成圖片後系統會自動整理好再出圖。</p>
-        <textarea id="plainPrompt" rows="3" aria-describedby="plainPromptHelp status" aria-required="true" placeholder="例如：一隻柴犬在月球吃拉麵，適合放在 PPT 封面，風格可愛但不要太像 AI"></textarea>
+        <textarea id="plainPrompt" rows="2" maxlength="2000" aria-describedby="plainPromptHelp status" aria-required="true" placeholder="例如：一隻柴犬在月球吃拉麵，適合放在 PPT 封面，風格可愛但不要太像 AI"></textarea>
         <!-- 緊湊選項列：模式 segmented ＋ 風格/用途次要 select（漸進揭露，視覺降級） -->
         <div class="composer-options" role="group" aria-label="生成選項">
           <div class="mode-switch" role="radiogroup" aria-label="生成模式">
@@ -154,6 +175,7 @@
         </div>
 
         <div class="prompt-controls">
+          <button id="completePrompt" class="btn secondary" type="button" aria-describedby="transformStatus">✨ 幫我補完整</button>
           <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
         </div>
         <div id="turnstileGate" class="turnstile-gate" hidden>
@@ -164,17 +186,17 @@
       </div>
 
       <details id="advancedSettings" class="advanced-settings">
-        <summary>進階設定：英文提示詞、不想要的元素、畫面變化、畫質、尺寸與張數</summary>
+        <summary>進階設定（提示詞、效果、畫質與尺寸）</summary>
         <p class="prompt-shortcut-hint">可用下方按鈕轉成英文；鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
         <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
         <label class="final-prompt-label" for="prompt">英文提示詞（可查看、複製、編輯）</label>
-        <textarea id="prompt" rows="3" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理好。"></textarea>
+        <textarea id="prompt" rows="3" maxlength="4000" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理好。"></textarea>
 
         <div id="promptEnhancer" class="prompt-enhancer" role="group" aria-label="幫圖片加效果">
           <label class="field-label" for="effectPrompt">加效果（選填）</label>
           <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
           <div class="enhance-actions">
-            <input id="effectPrompt" class="text-input" type="text" aria-describedby="status"
+            <input id="effectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="status"
               placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
             <button class="btn mini secondary" id="applyEffect" type="button">用 AI 套用效果</button>
           </div>
@@ -257,34 +279,79 @@
       </details>
       <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </section>
+        </div>
+      </aside>
 
-    <section class="stage glass" id="stage" role="region" aria-label="生成結果" aria-live="polite" aria-busy="false" tabindex="-1"><span class="muted">圖片生成後會出現在這裡。你可以先輸入一句中文，例如：一隻柴犬在月球吃拉麵。</span></section>
+      <div id="workspaceDivider" class="workspace-divider" role="separator" aria-label="調整生成設定面板寬度" aria-orientation="vertical" aria-controls="generationControls" aria-valuemin="320" aria-valuemax="560" aria-valuenow="390" tabindex="0">
+        <span aria-hidden="true"></span>
+      </div>
 
-    <div id="resultActions" class="result-actions" aria-label="生成結果操作" hidden>
-      <a id="dl" class="btn download is-disabled" aria-disabled="true" download="flux.png" hidden>⬇ 下載圖片</a>
-      <button id="regenerate" class="btn secondary" type="button" aria-label="再生成一張圖片">🔁 再生一張</button>
-      <button id="useComposition" class="btn secondary" type="button" aria-label="以目前圖片的構圖再變化">🔧 以這張構圖再變化</button>
-      <button id="copySettings" class="btn secondary" type="button" aria-label="複製目前生成設定">📋 複製這組設定</button>
-      <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
-      <button id="saveStyleCard" class="btn secondary" type="button">💾 儲存成風格卡</button>
-      <button id="saveToCloud" class="btn secondary" type="button">☁️ 存到雲端</button>
+      <section class="generation-preview glass" id="generationPreview" aria-label="圖片預覽工作區">
+        <div class="result-heading" id="resultHeading">
+          <div>
+            <span class="section-kicker">預覽畫布</span>
+            <h2>生成畫布</h2>
+          </div>
+          <div class="canvas-heading-tools">
+            <span class="canvas-preset-chip" id="canvasPresetChip">1024 × 1024</span>
+            <div class="canvas-zoom-controls" role="group" aria-label="畫布縮放">
+              <button id="canvasZoomOut" class="canvas-zoom-btn" type="button" aria-label="縮小畫布" title="縮小（−）">−</button>
+              <button id="canvasZoomValue" class="canvas-zoom-value" type="button" aria-label="重設畫布縮放" title="重設為 100%">100%</button>
+              <button id="canvasZoomIn" class="canvas-zoom-btn" type="button" aria-label="放大畫布" title="放大（＋）">＋</button>
+            </div>
+            <div class="preview-view-controls" role="group" aria-label="預覽縮放">
+              <button id="previewFit" class="preview-view-btn is-active" type="button" aria-pressed="true">適合畫布</button>
+              <button id="previewActual" class="preview-view-btn" type="button" aria-pressed="false">原尺寸</button>
+            </div>
+          </div>
+        </div>
+        <section class="stage" id="stage" role="region" aria-label="生成結果，可使用滑鼠滾輪縮放、拖曳平移，或鍵盤加減號縮放" aria-live="polite" aria-busy="false" tabindex="0">
+          <div class="canvas-empty">
+            <span class="canvas-empty-mark" aria-hidden="true">✦</span>
+            <strong>準備好開始創作</strong>
+            <p>在左側輸入中文描述，生成結果會固定顯示在這個畫布。</p>
+            <div class="canvas-empty-hints" aria-hidden="true">
+              <span>描述主體</span><i>＋</i><span>指定風格</span><i>＋</i><span>選擇用途</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="canvas-statusbar" id="canvasStatusbar" aria-label="目前畫布設定">
+          <span class="canvas-state"><i aria-hidden="true"></i><b id="canvasStateMeta">待命</b></span>
+          <span id="canvasModelMeta">快速草稿</span>
+          <span id="canvasSizeMeta">1024 × 1024</span>
+          <span id="canvasSeedMeta">Seed 自動</span>
+          <span class="canvas-status-spacer"></span>
+          <span class="canvas-interaction-hint">滾輪縮放 · 拖曳平移 · 0 重設</span>
+          <span class="canvas-status-shortcut">Ctrl / ⌘ + Enter 整理提示詞</span>
+        </div>
+
+        <div id="resultActions" class="result-actions" aria-label="生成結果操作" hidden>
+          <a id="dl" class="btn primary is-disabled" aria-disabled="true" download="flux.png" hidden>⬇ 下載圖片</a>
+          <button id="regenerate" class="btn secondary" type="button" aria-label="再生成一張圖片">🔁 再生一張</button>
+          <button id="useComposition" class="btn secondary" type="button" aria-label="以目前圖片的構圖再變化">🔧 以這張構圖再變化</button>
+          <details id="resultMoreActions" class="result-more-actions">
+            <summary class="btn secondary">更多操作</summary>
+            <div class="result-more-actions-body">
+              <button id="copySettings" class="btn secondary" type="button" aria-label="複製目前生成設定">📋 複製這組設定</button>
+              <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
+              <button id="saveStyleCard" class="btn secondary" type="button">💾 儲存成風格卡</button>
+            </div>
+          </details>
+        </div>
+      </section>
+
     </div>
 
     <!-- 靈感 section：原「靈感」分頁內容併入生成分頁（#ideas hash 會捲動到這裡；元素 id 全部保留） -->
     <section class="ideas" id="ideasSection" aria-label="提示詞靈感">
       <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下只帶入描述，不會自動消耗額度）</span></div>
       <div class="idea-grid">
-        <button class="idea" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-ink.webp" alt="" loading="lazy" decoding="async"><span class="lbl">水墨山水</span></button>
-        <button class="idea" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-cyber-market.webp" alt="" loading="lazy" decoding="async"><span class="lbl">賽博夜市</span></button>
-        <button class="idea" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-diamond-dino.webp" alt="" loading="lazy" decoding="async"><span class="lbl">鑽石恐龍</span></button>
-        <button class="idea" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-manga.webp" alt="" loading="lazy" decoding="async"><span class="lbl">動漫漫畫</span></button>
-        <button class="idea" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-cutaway.webp" alt="" loading="lazy" decoding="async"><span class="lbl">剖面圖</span></button>
-        <button class="idea" data-prompt="an astronaut cat floating in deep space, galaxies behind, highly detailed, cinematic"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-space-cat.webp" alt="" loading="lazy" decoding="async"><span class="lbl">太空貓</span></button>
-        <button class="idea" data-prompt="a tiny adorable miniature village, tilt-shift, soft lighting, highly detailed"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-miniature.webp" alt="" loading="lazy" decoding="async"><span class="lbl">微縮世界</span></button>
-        <button class="idea" data-prompt="a dreamy vaporwave beach with palm trees and a retro sun, pink and teal, 80s aesthetic"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-vaporwave.webp" alt="" loading="lazy" decoding="async"><span class="lbl">蒸氣波</span></button>
-        <button class="idea" data-prompt="a bustling city scene built entirely from colorful toy building blocks, playful, vivid colors"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-blocks.webp" alt="" loading="lazy" decoding="async"><span class="lbl">樂高世界</span></button>
-        <button class="idea" data-prompt="a steaming bowl of ramen, delicious, macro food photography, shallow depth of field"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-ramen.webp" alt="" loading="lazy" decoding="async"><span class="lbl">美食特寫</span></button>
-        <button class="idea" data-prompt="a giant mecha robot standing in a ruined city, dramatic lighting, epic, hyperrealistic"><img class="idea-thumb" width="1024" height="1024" src="/static/examples/idea-mecha.webp" alt="" loading="lazy" decoding="async"><span class="lbl">機甲戰士</span></button>
+        <button class="idea" type="button" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-ink.webp" alt="" loading="lazy" decoding="async"><span class="lbl">水墨山水</span></button>
+        <button class="idea" type="button" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cyber-market.webp" alt="" loading="lazy" decoding="async"><span class="lbl">賽博夜市</span></button>
+        <button class="idea" type="button" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-diamond-dino.webp" alt="" loading="lazy" decoding="async"><span class="lbl">鑽石恐龍</span></button>
+        <button class="idea" type="button" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-manga.webp" alt="" loading="lazy" decoding="async"><span class="lbl">動漫漫畫</span></button>
+        <button class="idea" type="button" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cutaway.webp" alt="" loading="lazy" decoding="async"><span class="lbl">剖面圖</span></button>
         <button id="random" class="idea" type="button"><span class="emo">🎲</span><span class="lbl">隨機驚喜</span></button>
       </div>
 
@@ -314,7 +381,7 @@
       </div>
       <div class="example-grid">
         <article class="example-card" data-example-prompt="一張適合簡報封面的插圖：台灣中小企業用 AI 自動整理資料，畫面乾淨、明亮、帶一點未來感，留白可放標題" data-example-style="cinematic" data-example-use-case="ppt" data-example-size="landscape">
-          <div class="example-thumb"><img width="1344" height="768" src="/static/examples/gallery-ppt-cover.webp" alt="AI 資料簡報封面範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="1344" height="768" data-src="/static/examples/gallery-ppt-cover.webp" alt="AI 資料簡報封面範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">PPT 插圖</span>
             <h3>AI 資料簡報封面</h3>
@@ -323,7 +390,7 @@
           </div>
         </article>
         <article class="example-card" data-example-prompt="一瓶極簡保養品放在霧面石材平台上，柔和攝影棚光，乾淨背景，高級品牌形象照，適合新品社群貼文" data-example-style="product" data-example-use-case="product" data-example-size="square">
-          <div class="example-thumb"><img width="1024" height="1024" src="/static/examples/gallery-skincare.webp" alt="極簡保養品形象照範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="1024" height="1024" data-src="/static/examples/gallery-skincare.webp" alt="極簡保養品形象照範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">產品照</span>
             <h3>極簡保養品形象照</h3>
@@ -332,7 +399,7 @@
           </div>
         </article>
         <article class="example-card" data-example-prompt="角色設定圖：一位戴著透明雨衣的近未來城市偵探，手拿小型無人機控制器，夜晚霓虹街道，全身站姿，表情冷靜" data-example-style="cinematic" data-example-use-case="character" data-example-size="portrait">
-          <div class="example-thumb"><img width="768" height="1344" src="/static/examples/gallery-detective.webp" alt="霓虹城市偵探角色設計範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="768" height="1344" data-src="/static/examples/gallery-detective.webp" alt="霓虹城市偵探角色設計範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">角色設計</span>
             <h3>霓虹城市偵探</h3>
@@ -341,7 +408,7 @@
           </div>
         </article>
         <article class="example-card" data-example-prompt="動漫插畫：一位魔法料理學徒在夜晚屋頂煮發光拉麵，旁邊有小貓助手，溫暖可愛、細緻背景、日系動畫風" data-example-style="anime" data-example-use-case="social" data-example-size="square">
-          <div class="example-thumb"><img width="1024" height="1024" src="/static/examples/gallery-magic-ramen.webp" alt="魔法拉麵學徒動漫插畫範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="1024" height="1024" data-src="/static/examples/gallery-magic-ramen.webp" alt="魔法拉麵學徒動漫插畫範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">動漫插畫</span>
             <h3>魔法拉麵學徒</h3>
@@ -350,7 +417,7 @@
           </div>
         </article>
         <article class="example-card" data-example-prompt="美食攝影：一碗台式牛肉麵放在木桌上，熱氣上升，湯頭油光細緻，側逆光，淺景深，讓人有食慾" data-example-style="realistic" data-example-use-case="social" data-example-size="square">
-          <div class="example-thumb"><img width="1024" height="1024" src="/static/examples/gallery-beef-noodle.webp" alt="台式牛肉麵美食攝影範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="1024" height="1024" data-src="/static/examples/gallery-beef-noodle.webp" alt="台式牛肉麵美食攝影範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">美食攝影</span>
             <h3>台式牛肉麵特寫</h3>
@@ -359,7 +426,7 @@
           </div>
         </article>
         <article class="example-card" data-example-prompt="建築室內概念圖：日光灑入木質閱讀咖啡館，高挑天花板、大片窗景、綠色植栽、安靜舒適的工作氛圍" data-example-style="realistic" data-example-use-case="ppt" data-example-size="landscape">
-          <div class="example-thumb"><img width="1344" height="768" src="/static/examples/gallery-cafe.webp" alt="木質閱讀咖啡館室內範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="1344" height="768" data-src="/static/examples/gallery-cafe.webp" alt="木質閱讀咖啡館室內範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">建築室內</span>
             <h3>木質閱讀咖啡館</h3>
@@ -368,7 +435,7 @@
           </div>
         </article>
         <article class="example-card" data-example-prompt="科幻概念圖：海上漂浮城市在黃昏發光，太陽能帆板、透明溫室、遠方有無人船，電影級廣角構圖" data-example-style="cinematic" data-example-use-case="ppt" data-example-size="landscape">
-          <div class="example-thumb"><img width="1344" height="768" src="/static/examples/gallery-sea-city.webp" alt="海上漂浮城市科幻概念範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="1344" height="768" data-src="/static/examples/gallery-sea-city.webp" alt="海上漂浮城市科幻概念範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">科幻概念</span>
             <h3>海上漂浮城市</h3>
@@ -377,7 +444,7 @@
           </div>
         </article>
         <article class="example-card" data-example-prompt="手機桌布：夜晚森林中一條發光小路通往玻璃小屋，螢火蟲、藍紫色月光、夢幻但不雜亂，直式構圖" data-example-style="cute" data-example-use-case="wallpaper" data-example-size="portrait">
-          <div class="example-thumb"><img width="768" height="1344" src="/static/examples/gallery-forest-cabin.webp" alt="月光森林小屋手機桌布範例" loading="lazy" decoding="async"></div>
+          <div class="example-thumb"><img width="768" height="1344" data-src="/static/examples/gallery-forest-cabin.webp" alt="月光森林小屋手機桌布範例" loading="lazy" decoding="async"></div>
           <div class="example-body">
             <span class="example-category">手機桌布</span>
             <h3>月光森林小屋</h3>
@@ -390,58 +457,96 @@
     </div><!-- /panel-generate -->
 
     <div class="tabpanel" id="panel-edit" role="tabpanel" aria-labelledby="tab-edit" hidden>
-    <section class="composer glass" id="editPanel" aria-label="AI 改圖">
-      <div class="section-heading">
-        <h2>🖌️ 參考圖與 AI 改圖</h2>
-        <span class="hint">上傳 1–4 張參考圖，標示用途後一起送出；可做角色一致、產品照、風格參考與構圖變化。</span>
-      </div>
-      <div class="edit-mode-grid" aria-label="參考圖模式">
-        <button class="edit-mode-card" type="button" data-edit-mode="general">
-          <strong>一般改圖</strong><span>換色、換背景、合成、風格轉移。</span>
-        </button>
-        <button class="edit-mode-card" type="button" data-edit-mode="character">
-          <strong>角色一致模式</strong><span>至少一張角色參考圖；可保持角色特徵但不能保證完全一致。</span>
-        </button>
-        <button class="edit-mode-card" type="button" data-edit-mode="product">
-          <strong>產品照模式</strong><span>上傳產品圖，選背景與光線，生成商品形象照。</span>
-        </button>
-      </div>
-      <label id="editDrop" class="edit-drop" for="editFiles">
-        <input id="editFiles" type="file" accept="image/*" multiple hidden>
-        <span class="edit-drop-text">📁 點此選擇參考圖（最多 4 張，支援角色／產品／風格／構圖）</span>
-      </label>
-      <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
-      <div class="edit-product-controls" aria-label="產品照設定">
-        <label class="field">
-          <span class="field-label">產品背景</span>
-          <select id="editProductBackground" class="text-input">
-            <option value="clean studio background">乾淨棚拍背景</option>
-            <option value="matte stone surface">霧面石材平台</option>
-            <option value="warm lifestyle interior">溫暖生活情境</option>
-            <option value="pure white ecommerce background">白底電商主圖</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">產品光線</span>
-          <select id="editProductLighting" class="text-input">
-            <option value="softbox studio lighting">柔和棚燈</option>
-            <option value="natural window light">自然窗光</option>
-            <option value="dramatic rim light">高級輪廓光</option>
-            <option value="bright clean commercial lighting">明亮商業光</option>
-          </select>
-        </label>
-      </div>
-      <textarea id="editPrompt" aria-label="改圖指令" rows="2" maxlength="900"
-        placeholder="輸入新場景或改圖指令。例：保持角色特徵，改成在雨夜街道；或：把產品放在霧面石材平台上，柔和棚燈，高級品牌形象照"></textarea>
-      <div class="composer-foot">
-        <div class="btn-row">
-          <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">⬇ 下載結果</a>
-          <button id="editGo" class="btn primary" type="button">🖌️ 開始改圖</button>
+    <div class="edit-workspace" aria-label="AI 改圖工作區">
+      <aside class="edit-control-panel glass" id="editPanel" aria-label="AI 改圖設定">
+        <div class="edit-panel-head">
+          <div>
+            <span class="section-kicker">AI IMAGE EDITOR</span>
+            <h2>參考圖與改圖設定</h2>
+          </div>
+          <span class="edit-reference-limit" id="editReferenceCount" aria-label="已加入 0 張參考圖，最多 4 張">0 / 4</span>
         </div>
-      </div>
-      <div id="editStatus" class="status" aria-live="polite"></div>
-      <section class="stage glass" id="editStage" aria-label="改圖結果"><span class="muted">改好的圖會出現在這裡</span></section>
-    </section>
+        <div id="editStatus" class="status edit-availability-status" aria-live="polite">等待參考圖與改圖指令</div>
+        <div class="edit-panel-body">
+          <section class="edit-control-section">
+            <div class="edit-section-label"><span>01</span><strong>選擇工作模式</strong></div>
+            <div class="edit-mode-grid" aria-label="參考圖模式">
+              <button class="edit-mode-card is-active" type="button" data-edit-mode="general" aria-pressed="true">
+                <i aria-hidden="true">◫</i><strong>一般改圖</strong><span>換色、換背景、合成與風格轉移。</span>
+              </button>
+              <button class="edit-mode-card" type="button" data-edit-mode="character" aria-pressed="false">
+                <i aria-hidden="true">◇</i><strong>角色一致模式</strong><span>保留角色核心外觀與辨識特徵。</span>
+              </button>
+              <button class="edit-mode-card" type="button" data-edit-mode="product" aria-pressed="false">
+                <i aria-hidden="true">▣</i><strong>產品照模式</strong><span>保持商品外觀並重建背景與光線。</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="edit-control-section">
+            <div class="edit-section-label"><span>02</span><strong>加入參考圖片</strong></div>
+            <label id="editDrop" class="edit-drop" for="editFiles">
+              <input id="editFiles" type="file" accept="image/*" multiple hidden>
+              <span class="edit-drop-icon" aria-hidden="true">＋</span>
+              <strong>拖曳圖片到這裡</strong>
+              <span class="edit-drop-text">或點一下選擇檔案 · 自動縮至模型可用尺寸</span>
+            </label>
+            <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
+          </section>
+
+          <section class="edit-control-section">
+            <div class="edit-section-label"><span>03</span><strong>描述修改內容</strong></div>
+            <div class="edit-product-controls" id="editProductControls" aria-label="產品照設定" hidden>
+              <label class="field">
+                <span class="field-label">產品背景</span>
+                <select id="editProductBackground" class="text-input">
+                  <option value="clean studio background">乾淨棚拍背景</option>
+                  <option value="matte stone surface">霧面石材平台</option>
+                  <option value="warm lifestyle interior">溫暖生活情境</option>
+                  <option value="pure white ecommerce background">白底電商主圖</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-label">產品光線</span>
+                <select id="editProductLighting" class="text-input">
+                  <option value="softbox studio lighting">柔和棚燈</option>
+                  <option value="natural window light">自然窗光</option>
+                  <option value="dramatic rim light">高級輪廓光</option>
+                  <option value="bright clean commercial lighting">明亮商業光</option>
+                </select>
+              </label>
+            </div>
+            <label class="edit-prompt-label" id="editPromptLabel" for="editPrompt">改圖指令</label>
+            <textarea id="editPrompt" aria-label="改圖指令" rows="4" maxlength="900"
+              placeholder="例如：把背景換成雨夜街道，保留主體構圖與色彩層次。"></textarea>
+          </section>
+        </div>
+        <div class="edit-panel-footer">
+          <button id="editGo" class="btn primary" type="button" disabled aria-disabled="true">✦ 開始改圖</button>
+        </div>
+      </aside>
+
+      <section class="edit-preview-panel glass" aria-label="AI 改圖預覽">
+        <div class="edit-preview-head">
+          <div>
+            <span class="section-kicker">RESULT CANVAS</span>
+            <h2>改圖結果</h2>
+          </div>
+          <span id="editPreviewBadge" class="edit-preview-badge"><i aria-hidden="true"></i>等待執行</span>
+        </div>
+        <section class="stage edit-stage" id="editStage" aria-label="改圖結果">
+          <div class="edit-empty-state">
+            <span aria-hidden="true">◫</span>
+            <strong>結果會顯示在這裡</strong>
+            <p>左側加入參考圖片並輸入指令後，按下「開始改圖」。</p>
+          </div>
+        </section>
+        <div class="edit-preview-actions">
+          <span>輸入圖片會在瀏覽器中先縮小後送出</span>
+          <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">⬇ 下載結果</a>
+        </div>
+      </section>
+    </div>
     </div><!-- /panel-edit -->
 
     <div class="tabpanel" id="panel-projects" role="tabpanel" aria-labelledby="tab-projects" hidden>
@@ -451,7 +556,7 @@
           <div class="ideas-title">📁 專案<span class="hint">（整理同一主題的作品與風格卡）</span></div>
           <p class="custom-ideas-copy">建立專案後，可把歷史作品與風格卡收進同一主題，之後從專案繼續生成。</p>
         </div>
-        <button id="deleteProject" class="btn mini secondary" type="button">刪除目前專案</button>
+        <button id="deleteProject" class="btn mini secondary" type="button" hidden disabled>刪除目前專案</button>
       </div>
       <div class="project-create">
         <input id="projectName" class="text-input" type="text" maxlength="48" aria-label="專案名稱" placeholder="專案名稱，例如：品牌主視覺">
@@ -488,9 +593,9 @@
           <div class="ideas-title">🖼️ 歷史記錄牆<span class="hint">（存在這台瀏覽器）</span></div>
           <p class="custom-ideas-copy">保留最近生成的圖片，可重新下載、複製提示詞或再生。</p>
         </div>
-        <button id="clearHistory" class="btn mini secondary" type="button">清空歷史</button>
+        <button id="clearHistory" class="btn mini secondary" type="button" hidden disabled>清空歷史</button>
       </div>
-      <div class="history-filters" role="group" aria-label="歷史篩選">
+      <div id="historyFilters" class="history-filters" role="group" aria-label="歷史篩選" hidden>
         <input id="historySearch" class="text-input" type="search" aria-label="搜尋歷史作品" placeholder="搜尋描述或標籤">
         <select id="historyModelFilter" class="text-input" aria-label="依畫質篩選">
           <option value="">所有模型</option>
@@ -520,7 +625,7 @@
           <span>只看雲端</span>
         </label>
       </div>
-      <div id="historyBatchBar" class="history-batch-bar">
+      <div id="historyBatchBar" class="history-batch-bar" hidden>
         <span id="historySelectionCount">尚未選取作品</span>
         <div class="history-batch-actions">
           <button id="selectVisibleHistory" class="btn mini secondary" type="button">選取目前篩選</button>
@@ -615,7 +720,7 @@
     <footer class="footer">
       <div>感謝 Modal 提供部署與運算，NVIDIA 提供 FLUX 影像生成資源。未設定金鑰時會回傳本機示意圖，方便驗證流程。</div>
       <div class="footer-meta">
-        Fluxi 中文 AI 圖片產生器 · 版本 v1.2.0
+        Fluxi 中文 AI 圖片產生器 · 版本 v1.4.0
         <span class="footer-links">
           <button id="openPrivacyPolicy" class="footer-link" type="button">隱私政策</button>
           <button id="openLicensePolicy" class="footer-link" type="button">授權與商用說明</button>
@@ -761,61 +866,6 @@
       </div>
     </div>
 
-    <div id="cloudSaveModal" class="modal-backdrop" hidden>
-      <div class="modal cloud-save-modal" role="dialog" aria-modal="true" aria-labelledby="cloudSaveTitle">
-        <div class="modal-head">
-          <h2 id="cloudSaveTitle">存到雲端前請確認</h2>
-          <button id="closeCloudSave" class="icon-btn" type="button" aria-label="關閉雲端保存說明">×</button>
-        </div>
-        <div class="cloud-save-copy">
-          <p><strong>目前不需要登入。</strong>圖片會存到站台設定的 Cloudflare R2；metadata 會分開保存為 R2 JSON。</p>
-          <p><strong>公開性：</strong>目前沒有帳號權限系統，因此雲端連結屬於「知道連結即可查看」。若不想分享，請只保留本機歷史。</p>
-          <p><strong>Prompt：</strong>預設不公開也不保存完整 prompt 到雲端 metadata；只有勾選下方選項才會保存並可供分享頁顯示。</p>
-          <p><strong>刪除：</strong>上傳成功後會產生刪除連結，並同步保存在本機歷史詳情；打開連結後可確認刪除 R2 圖片與 metadata。若清除本機資料後遺失連結，需請站長從 R2 刪除。</p>
-          <p><strong>保存期限：</strong>直到站長刪除或儲存桶生命週期規則清除為止。</p>
-        </div>
-        <label class="tutorial-check" for="cloudIncludePrompt">
-          <input id="cloudIncludePrompt" type="checkbox">
-          <span>公開並保存完整 prompt 到雲端 metadata</span>
-        </label>
-        <label class="tutorial-check" for="cloudAcknowledge">
-          <input id="cloudAcknowledge" type="checkbox">
-          <span>我了解此連結不是登入保護的私密作品</span>
-        </label>
-        <div id="cloudSaveStatus" class="form-status" aria-live="polite"></div>
-        <div id="cloudFallbackInfo" class="cloud-fallback-info" hidden>
-          <strong>雲端保存失敗時的本機備援</strong>
-          <span>作品仍保留在這台瀏覽器。你可以先下載圖片或匯出本機作品 JSON，之後再重試雲端保存。</span>
-          <div class="cloud-link-row">
-            <button id="downloadCloudFallbackImage" class="btn secondary" type="button">下載本機圖片</button>
-            <button id="exportCloudFallbackJson" class="btn secondary" type="button">匯出本機作品 JSON</button>
-          </div>
-        </div>
-        <div id="cloudShareInfo" class="cloud-link-info" hidden>
-          <strong>雲端分享連結</strong>
-          <span>此連結可開啟分享頁；預設不公開完整 prompt，除非你已勾選公開 prompt。</span>
-          <div class="cloud-link-row">
-            <input id="cloudShareUrl" class="text-input" type="text" readonly aria-label="雲端作品分享連結">
-            <button id="copyCloudShareUrl" class="btn secondary" type="button">複製分享連結</button>
-          </div>
-        </div>
-        <div id="cloudDeleteInfo" class="cloud-delete-info" hidden>
-          <strong>刪除連結已保存到本機歷史</strong>
-          <span>也可手動複製此連結；打開後可確認刪除，任何取得連結的人都可刪除此雲端作品。</span>
-          <div class="cloud-link-row">
-            <input id="cloudDeleteUrl" class="text-input" type="text" readonly aria-label="雲端作品刪除連結">
-            <button id="copyCloudDeleteUrl" class="btn secondary" type="button">複製刪除連結</button>
-          </div>
-        </div>
-        <div class="modal-actions">
-          <button id="cloudLocalOnly" class="btn secondary" type="button">只保留本機歷史</button>
-          <div class="modal-actions-main">
-            <button id="confirmCloudSave" class="btn primary" type="button">確認上傳並複製連結</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
     <div id="privacyPolicyModal" class="modal-backdrop" hidden>
       <div class="modal policy-modal" role="dialog" aria-modal="true" aria-labelledby="privacyPolicyTitle">
         <div class="modal-head">
@@ -828,19 +878,15 @@
             <p>為了整理中文描述與生成圖片，你輸入的描述可能會送到後端、Gemini／Gemma 提示詞服務、NVIDIA FLUX 或 Cloudflare Workers AI。實際使用哪個服務商取決於目前服務狀態與設定。</p>
           </section>
           <section>
-            <h3>本機歷史與雲端保存差異</h3>
-            <p>本機歷史、風格卡與專案會存在這台瀏覽器裡。只有你點「存到雲端」並確認後，圖片才會上傳到 Cloudflare R2；相關設定會另外分開保存。</p>
-          </section>
-          <section>
-            <h3>提示詞是否公開？</h3>
-            <p>雲端保存預設不公開、也不保存完整提示詞。只有你在保存前勾選「公開並保存完整提示詞」時，提示詞才會寫入雲端資料。</p>
+            <h3>本機資料如何保存</h3>
+            <p>本機歷史、風格卡、專案與教學偏好只會存在這台瀏覽器的 localStorage；本站介面不提供作品雲端保存功能。</p>
           </section>
           <section>
             <h3>Cookies、localStorage 與刪除資料</h3>
             <p>本站目前主要使用 localStorage 保存教學狀態、本機歷史、風格卡與專案；不需要登入 cookie。你可以在這裡清除本機資料。</p>
             <div class="local-data-row">
               <button id="clearLocalData" class="btn danger" type="button">清除本機資料</button>
-              <span>會清除這台瀏覽器中的歷史、風格卡、專案與教學偏好；雲端 R2 作品不會因此刪除。</span>
+              <span>會清除這台瀏覽器中的本機歷史、風格卡、專案與教學偏好。</span>
             </div>
           </section>
           <section>
@@ -927,18 +973,16 @@
 
   <script src="/static/tabs.js"></script>
   <script src="/static/generation-settings.js"></script>
+  <script src="/static/elapsed-timer.js"></script>
   <script src="/static/prompt-enhancer.js"></script>
   <script src="/static/failure-advice.js"></script>
   <script src="/static/app.js"></script>
-  <script src="/static/image-edit.js"></script>
+  <script src="/static/canvas-viewport.js"></script>
   <script src="/static/prompt-transform.js"></script>
   <script src="/static/idea-store.js"></script>
   <script src="/static/idea-cards.js"></script>
   <script src="/static/history-store.js"></script>
   <script src="/static/history-wall.js"></script>
-  <script src="/static/project-store.js"></script>
-  <script src="/static/project-board.js"></script>
-  <script src="/static/usage-dashboard.js"></script>
   <script src="/static/tutorial.js"></script>
   <script src="/static/prompt-pack.js"></script>
 </body>

@@ -28,7 +28,7 @@ def test_product_branding_seo_and_app_metadata_are_wired():
     assert 'name="twitter:description" content="輸入白話中文，自動生成簡報、社群、產品與角色圖片。"' in html
     assert '<span class="brand-name">Fluxi</span>' in html
     assert "打中文就出圖 · 免學提示詞 · 適合簡報和社群" in html
-    assert "Fluxi 中文 AI 圖片產生器 · 版本 v1.2.0" in html
+    assert "Fluxi 中文 AI 圖片產生器 · 版本 v1.4.0" in html
     assert '"name": "Fluxi 中文 AI 圖片產生器"' in manifest
     assert '"short_name": "Fluxi 生圖"' in manifest
     assert '"description": "輸入白話中文，自動生成簡報、社群、產品與角色圖片。"' in manifest
@@ -57,7 +57,7 @@ def test_showcase_images_have_explicit_dimensions():
     html = read_static("index.html")
     example_imgs = re.findall(r'<img[^>]*src="/static/examples/[^"]+\.webp"[^>]*>', html)
     example_imgs += re.findall(r'<img class="idea-thumb"[^>]*>', html)
-    assert len(example_imgs) >= 19
+    assert len(example_imgs) >= 13
     for tag in example_imgs:
         assert 'width="' in tag and 'height="' in tag, f"缺少尺寸：{tag[:80]}"
 
@@ -298,17 +298,25 @@ def test_showcase_images_are_wired_and_present():
     styles = read_static("styles.css")
     examples_dir = STATIC_DIR / "examples"
 
-    gallery_imgs = re.findall(r'<div class="example-thumb"><img[^>]*\ssrc="(/static/examples/[^"]+\.webp)"', html)
-    idea_imgs = re.findall(r'<img class="idea-thumb"[^>]*\ssrc="(/static/examples/[^"]+\.webp)"', html)
+    gallery_imgs = re.findall(r'<div class="example-thumb"><img[^>]*\sdata-src="(/static/examples/[^"]+\.webp)"', html)
+    idea_imgs = re.findall(r'<img class="idea-thumb"[^>]*\sdata-src="(/static/examples/[^"]+\.webp)"', html)
     assert len(gallery_imgs) >= 8
-    assert len(idea_imgs) >= 11
+    assert len(idea_imgs) == 5
 
     for src in gallery_imgs + idea_imgs:
         name = src.rsplit("/", 1)[-1]
         assert (examples_dir / name).exists(), f"缺少範例圖：{name}"
 
-    # 縮圖走 lazy-load，且 CSS 有對應 cover 樣式。
-    assert html.count('loading="lazy"') >= 19
+    # 縮圖用 IntersectionObserver 延後設定 src，避免瀏覽器原生 lazy-load
+    # 在首屏外預抓大量圖檔；CSS 仍保留固定尺寸與 cover 樣式。
+    assert html.count('loading="lazy"') >= 13
+    prompt_pack_js = read_static("prompt-pack.js")
+    assert "function observeLazyImages" in prompt_pack_js
+    assert "img.getAttribute('data-src')" in prompt_pack_js
+    assert "TRANSPARENT_PLACEHOLDER" in prompt_pack_js
+    assert "rootMargin: '100px 0px'" in prompt_pack_js
+    assert html.count('<button class="idea" type="button" data-prompt=') == 5
+    assert html.count("v1.4.0") == 2
     assert ".example-thumb img" in styles
     assert ".idea .idea-thumb" in styles
 
@@ -346,18 +354,36 @@ def test_main_generation_accessibility_is_wired():
     assert 'id="provider-pill" class="pill" title="服務狀態" role="status" aria-live="polite" aria-atomic="true"' in html
     assert 'id="demo-notice" class="demo-notice" role="status" aria-live="polite"' in html
     assert 'id="plainPromptHelp" class="visually-hidden"' in html
-    assert 'id="plainPrompt" rows="3" aria-describedby="plainPromptHelp status" aria-required="true"' in html
+    assert 'id="plainPrompt" rows="2" maxlength="2000" aria-describedby="plainPromptHelp status" aria-required="true"' in html
     assert 'id="promptStyle" aria-label="選擇圖片風格"' in html
     assert 'id="useCase" aria-label="選擇圖片用途"' in html
     assert 'id="go" class="btn primary hero-generate" type="button" aria-describedby="status"' in html
     assert 'id="transformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"' in html
     assert 'id="status" class="status" role="status" aria-live="polite" aria-atomic="true"' in html
-    assert 'id="stage" role="region" aria-label="生成結果" aria-live="polite" aria-busy="false" tabindex="-1"' in html
+    assert 'id="stage" role="region" aria-label="生成結果，可使用滑鼠滾輪縮放、拖曳平移，或鍵盤加減號縮放" aria-live="polite" aria-busy="false" tabindex="0"' in html
+    assert 'class="generation-workspace" id="generationWorkspace"' in html
+    assert 'id="generationControls" aria-label="生成設定面板"' in html
+    assert 'id="generationPreview" aria-label="圖片預覽工作區"' in html
+    assert 'id="workspaceDivider" class="workspace-divider" role="separator"' in html
+    assert '<h2>生成畫布</h2>' in html
+    assert 'id="canvasStatusbar"' in html
+    assert 'id="canvasPresetChip"' in html
+    assert 'id="openTutorialTopbar"' in html
+    assert 'class="result-heading" id="resultHeading"' in html
     assert 'id="mobileGenerateBar" class="mobile-generate-bar" role="region" aria-label="手機固定生成列"' in html
     assert 'id="mobileGenerateSummary" class="mobile-generate-summary" aria-live="polite"' in html
     assert 'id="mobileGenerate" class="btn primary" type="button" aria-describedby="mobileGenerateSummary status"' in html
     assert "function setFieldInvalid" in app_js
     assert "function setStageBusy" in app_js
+    assert "function revealResultStage" in app_js
+    assert "var scrollTarget = el('generationPreview') || el('resultHeading') || stage" in app_js
+    assert "function initGenerationWorkspace" in app_js
+    assert "function applyWorkspaceState" in app_js
+    assert "WORKSPACE_STORAGE_KEY = 'fluxiGenerationWorkspace.v1'" in app_js
+    assert "event.key === 'ArrowLeft'" in app_js
+    assert "event.key === 'ArrowRight'" in app_js
+    assert "setPreviewScaleMode('actual')" in app_js
+    assert "scrollTarget.scrollIntoView({ behavior: shouldFocus || reduceMotion ? 'auto' : 'smooth', block: 'start' })" in app_js
     assert "status.setAttribute('role', cls === 'fail' ? 'alert' : 'status')" in app_js
     assert "go.setAttribute('aria-disabled'" in app_js
     assert "go.setAttribute('aria-busy'" in app_js
@@ -365,7 +391,8 @@ def test_main_generation_accessibility_is_wired():
     assert "stage.setAttribute('aria-busy', on ? 'true' : 'false')" in app_js
     assert "field.setAttribute('aria-invalid', 'true')" in app_js
     assert "field.setAttribute('aria-errormessage', 'status')" in app_js
-    assert "node.setAttribute('role', 'alert')" in app_js
+    assert "stage.setAttribute('aria-live', cls === 'err' ? 'off' : 'polite')" in app_js
+    assert "node.setAttribute('role', 'alert')" not in app_js
     assert "spinner.setAttribute('role', 'status')" in app_js
     assert "img.alt = '生成完成的圖片'" in app_js
     assert "img.alt = '生成圖片變體第 ' + String(index + 1) + ' 張'" in app_js
@@ -377,6 +404,15 @@ def test_main_generation_accessibility_is_wired():
     assert 'textarea[aria-invalid="true"]' in styles
     assert 'button:focus-visible' in styles
     assert '.stage:focus-visible' in styles
+    assert '@media (min-width: 700px)' in styles
+    assert 'grid-template-columns: minmax(0, 1.25fr) minmax(250px, .75fr)' in styles
+    assert '.generation-workspace' in styles
+    assert 'grid-template-columns: minmax(320px, var(--control-panel-width)) 10px minmax(0, 1fr)' in styles
+    assert '.generation-workspace.is-controls-collapsed' in styles
+    assert 'body.invoke-inspired' not in styles
+    assert 'height: auto;' in styles
+    assert '.canvas-statusbar' in styles
+    assert '@media (max-width: 980px)' in styles
 
 
 def test_mobile_result_cards_can_swipe_and_save():
@@ -389,11 +425,16 @@ def test_mobile_result_cards_can_swipe_and_save():
     assert "grid.setAttribute('role', 'list')" in app_js
     assert "grid.setAttribute('aria-label', '多張生成結果，可左右滑動挑選')" in app_js
     assert "card.setAttribute('role', 'listitem')" in app_js
+    assert "viewer.className = 'batch-viewer'" in app_js
+    assert "mainImage.className = 'batch-main-image'" in app_js
+    assert "thumb.className = 'batch-thumb'" in app_js
     assert "stage.classList.add('has-batch-results')" in app_js
     assert "stage.classList.add('has-mobile-save')" in app_js
     assert "stage.appendChild(createMobileSaveHint())" in app_js
     assert ".mobile-save-hint" in styles
     assert ".stage.has-batch-results" in styles
+    assert ".batch-main-image-wrap" in styles
+    assert ".batch-thumb[aria-pressed=\"true\"]" in styles
     assert "scroll-snap-type: x mandatory" in styles
     assert "-webkit-overflow-scrolling: touch" in styles
     assert "scroll-snap-align: center" in styles
@@ -414,22 +455,19 @@ def test_task_050_frontend_error_scenarios_are_wired():
     idea_store_js = read_static("idea-store.js")
     network_e2e = read_repo("tests/e2e/network-interrupted-qa.mjs")
 
-    assert "if(generationInFlight)" in app_js
+    assert "if(generationInFlight || retrySecondsRemaining())" in app_js
     assert "return Promise.resolve()" in app_js
-    assert "function handleGenerateError" in app_js
-    assert "reportClientError(err, { type: 'generate_network' })" in app_js
-    assert "renderFailureAdvice('network')" in app_js
+    assert "function showGenerateFailure" in app_js
+    assert "reportClientError(originalError || new Error(message)" in app_js
+    assert "renderFailureAdvice(failure.adviceCode || failure.code || 'unknown'" in app_js
     assert "setGenerationState('error')" in app_js
     assert "setResultActionsVisible(false)" in app_js
-    assert "出錯了：' + err.message" in app_js
+    assert "renderStageText(stage, '出錯了：' + message" in app_js
     assert "網路連線中斷" in failure_advice_js
     assert "目前輸入內容仍保留，不需要重新輸入" in failure_advice_js
     assert "網路中斷顯示專用建議" in network_e2e
     assert "使用者中文輸入未遺失" in network_e2e
     assert "失敗時不建立歷史作品" in network_e2e
-    assert "雲端儲存失敗，本機歷史仍保留" in app_js
-    assert "雲端圖庫尚未啟用；作品仍保留在本機歷史" in app_js
-    assert "if(response.status === 503)" in app_js
     assert "確定要清空全部歷史記錄嗎？此動作無法復原。" in history_wall_js
     assert "已取消清空歷史" in history_wall_js
     assert "確定要刪除已選取的 " in history_wall_js
@@ -469,14 +507,27 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v12" in service_worker_js
-    # HTML 文件 network-first：確保部署後回訪者第一次載入即新版。
-    assert "isDocumentRequest" in service_worker_js
+    assert "ai-image-generator-pwa-v22" in service_worker_js
+    # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
+    assert "return cached || network;" not in service_worker_js
     assert "self.skipWaiting()" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
-    assert "'/static/usage-dashboard.js'" in service_worker_js
+    for lazy_script in [
+        "image-edit.js",
+        "project-store.js",
+        "project-board.js",
+        "usage-dashboard.js",
+    ]:
+        assert f"'/static/{lazy_script}'" not in service_worker_js
+
+
+def test_cloudflare_csp_allows_local_image_preview_blobs():
+    headers = read_repo("cloudflare/public/_headers")
+
+    assert "Content-Security-Policy:" in headers
+    assert "img-src 'self' data: blob:" in headers
 
 
 
@@ -522,6 +573,8 @@ def test_prompt_transform_ui_is_wired():
     assert 'for="plainPrompt"' in html
     assert 'id="promptStyle"' in html
     assert 'id="transformPrompt"' in html
+    assert 'id="completePrompt"' in html
+    assert "✨ 幫我補完整" in html
     assert 'class="prompt-shortcut-hint"' in html
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html
@@ -531,6 +584,14 @@ def test_prompt_transform_ui_is_wired():
     assert "plainPrompt" in transform_js
     assert "transformPrompt" in transform_js
     assert "completePrompt" in transform_js
+    assert "completePromptButton.addEventListener('click', completePrompt)" in transform_js
+    assert "finalPrompt.setAttribute('data-auto-source', source)" in transform_js
+    assert "finalPrompt.getAttribute('data-auto-source')" in transform_js
+    assert "finalPrompt.removeAttribute('data-auto-source')" in transform_js
+    assert "setCompletionBusy(completePromptButton, true)" in transform_js
+    assert "setCompletionBusy(completePromptButton, false)" in transform_js
+    assert "button.setAttribute('aria-busy', 'true')" in transform_js
+    assert "button.removeAttribute('aria-busy')" in transform_js
     assert "event.key === 'Tab'" not in transform_js
     assert "event.preventDefault()" in transform_js
     assert ".prompt-shortcut-hint" in styles
@@ -644,77 +705,25 @@ def test_iteration_ux_scripts_integrate_with_app():
     assert "thumbnail: typeof data.thumbnail === 'string' ? data.thumbnail : image" in app_js
 
 
-def test_cloud_save_privacy_modal_is_wired():
+def test_cloud_save_feature_is_removed():
     html = read_static("index.html")
     app_js = read_static("app.js")
     styles = read_static("styles.css")
 
-    assert 'id="cloudSaveModal"' in html
-    assert 'id="cloudIncludePrompt"' in html
-    assert 'id="cloudAcknowledge"' in html
-    assert 'id="cloudShareInfo"' in html
-    assert 'id="cloudShareUrl"' in html
-    assert 'id="copyCloudShareUrl"' in html
-    assert 'id="cloudFallbackInfo"' in html
-    assert 'id="downloadCloudFallbackImage"' in html
-    assert 'id="exportCloudFallbackJson"' in html
-    assert 'id="cloudDeleteInfo"' in html
-    assert 'id="cloudDeleteUrl"' in html
-    assert 'id="copyCloudDeleteUrl"' in html
-    assert 'id="confirmCloudSave"' in html
-    assert 'id="cloudLocalOnly"' in html
-    assert "Cloudflare R2" in html
-    assert "預設不公開也不保存完整 prompt" in html
-    assert "刪除連結已保存到本機歷史" in html
-    assert "雲端分享連結" in html
-    assert "雲端保存失敗時的本機備援" in html
-    assert "匯出本機作品 JSON" in html
-    assert "預設不公開完整 prompt" in html
-    assert "同步保存在本機歷史詳情" in html
-    assert "打開連結後可確認刪除 R2 圖片與 metadata" in html
-    assert "不是登入保護的私密作品" in html
-    assert "function openCloudSaveModal" in app_js
-    assert "function uploadToCloud" in app_js
-    assert "buildCloudSavePayload" in app_js
-    assert "promptPublic: includePrompt" in app_js
-    assert "if(includePrompt)" in app_js
-    assert "meta.prompt = lastGeneration.providerPrompt || lastGeneration.prompt || '';" in app_js
-    assert "cloudIncludePrompt').checked = false" in app_js
-    assert "cloudAcknowledge').checked = false" in app_js
-    assert "cloudAcknowledge') && !el('cloudAcknowledge').checked" in app_js
-    assert "請先勾選確認：此連結不是登入保護的私密作品。" in app_js
-    assert "function setCloudFallbackInfo" in app_js
-    assert "function downloadCloudFallbackImage" in app_js
-    assert "function exportCloudFallbackJson" in app_js
-    assert "function setCloudShareInfo" in app_js
-    assert "function setCloudDeleteInfo" in app_js
-    assert "function persistCloudSaveToHistory" in app_js
-    assert "function copyCloudShareUrl" in app_js
-    assert "function copyCloudDeleteUrl" in app_js
-    assert "data.deleteUrl" in app_js
-    assert "setCloudFallbackInfo(true)" in app_js
-    assert "exportReason = 'cloud_save_fallback'" in app_js
-    assert "已匯出本機作品 JSON；檔案包含 prompt 與生成設定" in app_js
-    assert "downloadCloudFallbackImage').addEventListener('click', downloadCloudFallbackImage)" in app_js
-    assert "exportCloudFallbackJson').addEventListener('click', exportCloudFallbackJson)" in app_js
-    assert "setCloudShareInfo(url)" in app_js
-    assert "history-record-updated" in app_js
-    assert "cloudShareUrl: shareUrl || ''" in app_js
-    assert "cloudDeleteUrl: deleteUrl || ''" in app_js
-    assert "copyCloudShareUrl').addEventListener('click', copyCloudShareUrl)" in app_js
-    assert "copyCloudDeleteUrl').addEventListener('click', copyCloudDeleteUrl)" in app_js
-    assert "data.shareUrl" in app_js
-    assert "分享連結已複製" in app_js
-    assert "刪除連結已寫入本機歷史" in app_js
-    assert "打開後可確認刪除" in app_js
-    assert "本機歷史仍保留" in app_js
-    assert "metadata 已分開保存" in app_js
-    assert ".cloud-save-modal" in styles
-    assert ".cloud-save-copy" in styles
-    assert ".cloud-fallback-info" in styles
-    assert ".cloud-link-info" in styles
-    assert ".cloud-delete-info" in styles
-    assert ".cloud-link-row" in styles
+    assert 'id="saveToCloud"' not in html
+    assert 'id="cloudSaveModal"' not in html
+    assert "☁️ 存到雲端" not in html
+    assert "function openCloudSaveModal" not in app_js
+    assert "function uploadToCloud" not in app_js
+    assert "function saveToCloud" not in app_js
+    assert "fetch('/gallery'" not in app_js
+    assert "galleryToken:" not in app_js
+    assert ".cloud-save-modal" not in styles
+    assert ".cloud-save-copy" not in styles
+    assert ".cloud-fallback-info" not in styles
+    assert ".cloud-link-info" not in styles
+    assert ".cloud-delete-info" not in styles
+    assert ".cloud-link-row" not in styles
 
 
 def test_turnstile_generation_gate_is_wired():
@@ -743,15 +752,21 @@ def test_reference_image_modes_and_edit_stubs_are_wired():
     image_edit_js = read_static("image-edit.js")
     styles = read_static("styles.css")
 
-    assert "參考圖與 AI 改圖" in html
-    assert "上傳 1–4 張參考圖，標示用途後一起送出" in html
+    assert 'class="edit-workspace"' in html
+    assert "參考圖與改圖設定" in html
+    assert "拖曳圖片到這裡" in html
+    assert 'id="editPreviewBadge"' in html
+    assert 'class="stage edit-stage" id="editStage"' in html
     assert 'data-edit-mode="general"' in html
     assert 'data-edit-mode="character"' in html
     assert 'data-edit-mode="product"' in html
-    assert "至少一張角色參考圖；可保持角色特徵但不能保證完全一致。" in html
-    assert "點此選擇參考圖（最多 4 張，支援角色／產品／風格／構圖）" in html
+    assert "保留角色核心外觀與辨識特徵。" in html
+    assert "自動縮至模型可用尺寸" in html
     assert 'id="editProductBackground"' in html
     assert 'id="editProductLighting"' in html
+    assert 'id="editProductControls"' in html
+    assert 'id="editReferenceCount"' in html
+    assert 'id="editPromptLabel"' in html
     assert "乾淨棚拍背景" in html
     assert "明亮商業光" in html
     # 樁按鈕（即將推出）已於 2026-07 溫暖創作風改版移除，不應再出現空承諾 UI。
@@ -765,20 +780,81 @@ def test_reference_image_modes_and_edit_stubs_are_wired():
     assert "moveUp.className = 'edit-thumb-move edit-thumb-up'" in image_edit_js
     assert "moveDown.className = 'edit-thumb-move edit-thumb-down'" in image_edit_js
     assert "function setEditMode" in image_edit_js
+    assert "productControls.hidden = editMode !== 'product'" in image_edit_js
+    assert "referenceCount.textContent" in image_edit_js
     assert "角色一致模式需要至少一張標成「角色」的參考圖" in image_edit_js
     assert "產品照模式需要至少一張標成「產品」的參考圖" in image_edit_js
     assert "composeEditPrompt(prompt, selected" in image_edit_js
 
     assert ".edit-mode-grid" in styles
     assert ".edit-mode-card" in styles
+    assert ".edit-workspace" in styles
+    assert ".edit-preview-panel" in styles
+    assert ".edit-preview-badge" in styles
+    assert ".edit-empty-state" in styles
     assert ".edit-thumb-role" in styles
     assert ".edit-thumb-move" in styles
     assert ".edit-product-controls" in styles
-    assert ".edit-stub-tools" in styles
+    assert ".edit-stub-tools" not in styles
     assert re.search(
         r"@media \(max-width: 760px\)\s*\{[\s\S]*?\.edit-mode-grid,\s*\.edit-product-controls\s*\{\s*grid-template-columns:\s*1fr",
         styles,
     )
+
+
+def test_workspace_canvas_viewport_is_wired_without_duplicate_library():
+    html = read_static("index.html")
+    history_wall_js = read_static("history-wall.js")
+    canvas_viewport_js = read_static("canvas-viewport.js")
+    service_worker_js = read_static("service-worker.js")
+    styles = read_static("styles.css")
+
+    assert 'class="invoke-library' not in html
+    assert 'class="invoke-inspired"' not in html
+    assert "function renderHistoryLibrary" not in history_wall_js
+    assert "function applyLibraryRecord" not in history_wall_js
+    assert ".invoke-history-grid" not in styles
+    assert ".invoke-history-card" not in styles
+
+    assert 'id="canvasZoomOut"' in html
+    assert 'id="canvasZoomValue"' in html
+    assert 'id="canvasZoomIn"' in html
+    assert 'src="/static/canvas-viewport.js"' in html
+    assert "function clampScale" in canvas_viewport_js
+    assert "stage.addEventListener('wheel'" in canvas_viewport_js
+    assert "stage.addEventListener('pointerdown'" in canvas_viewport_js
+    assert "stage.addEventListener('keydown'" in canvas_viewport_js
+    assert "function nextStepScale" in canvas_viewport_js
+    assert "translate(' + String(offsetX)" in canvas_viewport_js
+    assert 'class="canvas-interaction-hint"' in html
+    assert ".canvas-zoom-controls" in styles
+    assert ".stage.is-canvas-interactive" in styles
+    assert "'/static/canvas-viewport.js'" in service_worker_js
+
+
+def test_secondary_feature_scripts_are_loaded_on_demand():
+    html = read_static("index.html")
+    app_js = read_static("app.js")
+    history_wall_js = read_static("history-wall.js")
+    idea_cards_js = read_static("idea-cards.js")
+    tabs_js = read_static("tabs.js")
+    project_board_js = read_static("project-board.js")
+
+    for script in [
+        "image-edit.js",
+        "project-store.js",
+        "project-board.js",
+        "usage-dashboard.js",
+    ]:
+        assert f'src="/static/{script}"' not in html
+        assert f"'/static/{script}'" in tabs_js
+    assert "function loadFeatureScripts" in tabs_js
+    assert "getProviderHealth" in tabs_js
+    assert "lastProviderHealth" in app_js
+    assert "root.ImageFeatureLoader.load('projects')" in idea_cards_js
+    assert "root.ImageFeatureLoader.load('history')" in history_wall_js
+    assert "'aiImageProjects.v1'" in app_js
+    assert "document.readyState === 'loading'" in project_board_js
 
 
 def test_usage_dashboard_ui_is_wired():
@@ -826,7 +902,7 @@ def test_usage_dashboard_ui_is_wired():
         "usageByError",
     ]:
         assert f'id="{metric_id}"' in html
-    assert 'src="/static/usage-dashboard.js"' in html
+    assert "'/static/usage-dashboard.js'" in read_static("tabs.js")
 
     assert "fetch('/api/usage?date='" in usage_js
     assert "function renderUsage" in usage_js
@@ -931,7 +1007,7 @@ def test_privacy_and_license_policy_modals_are_wired():
     assert 'id="licensePolicyModal"' in html
     assert 'id="clearLocalData"' in html
     assert "你的描述與圖片會送去哪裡" in html
-    assert "本機歷史與雲端保存差異" in html
+    assert "本機資料如何保存" in html
     assert "本站不主動拿你的描述或圖片訓練自有模型" in html
     assert "畫質與服務商限制" in html
     assert "生成圖能否商用" in html
@@ -946,7 +1022,7 @@ def test_privacy_and_license_policy_modals_are_wired():
     assert "ImageProjectStore.STORAGE_KEY" in app_js
     assert "aiImageTutorialSeen.v1" in app_js
     assert "window.localStorage.removeItem" in app_js
-    assert "雲端作品不會因此刪除" in app_js
+    assert "本機歷史、風格卡、專案與教學偏好" in html
     assert ".footer-link" in styles
     assert ".policy-modal" in styles
     assert ".policy-copy" in styles
@@ -973,6 +1049,14 @@ def test_agent_mode_ui_and_flow_are_wired():
     assert "function analyzeIntentForAgent" in app_js
     assert "function prepareAgentFlow" in app_js
     assert "function syncGenerationModeUi" in app_js
+    assert "setAgentStep('complete', 'running', '生成前將補足視覺細節')" in app_js
+    assert "setAgentStep('complete', 'success', '已依風格補足視覺細節')" in app_js
+    assert "setAgentStep('complete', 'error', error.message)" in app_js
+    assert "finalPromptField.setAttribute('data-auto-source', source)" in app_js
+    assert "function clearAutoProviderPrompt" in app_js
+    assert "autoSource !== el('plainPrompt').value.trim()" in app_js
+    assert "clearAutoProviderPrompt();" in app_js
+    assert "el('promptStyle').addEventListener('change', function()" in app_js
     assert "setAgentStep('generate', 'running'" in app_js
     assert "mode: generationMode === 'agent' ? 'agent' : 'normal'" in app_js
     assert "qaReport: generationMode === 'agent'" in app_js
@@ -1151,7 +1235,8 @@ def test_app_validates_image_url_and_renders_errors_as_text():
     assert "image.indexOf('http://') === 0" in app_js
     assert "image.indexOf('https://') === 0" in app_js
     assert "stage.innerHTML = '<span class=\"err\">出錯了：" not in app_js
-    assert "textContent = '出錯了：' + err.message" in app_js
+    assert "node.textContent = text" in app_js
+    assert "renderStageText(stage, '出錯了：' + message" in app_js
 
 
 def test_prompt_enhancer_and_failure_advice_are_wired():
@@ -1167,6 +1252,8 @@ def test_prompt_enhancer_and_failure_advice_are_wired():
     assert 'src="/static/prompt-enhancer.js"' in html
     assert 'src="/static/failure-advice.js"' in html
     assert 'PromptEnhancer.applyEffect' in app_js
+    assert "result.provider === 'gemini' ? 'Gemini' : '離線強化'" in app_js
+    assert "warnings: data.warnings || []" in enhancer_js
     assert "'/prompt/enhance'" in enhancer_js
     assert 'FailureAdvice.getAdvice' in app_js
     assert 'renderFailureAdvice' in app_js
@@ -1180,6 +1267,8 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
     production_js_paths = sorted(path for path in STATIC_DIR.glob("*.js"))
     assert {path.name for path in production_js_paths} == {
         "app.js",
+        "canvas-viewport.js",
+        "elapsed-timer.js",
         "failure-advice.js",
         "generation-settings.js",
         "hf-ideas.js",
@@ -1220,12 +1309,13 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
     )
 
 
-def test_app_does_not_wire_frontend_cooldown_or_retry_after_flow():
+def test_app_honors_backend_retry_after_without_legacy_cooldown_names():
     app_js = read_static("app.js")
 
     assert "cooldownTimer" not in app_js
     assert "startCooldown" not in app_js
-    assert "retry_after" not in app_js
+    assert "retry_after" in app_js
+    assert "retry-after" in app_js.lower()
 
 
 
@@ -1261,10 +1351,8 @@ def test_project_board_ui_and_scripts_are_wired():
     assert 'id="projectCardList"' in html
     assert 'id="historyProjectSelect"' in html
     assert 'id="addHistoryToProject"' in html
-    assert 'src="/static/project-store.js"' in html
-    assert 'src="/static/project-board.js"' in html
-    assert html.index('src="/static/history-wall.js"') < html.index('src="/static/project-store.js"')
-    assert html.index('src="/static/project-store.js"') < html.index('src="/static/project-board.js"')
+    assert "'/static/project-store.js'" in read_static("tabs.js")
+    assert "'/static/project-board.js'" in read_static("tabs.js")
     assert "ImageProjectCollection" in project_store_js
     assert "normalizeProject" in project_store_js
     assert "addRecordToProject" in project_store_js

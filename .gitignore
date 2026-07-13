@@ -18,3 +18,4 @@ dist/
 .antigravitycli/
 .mypy_cache/
 .ruff_cache/
+.gstack/

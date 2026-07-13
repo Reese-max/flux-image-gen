@@ -192,11 +192,27 @@
     addToProject.className = 'card-edit card-project';
     addToProject.textContent = '加入專案';
     addToProject.addEventListener('click', function () {
-      if (!root.ProjectBoard || typeof root.ProjectBoard.addPromptCardToProject !== 'function') {
+      function addCard() {
+        var added;
+        if (!root.ProjectBoard || typeof root.ProjectBoard.addPromptCardToProject !== 'function') {
+          setGenerationStatus('專案功能尚未就緒', 'fail');
+          return;
+        }
+        added = root.ProjectBoard.addPromptCardToProject(card.id);
+        setGenerationStatus(added ? '已加入專案' : '請先到專案分頁建立或選取專案', added ? 'done' : 'warn');
+      }
+      if (root.ProjectBoard && typeof root.ProjectBoard.addPromptCardToProject === 'function') {
+        addCard();
+        return;
+      }
+      if (!root.ImageFeatureLoader || typeof root.ImageFeatureLoader.load !== 'function') {
         setGenerationStatus('專案功能尚未就緒', 'fail');
         return;
       }
-      root.ProjectBoard.addPromptCardToProject(card.id);
+      setGenerationStatus('正在載入專案功能…', 'busy');
+      root.ImageFeatureLoader.load('projects').then(addCard).catch(function () {
+        setGenerationStatus('專案功能載入失敗，請重新整理後再試', 'fail');
+      });
     });
 
     button.appendChild(emoji);

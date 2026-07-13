@@ -3,8 +3,11 @@
 import {
   CJK_PATTERN,
   CHINESE_FILLER_TERMS,
+  ENHANCE_FALLBACK_DEFAULT_MODIFIER,
+  ENHANCE_FALLBACK_RULES,
   GEMINI_COMPLETE_DEFAULT_MODEL,
-  GEMINI_COMPLETION_RESPONSE_SCHEMA,
+  GEMINI_COMPLETE_MAX_ATTEMPTS,
+  GEMINI_COMPLETE_TIMEOUT_MS,
   GEMINI_COMPLETION_STYLE_HINTS,
   GEMINI_COMPLETION_SYSTEM_INSTRUCTION,
   GEMINI_DEFAULT_BASE_URL,
@@ -32,7 +35,7 @@ function buildGeminiUserText(source, style) {
 
 function buildGeminiCompletionUserText(source, style) {
   const hint = GEMINI_COMPLETION_STYLE_HINTS[style] || GEMINI_COMPLETION_STYLE_HINTS.auto;
-  return `${hint}\n\n原始描述：\n${String(source).trim()}`;
+  return `${hint}\n\n原始描述：\n${String(source).trim()}\n\n請立即只輸出補完整後的一段繁體中文描述，不要分析、翻譯或列點。`;
 }
 
 function buildGeminiEnhanceUserText(prompt, effect) {
@@ -104,6 +107,29 @@ function parseGeminiResponse(data) {
   return text;
 }
 
+function parseGeminiPlainTextResponse(data) {
+  const feedback = (data && data.promptFeedback) || {};
+  if (feedback.blockReason) throw new Error(`gemini blocked: ${feedback.blockReason}`);
+  const candidates = (data && data.candidates) || [];
+  if (!candidates.length) throw new Error("gemini returned no candidates");
+  const parts = ((candidates[0] && candidates[0].content) || {}).parts || [];
+  let text = stripWrapping(parts.map((p) => (p && p.text) || "").join(""));
+  if (!text) throw new Error("gemini returned empty text");
+  const cjkCount = (text.match(/[\u3400-\u9fff]/g) || []).length;
+  if (
+    /[\r\n]/.test(text) ||
+    /^\s*[*#-]\s/.test(text) ||
+    /\b(?:Input|Task|Constraints|Subject|Output|Original Description)\b/i.test(text) ||
+    cjkCount < Math.max(12, Math.floor(text.length * 0.45))
+  ) {
+    throw new Error("gemini returned non-plain Chinese completion");
+  }
+  if (text.length > MAX_PROMPT_LENGTH) {
+    text = text.slice(0, MAX_PROMPT_LENGTH).replace(/[，。,.；;\s]+$/g, "");
+  }
+  return text;
+}
+
 export async function geminiTransformPrompt(source, style, env) {
   const apiKey = String(env.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new Error("missing GEMINI_API_KEY");
@@ -163,21 +189,21 @@ export async function geminiCompletePrompt(source, style, env) {
     system_instruction: { parts: [{ text: GEMINI_COMPLETION_SYSTEM_INSTRUCTION }] },
     contents: [{ role: "user", parts: [{ text: buildGeminiCompletionUserText(source, style) }] }],
     generationConfig: {
-      temperature: 0.35,
-      maxOutputTokens: 450,
-      responseMimeType: "application/json",
-      responseSchema: GEMINI_COMPLETION_RESPONSE_SCHEMA,
+      temperature: 0.2,
+      maxOutputTokens: 300,
+      responseMimeType: "text/plain",
     },
   };
 
   let lastError;
-  for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < GEMINI_COMPLETE_MAX_ATTEMPTS; attempt++) {
     let resp;
     try {
       resp = await fetch(url, {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(GEMINI_COMPLETE_TIMEOUT_MS),
       });
     } catch (e) {
       lastError = new Error(`gemini completion network error: ${e}`);
@@ -195,7 +221,7 @@ export async function geminiCompletePrompt(source, style, env) {
     } catch {
       throw new Error("gemini completion returned non-JSON response");
     }
-    return parseGeminiResponse(data);
+    return parseGeminiPlainTextResponse(data);
   }
   throw lastError || new Error("gemini completion request failed");
 }
@@ -248,16 +274,48 @@ async function geminiEnhancePrompt(prompt, effect, env) {
   throw lastError || new Error("gemini enhance request failed");
 }
 
-// Effect optimisation is Gemini-only (no offline fallback): describe an effect in
-// Chinese and the model rewrites the English prompt to incorporate it.
+function ruleBasedEnhancePrompt(prompt, effect) {
+  const lowered = effect.toLowerCase();
+  const modifiers = ENHANCE_FALLBACK_RULES
+    .filter((rule) => rule.keywords.some((keyword) => lowered.includes(String(keyword).toLowerCase())))
+    .map((rule) => rule.modifier);
+  const selected = modifiers.length ? modifiers : [ENHANCE_FALLBACK_DEFAULT_MODIFIER];
+  const base = prompt.replace(/[ .]+$/g, "");
+  let refined = `${base}. Add ${selected.join("; ")} while preserving the original subject, composition, and concrete details.`;
+  if (refined.length > MAX_PROMPT_LENGTH) {
+    refined = `${refined.slice(0, MAX_PROMPT_LENGTH).replace(/[ ,.;]+$/g, "")}.`;
+  }
+  return refined;
+}
+
+// Effect optimisation prefers Gemini and remains usable through local rules when
+// the key or provider is unavailable.
 export async function enhancePrompt(prompt, effect, env = {}) {
   const base = String(prompt || "").trim();
   if (!base) throw new HttpError("請先輸入提示詞", 400, "bad_request");
   const wanted = String(effect || "").trim();
   if (!wanted) throw new HttpError("請說明想要的效果", 400, "bad_request");
 
-  const refined = await geminiEnhancePrompt(base, wanted, env);
-  return { prompt: refined, provider: "gemini", effect: wanted };
+  if (String(env.GEMINI_API_KEY || "").trim()) {
+    try {
+      const refined = await geminiEnhancePrompt(base, wanted, env);
+      return { prompt: refined, provider: "gemini", effect: wanted, warnings: [] };
+    } catch (error) {
+      console.error(JSON.stringify({ event: "gemini_enhance_failed", error: String(error) }));
+      return {
+        prompt: ruleBasedEnhancePrompt(base, wanted),
+        provider: "rule_based",
+        effect: wanted,
+        warnings: ["Gemini 暫時不可用，已改用離線效果強化"],
+      };
+    }
+  }
+  return {
+    prompt: ruleBasedEnhancePrompt(base, wanted),
+    provider: "rule_based",
+    effect: wanted,
+    warnings: ["未設定 Gemini，已使用離線效果強化"],
+  };
 }
 
 export function normalizeStyle(style) {
@@ -364,12 +422,37 @@ export async function completePlainPrompt(source, style = "auto", env = {}) {
 
   const normalizedStyle = normalizeStyle(style);
   const resolvedStyle = resolveStyle(sourceText, normalizedStyle);
-  const prompt = await geminiCompletePrompt(sourceText, resolvedStyle, env);
+  const fallbackDetails = {
+    cute: "柔和明亮的色彩，圓潤可愛的造型，溫暖療癒的氛圍",
+    cinematic: "具有層次的電影光影，明確鏡頭構圖，背景帶有景深與情緒氛圍",
+    realistic: "自然可信的光線與材質，寫實攝影質感，細節清楚",
+    anime: "乾淨俐落的動漫線條，鮮明角色設計，色彩活潑",
+    product: "主體置中清楚，乾淨商業背景，細緻棚拍光線與材質反射",
+    auto: "主體清楚，構圖完整，背景、光線與色調協調，畫面細節自然",
+  };
+  let prompt;
+  let provider = "rule_based";
+  let warnings = ["未設定 Gemini，已使用離線補全"];
+  if (String(env.GEMINI_API_KEY || "").trim()) {
+    try {
+      prompt = await geminiCompletePrompt(sourceText, resolvedStyle, env);
+      provider = "gemini";
+      warnings = [];
+    } catch (error) {
+      console.error(JSON.stringify({ event: "gemini_complete_failed", error: String(error) }));
+      warnings = ["Gemma 暫時不可用，已改用離線補全"];
+    }
+  }
+  if (!prompt) {
+    const base = sourceText.replace(/[，。,.！!？?；;\s]+$/g, "");
+    prompt = `${base}，${fallbackDetails[resolvedStyle] || fallbackDetails.auto}。`;
+    if (prompt.length > 180) prompt = `${prompt.slice(0, 179).replace(/[，。,.；;\s]+$/g, "")}。`;
+  }
   return {
     source: sourceText,
     prompt,
-    provider: "gemini",
-    warnings: [],
+    provider,
+    warnings,
     style: resolvedStyle,
   };
 }

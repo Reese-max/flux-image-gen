@@ -17,6 +17,7 @@
     "qa:a11y": "node ../tests/e2e/accessibility-keyboard-qa.mjs"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "playwright": "^1.61.1",
     "wrangler": "^4.104.0"
   }

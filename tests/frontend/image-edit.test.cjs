@@ -130,3 +130,22 @@ test('mapEditResponse treats a 200 without an image as an error', () => {
   assert.equal(r.image, null);
   assert.match(r.error, /HTTP 200/);
 });
+
+test('editAvailabilityFromHealth disables editing only when Workers AI is explicitly unavailable', () => {
+  const E = loadImageEdit();
+  const unavailable = E.editAvailabilityFromHealth({ providers: { workersAI: false } });
+  const available = E.editAvailabilityFromHealth({ providers: { workersAI: true } });
+  const unknown = E.editAvailabilityFromHealth({ providerStatus: 'offline' });
+
+  assert.equal(unavailable.available, false);
+  assert.match(unavailable.message, /尚未啟用 Workers AI 改圖/);
+  assert.equal(available.available, true);
+  assert.equal(available.message, '');
+  assert.equal(unknown.available, null);
+});
+
+test('editAvailabilityFromHealth supports Worker providerList health responses', () => {
+  const E = loadImageEdit();
+  assert.equal(E.editAvailabilityFromHealth({ providerList: ['workers-ai'] }).available, true);
+  assert.equal(E.editAvailabilityFromHealth({ providerList: ['nvidia'] }).available, false);
+});

@@ -59,12 +59,15 @@ class Settings:
     )
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
-    gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-26b-a4b-it")
+    gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-31b-it")
     gemini_vision_model: str = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
     gemini_base_url: str = os.getenv(
         "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
     )
     prompt_llm_timeout_seconds: float = _float_env("PROMPT_LLM_TIMEOUT_SECONDS", 20.0)
+    gemini_complete_timeout_seconds: float = _float_env(
+        "GEMINI_COMPLETE_TIMEOUT_SECONDS", 5.0
+    )
     vision_qa_enabled: bool = _bool_env("VISION_QA_ENABLED", False)
     # Secondary LLM fallback via the local Codex proxy (OpenAI-compatible). Used only
     # when Gemini fails, before dropping to the offline rule engine. Empty key = off.

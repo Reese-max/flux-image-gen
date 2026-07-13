@@ -34,7 +34,7 @@
 | TASK-005 進階設定折疊 | 已覆蓋 | `advancedSettings` details、模型 / seed / negative / provider prompt / 尺寸 / 張數 | 無。 |
 | TASK-006 固定生成按鈕 | 已覆蓋 | `mobileGenerateBar`、桌機浮動列 CSS、loading / retry 文案、`tests/e2e/mobile-generation-qa.mjs` | 仍建議真機滑動抽驗。 |
 | TASK-008 中文一鍵生成 | 已覆蓋 | 中文 prompt 直接 compile + generate、provider prompt 預設隱藏、保留 original / final prompt | 真實 FLUX prompt 效果需人工看圖。 |
-| TASK-011 中文一鍵強化按鈕 | 已覆蓋 | `app/static/app.js` prompt transform buttons、靜態測試 | 無。 |
+| TASK-011 中文一鍵強化按鈕 | 已覆蓋 | 首屏「幫我補完整」明確呼叫 `/prompt/complete`，進階區提供提示詞轉換與強化按鈕；靜態測試覆蓋事件綁定與忙碌狀態 | 無。 |
 
 ## Milestone 3：中文原生 Prompt 流程
 
@@ -42,7 +42,7 @@
 |---|---|---|---|
 | TASK-009 Prompt Compiler | 已覆蓋 | `app/image_service.py` prompt compile、`cloudflare/src/image.js` transform、prompt tests | 規則式 compiler，不等同大型語言模型理解。 |
 | TASK-010 Prompt 品質提示 | 已覆蓋 | prompt warning UI、矛盾 / 太短 / 文字風險提示測試 | 高階語義矛盾仍可能漏判。 |
-| TASK-011 一鍵強化 | 已覆蓋 | 同 Milestone 2 TASK-011 | 無。 |
+| TASK-011 一鍵強化 | 已覆蓋 | 同 Milestone 2 TASK-011；中文補全與效果強化皆有 Gemini 優先、離線規則 fallback，缺少外部金鑰時仍可操作 | 真實 Gemini 改寫品質仍需部署抽驗。 |
 
 ## Milestone 4：用途導向模型與尺寸
 
@@ -59,7 +59,7 @@
 | TASK-015 模式切換 | 已覆蓋 | normal / agent mode toggle、agent generation flow tests | 無。 |
 | TASK-016 AgentStep | 已覆蓋 | `agentSteps` UI、pending / running / success / error 狀態 | 無。 |
 | TASK-017 需求解析 Agent | 部分覆蓋 | `IntentAnalysis` 類型資料、規則式解析、metadata 保存 | 目前是規則式需求解析，不是真正多輪 reasoning agent。 |
-| TASK-018 自動補全 Agent | 部分覆蓋 | expanded prompt / negative prompt 補全 | 需以真實出圖品質回饋持續調整。 |
+| TASK-018 自動補全 Agent | 已覆蓋、需品質抽驗 | 智慧體先標示待補細節，中文轉 provider prompt 成功後才把「補全畫面」標為完成；失敗時 AgentStep 明確標錯，避免提前宣稱成功 | 需以真實出圖品質回饋持續調整。 |
 | TASK-019 自動選模型與尺寸 Agent | 已覆蓋 | 用途推論、模型 / 尺寸推薦理由 metadata | 無。 |
 | TASK-020 智慧體多張生成 | 已覆蓋 | batch generate、每張 metadata、失敗不清空成功結果、取消 UI | 真實多張成本與 timeout 需部署驗證。 |
 
@@ -96,13 +96,13 @@
 | TASK-032 參考圖上傳入口 | 已覆蓋 | `image-edit.js`、參考圖數量 / 格式 / 排序 / 移除測試 | 真實 provider image-to-image 支援需部署驗證。 |
 | TASK-033 角色一致模式 | 部分覆蓋 | UI 要求參考圖、metadata 保存、提示不可保證完全一致 | 缺少真正角色一致模型評估。 |
 | TASK-034 產品照模式 | 部分覆蓋 | 產品照模式 UI、背景 / 光線 / 尺寸、產品 metadata | 產品一致性評估仍偏規則式或文案。 |
-| TASK-035 局部編輯預留介面 | 已覆蓋 | inpainting / 換背景 / 擴圖 / 去背 / 加文字 / 比例 stub 顯示「即將推出」 | 無。 |
+| TASK-035 局部編輯預留介面 | 已覆蓋（以不誤導方式收斂） | 已移除無實作的 inpainting / 換背景 / 擴圖 / 去背 / 加文字 / 比例 stub；介面只保留可實際送出的通用、角色一致與產品照模式，`tests/test_static_ui.py` 驗證不再出現「即將推出」空承諾 | 若日後接入真正局部編輯模型，再以完整可用流程重新加入。 |
 
 ## Milestone 10：安全、成本、濫用防護
 
 | Task | 狀態 | 覆蓋證據 | 剩餘風險 |
 |---|---|---|---|
-| TASK-036 Rate Limit | 部分覆蓋、需部署驗證 | `app/rate_limit.py`、Worker rate limiter binding、rate limit tests | 無登入系統，因此已登入每日額度尚未實作。 |
+| TASK-036 Rate Limit | 部分覆蓋、需部署驗證 | `app/rate_limit.py` 與 Worker rate limiter binding 同步保護生成、批次、改圖及可能消耗 Gemini 配額的提示詞轉換／補全／強化路由；rate limit tests | 無登入系統，因此已登入每日額度尚未實作。 |
 | TASK-037 Turnstile | 部分覆蓋、需部署驗證 | `app/turnstile.py`、Worker Turnstile 驗證、`TURNSTILE_REQUIRED` checklist | 需要 Cloudflare site key / secret 實測。 |
 | TASK-038 API Key 安全 | 已覆蓋 | 同 Milestone 1 TASK-038 | Cloudflare production logs 仍需部署後抽查。 |
 | TASK-039 成本 Dashboard | 部分覆蓋 | `usage_metrics.py`、`usage-dashboard.js`、Worker usage logs | 成本估算需依實際 provider 價格校準。 |

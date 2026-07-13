@@ -6,8 +6,7 @@ from app.image_service import ProviderError
 from app.main import app
 from app.prompt_complete import PromptCompleteResult
 from app.prompt_enhance import PromptEnhanceResult
-from app.prompt_llm import PromptLLMError
-from app.rate_limit import reset_rate_limiter
+from app.rate_limit import RateLimitDecision, reset_rate_limiter
 from app.settings import Settings
 from app.usage_metrics import reset_usage_metrics
 from fastapi.testclient import TestClient
@@ -386,6 +385,25 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(body["turnstile"], {"required": True, "siteKey": "public-site"})
         self.assertNotIn("secret", str(body))
 
+    def test_health_offline_message_does_not_expose_environment_variable(self):
+        settings = Settings(image_provider="nvidia", nvidia_api_key="")
+        with patch("app.main.get_settings", return_value=settings):
+            response = self.client.get("/api/health")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["message"], "圖片服務尚未連接")
+        self.assertNotIn("NVIDIA_API_KEY", response.text)
+
+    def test_client_error_endpoint_accepts_bounded_report(self):
+        response = self.client.post(
+            "/client-error",
+            json={"type": "generate_backend", "message": "HTTP 503", "requestId": "req-123"},
+        )
+        self.assertEqual(response.status_code, 204)
+
+    def test_client_error_endpoint_rejects_oversized_message(self):
+        response = self.client.post("/client-error", json={"message": "x" * 501})
+        self.assertEqual(response.status_code, 422)
+
     def test_generate_batch_rate_limit_counts_requested_images(self):
         settings = Settings(
             image_provider="nvidia",
@@ -520,15 +538,43 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["code"], "bad_request")
 
-    def test_prompt_enhance_route_requires_gemini_key(self):
+    def test_prompt_enhance_route_returns_offline_fallback_without_gemini_key(self):
         with patch("app.main.enhance_prompt") as mocked_enhance:
-            mocked_enhance.side_effect = PromptLLMError("missing GEMINI_API_KEY")
+            mocked_enhance.return_value = PromptEnhanceResult(
+                provider="rule_based",
+                prompt="a cat. Add a dreamy ethereal atmosphere while preserving the original subject.",
+                effect="更夢幻",
+                warnings=("未設定 Gemini，已使用離線效果強化",),
+            )
             response = self.client.post(
                 "/prompt/enhance",
                 json={"prompt": "a cat on a windowsill", "effect": "更夢幻"},
             )
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["code"], "missing_api_key")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["provider"], "rule_based")
+        self.assertIn("離線效果強化", response.json()["warnings"][0])
+
+    def test_paid_prompt_routes_apply_backend_rate_limit(self):
+        blocked = RateLimitDecision(
+            allowed=False,
+            retry_after=60,
+            limit=1,
+            remaining=0,
+            window_seconds=60,
+        )
+        cases = (
+            ("/prompt/transform", {"source": "月球柴犬", "style": "cute"}, "prompt_transform"),
+            ("/prompt/complete", {"source": "女生雨中", "style": "cinematic"}, "prompt_complete"),
+            ("/prompt/enhance", {"prompt": "a cat", "effect": "更夢幻"}, "prompt_enhance"),
+        )
+        with patch("app.main.check_generation_rate_limit", return_value=blocked) as mocked_limit:
+            for path, payload, route in cases:
+                with self.subTest(path=path):
+                    response = self.client.post(path, json=payload)
+                    self.assertEqual(response.status_code, 429)
+                    self.assertEqual(response.json()["code"], "rate_limited")
+                    self.assertEqual(response.headers["retry-after"], "60")
+                    self.assertEqual(mocked_limit.call_args.kwargs["route"], route)
 
     @staticmethod
     def _tiny_png() -> bytes:

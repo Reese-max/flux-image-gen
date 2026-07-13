@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 import time
 from datetime import UTC, datetime
@@ -8,9 +9,9 @@ from pathlib import Path
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from .image_service import (
     EDIT_IMAGE_COUNT_ERROR_MESSAGE,
@@ -29,7 +30,6 @@ from .image_service import (
 )
 from .prompt_complete import complete_plain_prompt
 from .prompt_enhance import enhance_prompt
-from .prompt_llm import PromptLLMError
 from .prompt_transform import transform_plain_prompt
 from .rate_limit import check_generation_rate_limit
 from .settings import get_settings
@@ -47,6 +47,7 @@ mimetypes.add_type("image/webp", ".webp")
 
 app = FastAPI(title="AI 圖片產生器", version="1.0.0")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+client_error_logger = logging.getLogger("fluxi.client_error")
 
 
 @app.middleware("http")
@@ -111,6 +112,18 @@ class PromptTransformPayload(BaseModel):
 class PromptEnhancePayload(BaseModel):
     prompt: str
     effect: str = ""
+
+
+class ClientErrorPayload(BaseModel):
+    type: str = Field(default="client_error", max_length=80)
+    message: str = Field(default="", max_length=500)
+    stack: str = Field(default="", max_length=900)
+    source: str = Field(default="", max_length=300)
+    url: str = Field(default="", max_length=300)
+    line: int | None = None
+    column: int | None = None
+    requestId: str = Field(default="", max_length=120)
+    userAgent: str = Field(default="", max_length=300)
 
 
 def rate_limit_response(decision):
@@ -194,7 +207,7 @@ def api_health() -> dict[str, object]:
             message = "真實出圖可用"
         else:
             provider_status = "offline"
-            message = "出圖服務暫時不可用：NVIDIA_API_KEY 未設定"
+            message = "圖片服務尚未連接"
     elif configured_provider == "auto":
         if has_nvidia_key or has_workers_ai_key:
             provider_status = "ready" if has_nvidia_key else "degraded"
@@ -221,6 +234,20 @@ def api_health() -> dict[str, object]:
         "message": message,
         "checkedAt": datetime.now(UTC).isoformat(),
     }
+
+
+@app.post("/client-error", status_code=204)
+def client_error(payload: ClientErrorPayload) -> Response:
+    client_error_logger.warning(
+        "client_error type=%s message=%s source=%s request_id=%s line=%s column=%s",
+        payload.type,
+        payload.message,
+        payload.source,
+        payload.requestId,
+        payload.line,
+        payload.column,
+    )
+    return Response(status_code=204)
 
 @app.get("/health")
 def health() -> dict[str, object]:
@@ -612,7 +639,11 @@ def gallery_admin_list_unavailable():
 
 
 @app.post("/prompt/transform")
-def prompt_transform(payload: PromptTransformPayload):
+def prompt_transform(request: Request, payload: PromptTransformPayload):
+    settings = get_settings()
+    decision = check_generation_rate_limit(request, settings, route="prompt_transform")
+    if not decision.allowed:
+        return rate_limit_response(decision)
     try:
         result = transform_plain_prompt(payload.source, payload.style)
     except ValueError as exc:
@@ -626,50 +657,33 @@ def prompt_transform(payload: PromptTransformPayload):
 
 
 @app.post("/prompt/enhance")
-def prompt_enhance(payload: PromptEnhancePayload):
+def prompt_enhance(request: Request, payload: PromptEnhancePayload):
+    settings = get_settings()
+    decision = check_generation_rate_limit(request, settings, route="prompt_enhance")
+    if not decision.allowed:
+        return rate_limit_response(decision)
     try:
         result = enhance_prompt(payload.prompt, payload.effect)
     except ValueError as exc:
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
-    except PromptLLMError as exc:
-        if "missing GEMINI_API_KEY" in str(exc):
-            return JSONResponse(
-                {
-                    "error": "效果優化需要 Gemini（缺少 GEMINI_API_KEY）",
-                    "code": "missing_api_key",
-                },
-                status_code=503,
-            )
-        return JSONResponse(
-            {"error": "效果優化失敗，請稍後再試", "code": "prompt_enhance_failed"},
-            status_code=502,
-        )
     return {
         "prompt": result.prompt,
         "provider": result.provider,
         "effect": result.effect,
+        "warnings": result.warnings,
     }
 
 
 @app.post("/prompt/complete")
-def prompt_complete(payload: PromptTransformPayload):
+def prompt_complete(request: Request, payload: PromptTransformPayload):
+    settings = get_settings()
+    decision = check_generation_rate_limit(request, settings, route="prompt_complete")
+    if not decision.allowed:
+        return rate_limit_response(decision)
     try:
         result = complete_plain_prompt(payload.source, payload.style)
     except ValueError as exc:
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
-    except PromptLLMError as exc:
-        if "missing GEMINI_API_KEY" in str(exc):
-            return JSONResponse(
-                {
-                    "error": "Gemma 中文補全尚未啟用（缺少 GEMINI_API_KEY）",
-                    "code": "missing_api_key",
-                },
-                status_code=503,
-            )
-        return JSONResponse(
-            {"error": "Gemma 中文補全失敗，請稍後再試", "code": "prompt_complete_failed"},
-            status_code=502,
-        )
     return {
         "source": result.source,
         "prompt": result.prompt,

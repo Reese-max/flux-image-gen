@@ -198,6 +198,63 @@ async function main() {
     await page.goto(url + '/', { waitUntil: 'networkidle', timeout: 60000 });
     await closeTutorialIfOpen(page);
     await page.waitForSelector('#mobileGenerate:not([disabled])', { timeout: 15000 });
+    await page.waitForSelector('.prompt-pack', { timeout: 15000 });
+    const reducedEntryState = await page.evaluate(() => {
+      const resultActions = document.querySelector('#resultActions');
+      const moreActions = document.querySelector('#resultMoreActions');
+      const clearHistory = document.querySelector('#clearHistory');
+      const historyFilters = document.querySelector('#historyFilters');
+      const deleteProject = document.querySelector('#deleteProject');
+      return {
+        quickIdeaCount: document.querySelectorAll('#ideasSection > .idea-grid > .idea').length,
+        promptPackCardCount: document.querySelectorAll('.prompt-pack .idea').length,
+        promptPackClosed: Boolean(document.querySelector('.prompt-pack-browser:not([open])')),
+        primaryActionIds: resultActions
+          ? Array.from(resultActions.children).filter((node) => node.matches('a, button')).map((node) => node.id)
+          : [],
+        downloadIsPrimary: Boolean(document.querySelector('#dl.btn.primary')),
+        moreActionIds: moreActions
+          ? Array.from(moreActions.querySelectorAll('button')).map((node) => node.id)
+          : [],
+        emptyHistoryControlsHidden: Boolean(clearHistory && clearHistory.hidden && historyFilters && historyFilters.hidden),
+        emptyHistoryCtaVisible: Boolean(document.querySelector('.history-empty .history-empty-cta')),
+        emptyProjectDeleteUnavailable: Boolean(deleteProject && deleteProject.hidden && deleteProject.disabled),
+      };
+    });
+    ok('首頁只保留六個快速靈感', reducedEntryState.quickIdeaCount === 6, JSON.stringify(reducedEntryState));
+    ok('完整提示詞初始不建立卡片 DOM', reducedEntryState.promptPackCardCount === 0 && reducedEntryState.promptPackClosed, JSON.stringify(reducedEntryState));
+    ok('結果操作只直接顯示下載、再生與構圖變化', reducedEntryState.primaryActionIds.join(',') === 'dl,regenerate,useComposition'
+      && reducedEntryState.downloadIsPrimary
+      && reducedEntryState.moreActionIds.join(',') === 'copySettings,copyPrompt,saveStyleCard', JSON.stringify(reducedEntryState));
+    ok('空歷史隱藏無效控制並提供生成入口', reducedEntryState.emptyHistoryControlsHidden && reducedEntryState.emptyHistoryCtaVisible, JSON.stringify(reducedEntryState));
+    ok('無專案時刪除操作不可用', reducedEntryState.emptyProjectDeleteUnavailable, JSON.stringify(reducedEntryState));
+
+    await page.locator('.prompt-pack-browser > summary').click();
+    await page.waitForFunction(() => document.querySelectorAll('.prompt-pack .pack-cat').length > 0, null, { timeout: 10000 });
+    ok('展開完整提示詞時仍不提前建立分類卡片', await page.locator('.prompt-pack .idea').count() === 0);
+    await page.locator('.prompt-pack .pack-cat > summary').first().click();
+    await page.waitForFunction(() => document.querySelectorAll('.prompt-pack .idea').length === 6, null, { timeout: 10000 });
+    ok('首次展開分類時才建立該分類卡片', await page.locator('.prompt-pack .idea').count() === 6);
+    const mobileTargets = await page.evaluate(() => {
+      const selectors = ['#openTutorial', '#tab-generate', '#tab-edit', '#tab-projects', '#tab-history', '#promptStyle', '#useCase', '.prompt-pack-browser > summary', '.prompt-pack .pack-cat > summary', '#openPrivacyPolicy', '#openLicensePolicy', '#openUsagePanel'];
+      return selectors.map((selector) => {
+        const rect = document.querySelector(selector).getBoundingClientRect();
+        return { selector, width: rect.width, height: rect.height };
+      });
+    });
+    ok('手機主要操作目標至少 44px', mobileTargets.every((item) => item.width >= 44 && item.height >= 44), JSON.stringify(mobileTargets));
+    await page.locator('.prompt-pack-browser > summary').click();
+    await page.locator('#mobileGenerate').click();
+    await page.waitForFunction(() => /請先輸入描述文字/.test((document.querySelector('#status') || {}).textContent || ''), null, { timeout: 10000 });
+    await page.waitForTimeout(500);
+    const emptyPromptFocus = await page.evaluate(() => {
+      const field = document.activeElement;
+      const bar = document.querySelector('#mobileGenerateBar');
+      const fieldRect = field.getBoundingClientRect();
+      const barRect = bar.getBoundingClientRect();
+      return { id: field.id, fieldBottom: fieldRect.bottom, barTop: barRect.top };
+    });
+    ok('手機空白送出後輸入框完整可見', emptyPromptFocus.id === 'plainPrompt' && emptyPromptFocus.fieldBottom <= emptyPromptFocus.barTop - 8, JSON.stringify(emptyPromptFocus));
     await page.fill('#plainPrompt', promptText);
     await page.evaluate(() => {
       const batchCount = document.querySelector('#batchCount');
@@ -218,11 +275,61 @@ async function main() {
         top: rect.top,
       };
     });
+    const compactLayout = await page.evaluate(() => {
+      const tabs = document.querySelector('.tabs');
+      const historyTab = document.querySelector('#tab-history');
+      const composer = document.querySelector('#panel-generate .composer');
+      const tabsRect = tabs.getBoundingClientRect();
+      const historyRect = historyTab.getBoundingClientRect();
+      return {
+        composerHeight: composer.getBoundingClientRect().height,
+        tabsDisplay: getComputedStyle(tabs).display,
+        tabsScrollWidth: tabs.scrollWidth,
+        tabsClientWidth: tabs.clientWidth,
+        historyLeft: historyRect.left,
+        historyRight: historyRect.right,
+        tabsLeft: tabsRect.left,
+        tabsRight: tabsRect.right,
+        historyLabel: historyTab.querySelector('.tab-mobile-label').textContent,
+      };
+    });
     ok('手機底部生成列固定可用', !barBefore.hidden && barBefore.position === 'fixed' && barBefore.height > 0, JSON.stringify(barBefore));
+    ok('手機生成表單維持緊湊高度', compactLayout.composerHeight <= 460, JSON.stringify(compactLayout));
+    ok('手機四個分頁完整顯示且歷史未被截斷', compactLayout.tabsDisplay === 'grid'
+      && compactLayout.tabsScrollWidth <= compactLayout.tabsClientWidth + 1
+      && compactLayout.historyLeft >= compactLayout.tabsLeft
+      && compactLayout.historyRight <= compactLayout.tabsRight + 1
+      && compactLayout.historyLabel === '歷史', JSON.stringify(compactLayout));
+
+    await page.focus('#plainPrompt');
+    for (let step = 0; step < 5 && await page.evaluate(() => document.activeElement?.id !== 'promptStyle'); step += 1) {
+      await page.keyboard.press('Tab');
+    }
+    await page.waitForTimeout(100);
+    const focusedStyle = await page.evaluate(() => {
+      const field = document.activeElement;
+      const bar = document.querySelector('#mobileGenerateBar');
+      const fieldRect = field.getBoundingClientRect();
+      const barRect = bar.getBoundingClientRect();
+      return { id: field.id, fieldBottom: fieldRect.bottom, barTop: barRect.top };
+    });
+    ok('手機固定生成列不遮住鍵盤焦點', focusedStyle.id === 'promptStyle' && focusedStyle.fieldBottom <= focusedStyle.barTop - 8, JSON.stringify(focusedStyle));
+
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(100);
+    const focusedUseCase = await page.evaluate(() => {
+      const field = document.activeElement;
+      const bar = document.querySelector('#mobileGenerateBar');
+      const fieldRect = field.getBoundingClientRect();
+      const barRect = bar.getBoundingClientRect();
+      return { id: field.id, fieldBottom: fieldRect.bottom, barTop: barRect.top };
+    });
+    ok('手機用途選單取得焦點時完整可見', focusedUseCase.id === 'useCase' && focusedUseCase.fieldBottom <= focusedUseCase.barTop - 8, JSON.stringify(focusedUseCase));
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.locator('#mobileGenerate').click({ force: true });
     await page.waitForSelector('.batch-grid .batch-card', { timeout: 20000 });
+    await page.waitForTimeout(500);
 
     const promptAfterGeneration = await page.locator('#plainPrompt').inputValue();
     const cardCount = await page.locator('.batch-grid .batch-card').count();
@@ -238,12 +345,21 @@ async function main() {
       };
     });
     const saveHint = await page.locator('.mobile-save-hint').textContent();
-    const firstDownload = await page.locator('.batch-card a[download]').first().evaluate((node) => ({
+    const firstDownload = await page.locator('.batch-main-meta a[download]').first().evaluate((node) => ({
       text: node.textContent,
       download: node.getAttribute('download'),
       hrefPrefix: node.getAttribute('href').slice(0, 22),
     }));
     const mobileButtonText = await page.locator('#mobileGenerate').textContent();
+    const resultVisibility = await page.locator('#stage').evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return {
+        top: rect.top,
+        bottom: rect.bottom,
+        viewportHeight: window.innerHeight,
+        focused: document.activeElement === node,
+      };
+    });
     const historyCount = await page.evaluate(() => {
       const raw = localStorage.getItem('aiImageGenerationHistory.v1');
       if (!raw) return 0;
@@ -255,11 +371,12 @@ async function main() {
     });
 
     ok('手機使用者不需滑回頂部即可生成', promptAfterGeneration === promptText, promptAfterGeneration);
+    ok('生成完成後自動帶到結果並聚焦', resultVisibility.top >= 0 && resultVisibility.top < resultVisibility.viewportHeight && resultVisibility.focused, JSON.stringify(resultVisibility));
     ok('手機多張結果卡片可左右滑動', cardCount === 3 && gridMetrics.ariaLabel === '多張生成結果，可左右滑動挑選' && gridMetrics.scrollSnapType.indexOf('x') !== -1, JSON.stringify({ cardCount, gridMetrics }));
     ok('手機結果顯示保存提示', (saveHint || '').indexOf('長按圖片保存') !== -1, saveHint || '');
     ok('手機下載按鈕可用', firstDownload.hrefPrefix.indexOf('data:image/png') === 0 && !!firstDownload.download, JSON.stringify(firstDownload));
     ok('手機生成後歷史保存多張結果', historyCount >= 3, String(historyCount));
-    ok('手機生成按鈕成功後可再生成', (mobileButtonText || '').indexOf('再生成') !== -1, mobileButtonText || '');
+    ok('手機生成成功後主要 CTA 保持生成語意', /生成圖片/.test(mobileButtonText || '') && !/再生成|重試/.test(mobileButtonText || ''), mobileButtonText || '');
 
     await page.screenshot({ path: screenshotPath, fullPage: true });
     ok('mobile QA 截圖輸出', fs.existsSync(screenshotPath), screenshotPath);

@@ -1,9 +1,11 @@
 {
   "_comment": "Single source of truth for the CN->EN FLUX prompt transform. Consumed by app/prompt_llm.py (Python) and cloudflare/src/index.js (Worker). Do not edit copies; edit here.",
   "geminiDefaultModel": "gemma-4-31b-it",
-  "geminiCompleteDefaultModel": "gemma-4-26b-a4b-it",
+  "geminiCompleteDefaultModel": "gemma-4-31b-it",
   "geminiDefaultBaseUrl": "https://generativelanguage.googleapis.com/v1beta",
   "geminiMaxAttempts": 2,
+  "geminiCompleteMaxAttempts": 1,
+  "geminiCompleteTimeoutMs": 5000,
   "geminiRetryableStatus": [
     429,
     500,
@@ -12,7 +14,45 @@
     504
   ],
   "maxLlmPromptLength": 900,
-  "completionSystemInstruction": "你是繁體中文（台灣用字）的圖片生成提示詞編輯助手。你的任務是把使用者輸入的短中文描述補完整，仍然輸出繁體中文，不要翻譯成英文。\n寫法要求：\n- 保留使用者原本指定的主體、動作、地點、物件、顏色、數量與風格，不要改掉核心意思。\n- 補上適合圖片生成的視覺細節：主體外觀、構圖、背景、光線、色調、氛圍、鏡頭或媒材。\n- 內容要自然、具體、可直接再送去中文轉英文提示詞流程。\n- 不要加入使用者沒要求的文字、標誌、浮水印、政治或敏感元素。\n- 輸出長度控制在 80 到 180 個中文字；如果原文已經很完整，只做輕度潤飾。\n- 使用繁體中文與台灣用字，不要重複字詞，不要輸出英文雜訊。\n- API 已經有 response schema，請直接把補完整的中文放在 prompt 欄位，不要把 JSON 物件再包成字串。\nReturn ONLY a JSON object of the form {\"prompt\": \"<補完整後的繁體中文描述>\"}.\nExample input: 女生雨中\nExample output: {\"prompt\": \"一位年輕女生站在夜晚的雨中街道，身穿深色外套，濕潤柏油路反射霓虹燈光，背景有柔和散景，畫面帶有電影感，氛圍安靜而孤獨。\"}",
+  "maxPromptSourceLength": 2000,
+  "maxEnhancePromptLength": 4000,
+  "maxEnhanceEffectLength": 500,
+  "enhanceFallbackRules": [
+    {
+      "keywords": ["夢幻", "dreamy", "霧", "mist", "ethereal"],
+      "modifier": "a dreamy ethereal atmosphere, soft diffused glow, and a gentle veil of mist"
+    },
+    {
+      "keywords": ["霓虹", "neon", "賽博"],
+      "modifier": "vivid neon lighting, colourful reflections, and a cinematic night atmosphere"
+    },
+    {
+      "keywords": ["背景虛化", "散景", "景深", "bokeh"],
+      "modifier": "a shallow depth of field with a softly blurred bokeh background"
+    },
+    {
+      "keywords": ["黃昏", "夕陽", "日落", "golden hour", "sunset"],
+      "modifier": "warm golden-hour light, long soft shadows, and a rich sunset colour palette"
+    },
+    {
+      "keywords": ["更亮", "明亮", "bright"],
+      "modifier": "bright clean lighting, balanced exposure, and a clear readable subject"
+    },
+    {
+      "keywords": ["黑白", "單色", "monochrome"],
+      "modifier": "a refined monochrome palette with strong tonal contrast and elegant texture"
+    },
+    {
+      "keywords": ["高級", "精品", "premium", "luxury"],
+      "modifier": "premium editorial styling, restrained colours, polished materials, and elegant lighting"
+    },
+    {
+      "keywords": ["可愛", "療癒", "cute"],
+      "modifier": "an adorable friendly mood, soft rounded forms, and warm pastel colours"
+    }
+  ],
+  "enhanceFallbackDefaultModifier": "refined lighting, a cohesive colour palette, polished composition, and natural visual detail",
+  "completionSystemInstruction": "直接輸出最終答案，不要顯示分析、推理、步驟、任務重述或規則清單。你是繁體中文（台灣用字）的圖片生成提示詞編輯助手。你的任務是把使用者輸入的短中文描述補完整，仍然輸出繁體中文，不要翻譯成英文。\n寫法要求：\n- 保留使用者原本指定的主體、動作、地點、物件、顏色、數量與風格，不要改掉核心意思。\n- 補上適合圖片生成的視覺細節：主體外觀、構圖、背景、光線、色調、氛圍、鏡頭或媒材。\n- 內容要自然、具體、可直接再送去中文轉英文提示詞流程。\n- 不要加入使用者沒要求的文字、標誌、浮水印、政治或敏感元素。\n- 輸出長度控制在 80 到 180 個中文字；如果原文已經很完整，只做輕度潤飾。\n- 使用繁體中文與台灣用字，不要重複字詞，不要輸出英文雜訊。\n- 回覆的第一個字就必須是最終描述的第一個中文字。\n- 整份回覆只能是一段普通的中文描述，不要輸出 JSON、Markdown、項目符號、欄位名稱、標題、說明或引號。\n範例輸入：女生雨中\n範例輸出：一位年輕女生站在夜晚的雨中街道，身穿深色外套，濕潤柏油路反射霓虹燈光，背景有柔和散景，畫面帶有電影感，氛圍安靜而孤獨。",
   "completionResponseSchema": {
     "type": "object",
     "properties": {

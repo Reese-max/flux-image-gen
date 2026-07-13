@@ -19,7 +19,7 @@ binding = "ASSETS"
 NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 # Gemma models served via the Gemini API.
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
-GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
+GEMINI_COMPLETE_MODEL = "gemma-4-31b-it"
 GEMINI_VISION_MODEL = "gemini-2.5-flash"
 # Optional paid visual QA for agent mode. Keep false until budget is approved.
 VISION_QA_ENABLED = "false"

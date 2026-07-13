@@ -12,7 +12,7 @@ binding = "ASSETS"
 [vars]
 NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
-GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
+GEMINI_COMPLETE_MODEL = "gemma-4-31b-it"
 
 [[ratelimits]]
 name = "GENERATE_RATE_LIMITER"

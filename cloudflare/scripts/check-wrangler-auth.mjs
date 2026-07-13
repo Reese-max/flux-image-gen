@@ -85,6 +85,10 @@ async function runWrangler(extraArgs) {
   return run(invocation.command, invocation.args, invocation.shell);
 }
 
+function runDeployDryRun() {
+  return run(process.execPath, ['scripts/deploy.mjs', '--dry-run']);
+}
+
 const failures = [];
 
 console.log('[wrangler-check] Checking Wrangler login with "wrangler whoami"...');
@@ -95,10 +99,10 @@ if (whoami.code !== 0 || !hasWhoamiSuccess(whoami.output)) {
   console.log('[wrangler-check] Wrangler login verified. Account details are redacted by default; rerun with --verbose for sanitized command output.');
 }
 
-console.log('[wrangler-check] Checking deploy configuration with "wrangler deploy --dry-run"...');
-const dryRun = await runWrangler(['deploy', '--dry-run']);
+console.log('[wrangler-check] Checking deploy configuration with the project dry-run wrapper...');
+const dryRun = await runDeployDryRun();
 if (dryRun.code !== 0 || !hasConfigSuccess(dryRun.output)) {
-  let message = 'Wrangler deploy --dry-run 未跑到可驗證輸出。';
+  let message = '專案 deploy:dry-run 未跑到可驗證輸出。';
   if (isLikelyCrashExit(dryRun.code) || /Assertion failed|UV_HANDLE_CLOSING|CommandLineArgsError/i.test(dryRun.output)) {
     message += ` 偵測到 Wrangler / Node 子程序可能 crash（exit ${formatExitCode(dryRun.code)}，Node ${process.version}）。請先切到 Node 20 或 22 LTS 後重跑，再檢查 Cloudflare 帳號權限與 binding。`;
   } else if (nodeMajor > 22) {

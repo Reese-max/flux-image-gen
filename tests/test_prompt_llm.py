@@ -2,12 +2,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from app import prompt_transform
+from app import prompt_llm, prompt_transform
 from app.prompt_llm import (
     PromptLLMError,
     _extract_prompt_text,
     _parse_codex_response,
     _parse_gemini_response,
+    _parse_gemini_plain_text_response,
     _strip_wrapping,
     llm_transform_prompt,
 )
@@ -24,6 +25,43 @@ def test_parse_gemini_response_returns_stripped_text():
         ]
     }
     assert _parse_gemini_response(data) == "A serene mountain at dawn."
+
+
+def test_parse_gemini_plain_text_response_returns_chinese_without_json_parsing():
+    data = {
+        "candidates": [
+            {"content": {"parts": [{"text": "  一位女生站在雨中的霓虹街道。  "}]}}
+        ]
+    }
+    assert _parse_gemini_plain_text_response(data) == "一位女生站在雨中的霓虹街道。"
+
+
+def test_parse_gemini_plain_text_response_keeps_json_like_text_literal():
+    data = {
+        "candidates": [
+            {"content": {"parts": [{"text": '{"prompt": "普通中文句子。"}'}]}}
+        ]
+    }
+    with pytest.raises(PromptLLMError, match="non-plain Chinese"):
+        _parse_gemini_plain_text_response(data)
+
+
+def test_parse_gemini_plain_text_response_rejects_analysis_list():
+    data = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        {
+                            "text": "* Input: 女生雨中\n* Task: Expand into Traditional Chinese."
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    with pytest.raises(PromptLLMError, match="non-plain Chinese"):
+        _parse_gemini_plain_text_response(data)
 
 
 def test_parse_gemini_response_extracts_prompt_from_json_envelope():
@@ -74,6 +112,28 @@ def test_llm_transform_prompt_missing_key_raises():
     fake_settings = SimpleNamespace(gemini_api_key="   ")
     with pytest.raises(PromptLLMError, match="missing GEMINI_API_KEY"):
         llm_transform_prompt("一隻貓", "auto", settings=fake_settings)
+
+
+def test_llm_complete_prompt_uses_short_timeout_without_retry(monkeypatch):
+    settings = SimpleNamespace(
+        gemini_api_key="test-key",
+        gemini_base_url="https://example.invalid",
+        gemini_complete_model="gemma-test",
+        prompt_llm_timeout_seconds=20.0,
+        gemini_complete_timeout_seconds=5.0,
+    )
+    timeouts = []
+
+    def timed_out(_url, _headers, _payload, timeout, response_parser=None):
+        timeouts.append(timeout)
+        raise prompt_llm._RetryableError("simulated timeout")
+
+    monkeypatch.setattr(prompt_llm, "_request_prompt", timed_out)
+
+    with pytest.raises(PromptLLMError, match="simulated timeout"):
+        prompt_llm.llm_complete_prompt("女生雨中", "cinematic", settings=settings)
+
+    assert timeouts == [5.0]
 
 
 def test_parse_codex_response_extracts_prompt_from_choices():

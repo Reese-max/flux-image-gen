@@ -1,5 +1,29 @@
 # Changelog
 
+## 2026-07-11
+
+### Fixed
+
+- 修正中文描述補全只有內部函式、沒有可操作入口的功能斷點；首屏新增「幫我補完整」按鈕，並加入重複送出防護與忙碌狀態。
+- PWA 靜態資產改採 network-first 並更新 cache 版本，避免部署後第一次開啟時混用新版 HTML 與舊版 JavaScript。
+- FastAPI 補上提示詞轉換、中文補全與效果強化的後端限流，與 Worker 的 Gemini 配額保護行為一致。
+- 提示詞補全／轉換／強化在前後端統一加入輸入長度上限，避免超大文字造成不必要的模型配額與記憶體消耗。
+- 智慧體「補全畫面」步驟改為依實際提示詞整理結果更新，不再尚未補全就提前顯示成功；整理失敗也會正確標示步驟錯誤。
+- 修正首次生成後修改中文描述或風格仍沿用舊英文提示詞的核心錯誤；自動產生的英文提示詞會追蹤來源，輸入條件變更時自動失效，手動編輯的英文內容則保留。
+- 中文描述補全新增離線 fallback；未設定 Gemini 或暫時連線失敗時仍可完成操作，不再讓首屏按鈕直接回 503。
+- 「用 AI 套用效果」新增離線視覺規則 fallback；夢幻、霓虹、景深、黃昏、明亮、黑白、精品與可愛等常見需求在沒有 Gemini 時仍可用。
+- 修正無效 URL hash 回復目前分頁時的 history 更新邏輯，`#usage` 與一般分頁切換測試恢復通過。
+- 部署 smoke request 加入固定 `User-Agent`，避免 Cloudflare 對 Python 預設請求回 403；正式網址 health smoke 已恢復通過。
+- Wrangler 診斷改走專案既有 `deploy.mjs --dry-run` 包裝器，避免 Node 25 原生子程序已產生成功輸出後仍以 crash code 誤判失敗。
+- 移除已下架「即將推出」改圖按鈕遺留的無效 CSS。
+
+### Performance
+
+- Cloudflare deploy copy 在 `npm run sync` 時自動壓縮 JavaScript，FastAPI 原始碼仍保持可讀，並由 Worker 測試驗證壓縮結果與來源一致。
+- `sync-static.mjs` 改為遞迴同步 `app/static/`，新增或更新巢狀範例圖與 prompt-pack 素材時不再依賴人工複製。
+- 範例 Gallery、靈感圖與提示詞包縮圖改用 `IntersectionObserver` 到達可視區才載入；HF 靈感面板也延後到提示詞包接近畫面時載入。
+- 正式站 Wrangler 效能 QA：首屏 `311.8 KiB`、JavaScript `147.5 KiB`、18 個資源，所有既定效能預算通過。
+
 ## 2026-06-28
 
 ### Refactor

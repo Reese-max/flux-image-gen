@@ -13,6 +13,7 @@ import {
   RETRYABLE_IMAGE_STATUS,
   SIZE_MAP,
   WORKERS_AI_EDIT_MODEL,
+  WORKERS_AI_FETCH_TIMEOUT_MS,
   WORKERS_AI_FAST_MODEL,
   sleep,
 } from "./constants.js";
@@ -308,7 +309,7 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(
         () => reject(Object.assign(new Error("workers ai timeout"), { name: "TimeoutError" })),
-        IMAGE_FETCH_TIMEOUT_MS
+        WORKERS_AI_FETCH_TIMEOUT_MS
       );
     });
     try {
@@ -327,6 +328,17 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
         e && (e.name === "TimeoutError" || e.name === "AbortError")
           ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
           : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+      // Production has a second provider specifically so a transient Workers AI
+      // stall does not make the user wait through another identical attempt.
+      // FLUX.1 dev preserves the requested dimensions and seed.
+      if (getNvidiaApiKey(env)) {
+        console.warn(`Workers AI 暫時不可用，改用 NVIDIA dev 備援（${lastError.code}）`);
+        return generateWithNvidia(
+          env,
+          { prompt, model: "dev", width, height, seed: effectiveSeed },
+          { provider: "nvidia-fallback" }
+        );
+      }
       if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) throw lastError;
       await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
     } finally {
@@ -353,24 +365,8 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
   };
 }
 
-// Generate ONE image. Returns a plain result object, or throws HttpError on a
-// provider/validation failure. Shared by /generate and /generate/batch.
-export async function generateOneImage(env, { prompt, model, size, width, height, seed }) {
-  if (size === "custom") {
-    width = validateCustomDimension(width);
-    height = validateCustomDimension(height);
-  } else {
-    [width, height] = SIZE_MAP[size];
-  }
-  if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
-    return generateWithWorkersAi(env, { prompt, model, width, height, seed });
-  }
+async function generateWithNvidia(env, { prompt, model, width, height, seed }, { provider = "nvidia" } = {}) {
   const key = getNvidiaApiKey(env);
-  if (!key) {
-    const image = makeDemoImageDataUrl();
-    return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
-  }
-
   const base = (env.NVIDIA_BASE_URL || "https://ai.api.nvidia.com/v1/genai").replace(/\/+$/, "");
   const endpoint = `${base}/${MODEL_ENDPOINTS[model]}`;
   const body = { prompt, width, height, seed };
@@ -456,7 +452,27 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     throw new HttpError("此描述觸發 NVIDIA 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
   }
   const image = extractImage(data);
-  return { image, provider: "nvidia", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
+  return { image, provider, model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
+}
+
+// Generate ONE image. Returns a plain result object, or throws HttpError on a
+// provider/validation failure. Shared by /generate and /generate/batch.
+export async function generateOneImage(env, { prompt, model, size, width, height, seed }) {
+  if (size === "custom") {
+    width = validateCustomDimension(width);
+    height = validateCustomDimension(height);
+  } else {
+    [width, height] = SIZE_MAP[size];
+  }
+  if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
+    return generateWithWorkersAi(env, { prompt, model, width, height, seed });
+  }
+  const key = getNvidiaApiKey(env);
+  if (!key) {
+    const image = makeDemoImageDataUrl();
+    return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
+  }
+  return generateWithNvidia(env, { prompt, model, width, height, seed });
 }
 
 export function validateEditImages(images) {
