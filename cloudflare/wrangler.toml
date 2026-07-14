@@ -3,6 +3,22 @@ main = "src/index.js"
 compatibility_date = "2026-06-24"
 compatibility_flags = ["nodejs_compat"]
 
+# Exposes the active Cloudflare Worker version id/tag/timestamp to the Worker.
+# Keep the binding name stable; /api/health uses it for deployment traceability.
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
+# Persist structured Worker logs at a bounded sample rate. Traces stay disabled
+# until their volume/cost has been explicitly approved.
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 0.1
+invocation_logs = true
+
 # Static SPA (index.html + /static/*) is served directly from ./public.
 # Non-asset routes (/generate, /health) fall through to the Worker in src/index.js.
 [assets]
@@ -13,6 +29,8 @@ binding = "ASSETS"
 # Public, non-secret config. Secret keys are set separately:
 #   npx wrangler secret put NVIDIA_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put TURNSTILE_SECRET_KEY
+#   npx wrangler secret put GALLERY_TOKEN_SECRET
 #   npx wrangler secret put GALLERY_ADMIN_TOKEN
 # Do not put GALLERY_ADMIN_TOKEN in [vars]; it gates GET /api/gallery for the
 # station/admin cloud gallery list and must stay server-side only.
@@ -31,6 +49,9 @@ TURNSTILE_SITE_KEY = ""
 # Cost/usage dashboard. Worker logs structured usage_event lines and exposes
 # aggregated, prompt-free counters at GET /api/usage.
 USAGE_ESTIMATED_COST_USD_PER_IMAGE = "0.003"
+# Prompt／Vision 的實際價格取決於 token 與模型；0 代表只記嘗試次數，
+# 校準後可填入每次 provider attempt 的保守估值。
+USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST = "0"
 USAGE_ALERT_DAILY_GENERATIONS = "1000"
 
 # --- Edge rate limiting for /generate (per client IP) ---

@@ -43,6 +43,7 @@ var seedMode = 'random';
 var pendingSourceRecordId = '';
 var pendingPwaRegistration = null;
 var pwaRefreshing = false;
+var pwaUpdateRequested = false;
 var hadServiceWorkerController = false;
 var providerStatus = 'checking';
 var lastProviderHealth = null;
@@ -1074,6 +1075,7 @@ function registerServiceWorker(){
       hadServiceWorkerController = true;
       return;
     }
+    if(!pwaUpdateRequested){ return; }
     if(pwaRefreshing){ return; }
     pwaRefreshing = true;
     window.location.reload();
@@ -1086,6 +1088,7 @@ function showPwaUpdateNotice(registration){
 }
 function reloadPwaVersion(){
   if(pendingPwaRegistration && pendingPwaRegistration.waiting){
+    pwaUpdateRequested = true;
     pendingPwaRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
     return;
   }
@@ -2172,6 +2175,8 @@ function generate(options){
       return response.json().then(function(data){
         var secs;
         var images;
+        var batchErrors;
+        var batchSummary;
         var note;
         var batchOutcome;
         if(!response.ok){
@@ -2181,6 +2186,12 @@ function generate(options){
         clearInterval(timer);
         secs = ((performance.now() - t0) / 1000).toFixed(1);
         images = (data && Array.isArray(data.images)) ? data.images : [];
+        batchErrors = (data && Array.isArray(data.errors)) ? data.errors : [];
+        if(!images.length){
+          showGenerateFailure({ code: 'generation_failed', adviceCode: 'generation_failed', message: '批次沒有成功產生圖片', requestId: '', retryAfter: 0 }, 'generate_batch_empty');
+          return;
+        }
+        batchSummary = '已生成 ' + images.length + ' 張' + (batchErrors.length ? '，' + batchErrors.length + ' 張失敗' : '');
         batchOutcome = renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size });
         revealResultStage(true);
         setResultActionsVisible(false);
@@ -2188,13 +2199,13 @@ function generate(options){
         note = providerNoteFor(images[0] && images[0].provider);
         setGenerationState('success');
         if(isAgentMode()){
-          setAgentStep('generate', 'success', '已生成 ' + images.length + ' 張');
+          setAgentStep('generate', 'success', batchSummary);
           setAgentStep('qa', 'success', '已建立每張圖的 QAReport');
           setAgentStep('recommend', 'success', batchOutcome && typeof batchOutcome.bestIndex === 'number' ? '推薦最佳圖：第 ' + String(batchOutcome.bestIndex + 1) + ' 張' : '推薦保留此圖');
           setAgentStep('suggest', 'success', '已產生下一步修改建議');
           setAgentSummary('智慧體流程完成');
         }
-        setStatus('✅ 生成 ' + images.length + ' 張變體，耗時 ' + secs + ' 秒 ' + note, 'done');
+        setStatus('✅ ' + batchSummary + '，耗時 ' + secs + ' 秒 ' + note, 'done');
         if(isAgentMode() && batchOutcome && batchOutcome.retryPlan && batchOutcome.retryPlan.action === 'auto_retry'){
           setAgentStep('qa', 'running', '偵測到嚴重品質問題，正在自動重試一次');
           setStatus('偵測到嚴重品質問題，智慧體自動重試一次', 'busy');
@@ -2203,13 +2214,13 @@ function generate(options){
             setAgentStep('qa', 'success', '已自動修正一次並保存 QAReport');
             setAgentStep('recommend', 'success', retryReport && retryReport.recommendation === 'keep' ? '自動重試結果可保留' : '自動重試後仍建議人工挑選');
             setAgentSummary('智慧體流程完成，已自動修正一次');
-            setStatus('✅ 生成 ' + images.length + ' 張變體，並已自動修正一次 ' + note, 'done');
+            setStatus('✅ ' + batchSummary + '，並已自動修正一次 ' + note, 'done');
           }, function(retryError){
             reportClientError(retryError, { type: 'agent_auto_retry' });
             batchOutcome.retryPlan.message = '自動重試失敗：' + retryError.message;
             renderAgentOutcome(batchOutcome);
             setAgentStep('qa', 'success', '已建立 QAReport；自動重試失敗');
-            setStatus('✅ 生成 ' + images.length + ' 張變體；自動重試失敗：' + retryError.message, 'done');
+            setStatus('✅ ' + batchSummary + '；自動重試失敗：' + retryError.message, 'done');
           });
         }
       });

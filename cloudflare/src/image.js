@@ -19,6 +19,15 @@ import {
 } from "./constants.js";
 import { HttpError, readLimitedText } from "./http.js";
 
+function withProviderAttempts(target, attempts) {
+  if (!target || (typeof target !== "object" && typeof target !== "function")) return target;
+  Object.defineProperty(target, "providerAttempts", {
+    value: Math.max(0, Math.round(Number(attempts) || 0)),
+    configurable: true,
+  });
+  return target;
+}
+
 // NVIDIA may return HTTP 200 + a black placeholder with finishReason CONTENT_FILTERED.
 function isContentFiltered(data) {
   const arts = data && data.artifacts;
@@ -272,8 +281,7 @@ export function randomImageSeed() {
   return Math.floor(Math.random() * MAX_SEED) + 1;
 }
 
-// One AI.run attempt. The multipart body is a stream and cannot be replayed,
-// so every retry must rebuild the form from scratch.
+// One AI.run attempt. AI.run cannot be cancelled, so callers must not replay it.
 function runWorkersAiOnce(env, { prompt, width, height, seed }) {
   // klein takes multipart form input even for a text-only prompt.
   const form = new FormData();
@@ -293,57 +301,38 @@ function runWorkersAiOnce(env, { prompt, width, height, seed }) {
 // The "fast" tier runs on Workers AI (FLUX.2 klein 4B) — NVIDIA's hosted
 // flux.1-schnell accepts requests but never responds (2026-07 outage).
 // Kept behind an env.AI check so tests and AI-less deploys fall back to NVIDIA.
-// Mirrors the NVIDIA path's availability contract: bounded wait + one retry.
+// The wait is bounded for the client, but the uncancellable provider run is never retried.
 async function generateWithWorkersAi(env, { prompt, model, width, height, seed }) {
   // UI contract: seed 0 (or blank) means "random variation". klein treats every
   // seed literally, so 0 would pin the output; substitute a real random seed
   // and return it for reproducibility.
   const effectiveSeed = seed === 0 ? randomImageSeed() : seed;
 
+  // AI.run cannot be cancelled. Retrying or crossing providers after it starts
+  // can bill twice while the timed-out run keeps executing, so one request gets
+  // exactly one Workers AI run.
   let data;
-  for (let attempt = 0; attempt < IMAGE_MAX_ATTEMPTS; attempt++) {
-    // AI.run has no AbortSignal support, so race it against a clearable timer.
-    // A lost run keeps executing in the background; the client still gets a
-    // fast 504 instead of hanging until the edge kills the request.
-    let timer;
-    const timeout = new Promise((_, reject) => {
-      timer = setTimeout(
-        () => reject(Object.assign(new Error("workers ai timeout"), { name: "TimeoutError" })),
-        WORKERS_AI_FETCH_TIMEOUT_MS
-      );
-    });
-    try {
-      const run = runWorkersAiOnce(env, { prompt, width, height, seed: effectiveSeed });
-      run.catch(() => {}); // the loser of the race must not become an unhandled rejection
-      data = await Promise.race([run, timeout]);
-      break;
-    } catch (e) {
-      // Details stay server-side; the client gets a stable, non-leaky message.
-      console.error(`Workers AI 生圖失敗（attempt ${attempt + 1}/${IMAGE_MAX_ATTEMPTS}）`, e);
-      if (isWorkersAiContentFilterError(e)) {
-        // Deterministic safety rejection: retrying the same prompt cannot succeed.
-        throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
-      }
-      const lastError =
-        e && (e.name === "TimeoutError" || e.name === "AbortError")
-          ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
-          : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
-      // Production has a second provider specifically so a transient Workers AI
-      // stall does not make the user wait through another identical attempt.
-      // FLUX.1 dev preserves the requested dimensions and seed.
-      if (getNvidiaApiKey(env)) {
-        console.warn(`Workers AI 暫時不可用，改用 NVIDIA dev 備援（${lastError.code}）`);
-        return generateWithNvidia(
-          env,
-          { prompt, model: "dev", width, height, seed: effectiveSeed },
-          { provider: "nvidia-fallback" }
-        );
-      }
-      if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) throw lastError;
-      await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
-    } finally {
-      clearTimeout(timer);
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(Object.assign(new Error("workers ai timeout"), { name: "TimeoutError" })),
+      WORKERS_AI_FETCH_TIMEOUT_MS
+    );
+  });
+  try {
+    const run = runWorkersAiOnce(env, { prompt, width, height, seed: effectiveSeed });
+    run.catch(() => {}); // the loser of the race must not become an unhandled rejection
+    data = await Promise.race([run, timeout]);
+  } catch (e) {
+    console.error("Workers AI 生圖失敗（attempt 1/1）", e);
+    if (isWorkersAiContentFilterError(e)) {
+      throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
     }
+    throw e && (e.name === "TimeoutError" || e.name === "AbortError")
+      ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
+      : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+  } finally {
+    clearTimeout(timer);
   }
 
   if (isContentFiltered(data)) {
@@ -377,8 +366,10 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed }, {
 
   let resp = null;
   let lastError = null;
+  let providerAttempts = 0;
   for (let attempt = 0; attempt < IMAGE_MAX_ATTEMPTS; attempt++) {
     try {
+      providerAttempts += 1;
       resp = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -410,7 +401,7 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed }, {
       lastError = new HttpError(msg, resp.status, "nvidia_error");
     }
     if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) {
-      throw lastError;
+      throw withProviderAttempts(lastError, providerAttempts);
     }
     await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
   }
@@ -419,7 +410,7 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed }, {
     const ra = parseInt(resp.headers.get("retry-after") || "", 10);
     const err = new HttpError("叫用太頻繁，請稍後再試", 429, "rate_limited");
     if (!Number.isNaN(ra)) err.retry_after = Math.max(1, ra);
-    throw err;
+    throw withProviderAttempts(err, providerAttempts);
   }
   if (resp.status >= 400) {
     // Read the body ONCE as text, then try JSON. resp.json() followed by another
@@ -439,20 +430,31 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed }, {
         msg = raw;
       }
     }
-    throw new HttpError(msg, resp.status, "nvidia_error");
+    throw withProviderAttempts(new HttpError(msg, resp.status, "nvidia_error"), providerAttempts);
   }
 
   let data;
   try {
     data = await resp.json();
   } catch {
-    throw new HttpError("NVIDIA 回應格式不正確", 502, "bad_provider_response");
+    throw withProviderAttempts(new HttpError("NVIDIA 回應格式不正確", 502, "bad_provider_response"), providerAttempts);
   }
   if (isContentFiltered(data)) {
-    throw new HttpError("此描述觸發 NVIDIA 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
+    throw withProviderAttempts(
+      new HttpError("此描述觸發 NVIDIA 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered"),
+      providerAttempts
+    );
   }
-  const image = extractImage(data);
-  return { image, provider, model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
+  let image;
+  try {
+    image = extractImage(data);
+  } catch (error) {
+    throw withProviderAttempts(error, providerAttempts);
+  }
+  return withProviderAttempts(
+    { image, provider, model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) },
+    providerAttempts
+  );
 }
 
 // Generate ONE image. Returns a plain result object, or throws HttpError on a
@@ -471,6 +473,9 @@ export async function generateOneImage(env, { prompt, model, size, width, height
   if (!key) {
     const image = makeDemoImageDataUrl();
     return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
+  }
+  if (model === "schnell") {
+    return generateWithNvidia(env, { prompt, model: "dev", width, height, seed });
   }
   return generateWithNvidia(env, { prompt, model, width, height, seed });
 }
@@ -501,7 +506,7 @@ export async function editImage(env, { prompt, images }) {
   // Enforce the FLUX.2 klein <512x512 input contract server-side (parity with the
   // Python backend's _resize_for_edit), so a non-browser caller that skipped the
   // client-side canvas resize can't relay oversized images. Unknown formats fail
-  // open (CF handles them). Checked once, before the retry loop.
+  // open (CF handles them). Checked once, before the provider call.
   for (const blob of images) {
     const dims = readImageDimensions(new Uint8Array(await blob.arrayBuffer()));
     if (dims && (dims.width >= 512 || dims.height >= 512)) {
@@ -510,42 +515,33 @@ export async function editImage(env, { prompt, images }) {
   }
 
   let data;
-  for (let attempt = 0; attempt < IMAGE_MAX_ATTEMPTS; attempt++) {
-    // AI.run has no AbortSignal support; race against a clearable timer so a
-    // hung run yields a fast 504 instead of hanging until the edge kills it.
-    let timer;
-    const timeout = new Promise((_, reject) => {
-      timer = setTimeout(
-        () => reject(Object.assign(new Error("workers ai timeout"), { name: "TimeoutError" })),
-        IMAGE_FETCH_TIMEOUT_MS
-      );
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(Object.assign(new Error("workers ai timeout"), { name: "TimeoutError" })),
+      IMAGE_FETCH_TIMEOUT_MS
+    );
+  });
+  try {
+    const form = new FormData();
+    form.append("prompt", prompt);
+    images.forEach((blob, i) => form.append(`input_image_${i}`, blob, `input_image_${i}.png`));
+    const formResponse = new Response(form);
+    const run = env.AI.run(WORKERS_AI_EDIT_MODEL, {
+      multipart: { body: formResponse.body, contentType: formResponse.headers.get("content-type") },
     });
-    try {
-      // The multipart body is a stream and cannot be replayed, so rebuild it each attempt.
-      const form = new FormData();
-      form.append("prompt", prompt);
-      images.forEach((blob, i) => form.append(`input_image_${i}`, blob, `input_image_${i}.png`));
-      const formResponse = new Response(form);
-      const run = env.AI.run(WORKERS_AI_EDIT_MODEL, {
-        multipart: { body: formResponse.body, contentType: formResponse.headers.get("content-type") },
-      });
-      run.catch(() => {}); // the loser of the race must not become an unhandled rejection
-      data = await Promise.race([run, timeout]);
-      break;
-    } catch (e) {
-      console.error(`Workers AI 改圖失敗（attempt ${attempt + 1}/${IMAGE_MAX_ATTEMPTS}）`, e);
-      if (isWorkersAiContentFilterError(e)) {
-        throw new HttpError("此描述或圖片觸發 Workers AI 內容安全過濾，請換個描述或圖片再試", 422, "content_filtered");
-      }
-      const lastError =
-        e && (e.name === "TimeoutError" || e.name === "AbortError")
-          ? new HttpError("AI 改圖逾時，請稍後再試", 504, "timeout")
-          : new HttpError("AI 改圖失敗，請稍後再試", 502, "workers_ai_error");
-      if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) throw lastError;
-      await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
-    } finally {
-      clearTimeout(timer);
+    run.catch(() => {}); // the loser of the race must not become an unhandled rejection
+    data = await Promise.race([run, timeout]);
+  } catch (e) {
+    console.error("Workers AI 改圖失敗（attempt 1/1）", e);
+    if (isWorkersAiContentFilterError(e)) {
+      throw new HttpError("此描述或圖片觸發 Workers AI 內容安全過濾，請換個描述或圖片再試", 422, "content_filtered");
     }
+    throw e && (e.name === "TimeoutError" || e.name === "AbortError")
+      ? new HttpError("AI 改圖逾時，請稍後再試", 504, "timeout")
+      : new HttpError("AI 改圖失敗，請稍後再試", 502, "workers_ai_error");
+  } finally {
+    clearTimeout(timer);
   }
 
   const direct = data && typeof data.image === "string" ? data.image.trim() : "";

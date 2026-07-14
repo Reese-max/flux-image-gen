@@ -2,6 +2,8 @@
 // client-error sanitization, and the optional edge rate limiter.
 import { MAX_JSON_BYTES } from "./constants.js";
 
+const TURNSTILE_ACTION = "turnstile-spin-v1";
+
 export class HttpError extends Error {
   constructor(message, status, code) {
     super(message);
@@ -51,6 +53,12 @@ export function turnstileConfig(env) {
   };
 }
 
+function turnstileTimeoutMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 5000;
+  return Math.max(250, Math.min(15000, Math.round(parsed)));
+}
+
 export async function verifyTurnstileToken(token, request, env) {
   const config = turnstileConfig(env);
   if (!config.required) return null;
@@ -79,6 +87,7 @@ export async function verifyTurnstileToken(token, request, env) {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: form.toString(),
+        signal: AbortSignal.timeout(turnstileTimeoutMs(env && env.TURNSTILE_TIMEOUT_MS)),
       }
     );
     data = await response.json();
@@ -89,7 +98,7 @@ export async function verifyTurnstileToken(token, request, env) {
   if (response.status >= 500) {
     return new HttpError("真人驗證服務暫時不可用，請稍後再試", 503, "turnstile_unavailable");
   }
-  if (!data || data.success !== true) {
+  if (!data || data.success !== true || data.action !== TURNSTILE_ACTION) {
     return new HttpError("真人驗證失敗，請重新驗證後再試", 403, "turnstile_failed");
   }
   return null;

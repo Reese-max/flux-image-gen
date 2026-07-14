@@ -103,6 +103,21 @@
     return false;
   }
 
+  function scrollToPanelStart(panel) {
+    var panelRect;
+    var tabsRect;
+    var pageTop;
+    var tabsHeight;
+    var stickyTop = 0;
+    if (!panel || typeof panel.getBoundingClientRect !== 'function' || typeof window.scrollTo !== 'function') { return; }
+    panelRect = panel.getBoundingClientRect();
+    tabsRect = typeof tablist.getBoundingClientRect === 'function' ? tablist.getBoundingClientRect() : null;
+    pageTop = typeof window.pageYOffset === 'number' ? window.pageYOffset : ((document.documentElement && document.documentElement.scrollTop) || 0);
+    tabsHeight = tabsRect && tabsRect.height ? tabsRect.height : (tablist.offsetHeight || 0);
+    try { stickyTop = parseFloat(window.getComputedStyle(tablist).top) || 0; } catch (e) { stickyTop = 0; }
+    window.scrollTo(0, Math.max(0, panelRect.top + pageTop - tabsHeight - stickyTop - 16));
+  }
+
   function cleanUrl() {
     return location.pathname + location.search;
   }
@@ -125,6 +140,7 @@
 
   // 套用分頁狀態（不含 hash 副作用），回傳是否成功切換。
   function activate(name, focusTab, options) {
+    var activePanel = null;
     if (!isKnown(name)) { return false; }
     options = options || {};
     tabs.forEach(function (tab) {
@@ -134,6 +150,7 @@
       tab.classList.toggle('is-active', isActive);
       var panel = panelFor(tab);
       if (panel) { panel.hidden = !isActive; }
+      if (isActive) { activePanel = panel; }
       if (isActive && focusTab) { tab.focus(); }
     });
     // 用量 panel 不屬於任何 tab：切到任何一般分頁時一律隱藏（從 #usage 切回也適用）。
@@ -143,6 +160,7 @@
     try { localStorage.setItem(STORAGE_KEY, name); } catch (e) { /* 隱私模式忽略 */ }
     // 讓 URL 反映目前分頁：生成分頁是根網址，其他分頁保留 hash 深連結。
     if (!options.keepHash) { updateUrlForTab(name); }
+    if (!options.skipPanelScroll) { scrollToPanelStart(activePanel); }
     ensureFeatureScripts(name);
     return true;
   }
@@ -206,6 +224,7 @@
     current = 'usage';
     document.body.setAttribute('data-tab', 'usage');
     if (location.hash !== '#usage') { location.hash = 'usage'; }
+    scrollToPanelStart(usagePanel);
     ensureFeatureScripts('usage');
     return true;
   }
@@ -213,7 +232,7 @@
   // hash 路由：一般分頁走 activate；#ideas 導向生成分頁＋捲動；#usage 顯示站長 panel。
   function applyHash(name, focusTab) {
     if (name === 'ideas') {
-      var switched = activate('generate', false, { keepHash: true });
+      var switched = activate('generate', false, { keepHash: true, skipPanelScroll: true });
       if (switched) { scrollToIdeas(); }
       return switched;
     }
@@ -259,8 +278,8 @@
   var fromHash = location.hash.replace(/^#/, '').toLowerCase();
   var saved = null;
   try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) { saved = null; }
-  if (!(fromHash && applyHash(fromHash, false)) && !(saved && activate(saved, false))) {
-    activate(nameOf(tabs[0]), false);
+  if (!(fromHash && applyHash(fromHash, false)) && !(saved && activate(saved, false, { skipPanelScroll: saved === 'generate' }))) {
+    activate(nameOf(tabs[0]), false, { skipPanelScroll: true });
   }
 
   // 讓其他腳本可主動切換分頁（支援 'ideas'/'usage' 相容路由）。

@@ -44,11 +44,10 @@ export function sanitizeGalleryMeta(meta) {
   return out;
 }
 
-// --- Gallery save authorization (optional HMAC token) ---
-// When env.GALLERY_TOKEN_SECRET is set, /generate(/batch) hand out a short-lived
-// signed token that POST /gallery requires, so the cloud gallery can only be
-// written to right after a real generation — not by anonymous bulk writers.
-// Without the secret (local dev / tests) enforcement is disabled and saves stay open.
+// --- Gallery save authorization (required HMAC token) ---
+// /generate(/batch) hand out a short-lived signed token that POST /gallery
+// requires, so the cloud gallery can only be written to right after a real
+// generation. A missing secret fails closed instead of opening anonymous writes.
 async function hmacHex(secret, message) {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -84,7 +83,7 @@ export async function issueGalleryToken(env) {
 
 export async function verifyGalleryToken(env, token) {
   const secret = env && env.GALLERY_TOKEN_SECRET;
-  if (!secret) return true; // enforcement disabled
+  if (!secret) return false;
   if (typeof token !== "string" || token.indexOf(".") === -1) return false;
   const dot = token.indexOf(".");
   const ts = token.slice(0, dot);

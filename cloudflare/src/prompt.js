@@ -28,6 +28,10 @@ import {
 } from "./constants.js";
 import { HttpError } from "./http.js";
 
+function noteProviderAttempt(telemetry, attempts) {
+  if (telemetry && typeof telemetry === "object") telemetry.attempts = attempts;
+}
+
 function buildGeminiUserText(source, style) {
   const hint = GEMINI_STYLE_HINTS[style] || GEMINI_STYLE_HINTS.auto;
   return `${hint}\n\nDescription:\n${String(source).trim()}`;
@@ -130,7 +134,7 @@ function parseGeminiPlainTextResponse(data) {
   return text;
 }
 
-export async function geminiTransformPrompt(source, style, env) {
+export async function geminiTransformPrompt(source, style, env, telemetry) {
   const apiKey = String(env.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new Error("missing GEMINI_API_KEY");
 
@@ -152,10 +156,12 @@ export async function geminiTransformPrompt(source, style, env) {
   for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
     let resp;
     try {
+      noteProviderAttempt(telemetry, attempt + 1);
       resp = await fetch(url, {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(GEMINI_COMPLETE_TIMEOUT_MS),
       });
     } catch (e) {
       lastError = new Error(`gemini network error: ${e}`);
@@ -178,7 +184,7 @@ export async function geminiTransformPrompt(source, style, env) {
   throw lastError || new Error("gemini request failed");
 }
 
-export async function geminiCompletePrompt(source, style, env) {
+export async function geminiCompletePrompt(source, style, env, telemetry) {
   const apiKey = String(env.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new HttpError("Gemma 中文補全尚未啟用（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
 
@@ -199,6 +205,7 @@ export async function geminiCompletePrompt(source, style, env) {
   for (let attempt = 0; attempt < GEMINI_COMPLETE_MAX_ATTEMPTS; attempt++) {
     let resp;
     try {
+      noteProviderAttempt(telemetry, attempt + 1);
       resp = await fetch(url, {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
@@ -226,7 +233,7 @@ export async function geminiCompletePrompt(source, style, env) {
   throw lastError || new Error("gemini completion request failed");
 }
 
-async function geminiEnhancePrompt(prompt, effect, env) {
+async function geminiEnhancePrompt(prompt, effect, env, telemetry) {
   const apiKey = String(env.GEMINI_API_KEY || "").trim();
   if (!apiKey) throw new HttpError("效果優化需要 Gemini（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
 
@@ -248,10 +255,12 @@ async function geminiEnhancePrompt(prompt, effect, env) {
   for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
     let resp;
     try {
+      noteProviderAttempt(telemetry, attempt + 1);
       resp = await fetch(url, {
         method: "POST",
         headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(GEMINI_COMPLETE_TIMEOUT_MS),
       });
     } catch (e) {
       lastError = new Error(`gemini enhance network error: ${e}`);
@@ -290,7 +299,7 @@ function ruleBasedEnhancePrompt(prompt, effect) {
 
 // Effect optimisation prefers Gemini and remains usable through local rules when
 // the key or provider is unavailable.
-export async function enhancePrompt(prompt, effect, env = {}) {
+export async function enhancePrompt(prompt, effect, env = {}, telemetry) {
   const base = String(prompt || "").trim();
   if (!base) throw new HttpError("請先輸入提示詞", 400, "bad_request");
   const wanted = String(effect || "").trim();
@@ -298,7 +307,7 @@ export async function enhancePrompt(prompt, effect, env = {}) {
 
   if (String(env.GEMINI_API_KEY || "").trim()) {
     try {
-      const refined = await geminiEnhancePrompt(base, wanted, env);
+      const refined = await geminiEnhancePrompt(base, wanted, env, telemetry);
       return { prompt: refined, provider: "gemini", effect: wanted, warnings: [] };
     } catch (error) {
       console.error(JSON.stringify({ event: "gemini_enhance_failed", error: String(error) }));
@@ -414,7 +423,7 @@ export function transformPlainPrompt(source, style = "auto") {
   };
 }
 
-export async function completePlainPrompt(source, style = "auto", env = {}) {
+export async function completePlainPrompt(source, style = "auto", env = {}, telemetry) {
   const sourceText = String(source || "").trim();
   if (!sourceText) {
     throw new HttpError("請先輸入白話描述", 400, "bad_request");
@@ -435,7 +444,7 @@ export async function completePlainPrompt(source, style = "auto", env = {}) {
   let warnings = ["未設定 Gemini，已使用離線補全"];
   if (String(env.GEMINI_API_KEY || "").trim()) {
     try {
-      prompt = await geminiCompletePrompt(sourceText, resolvedStyle, env);
+      prompt = await geminiCompletePrompt(sourceText, resolvedStyle, env, telemetry);
       provider = "gemini";
       warnings = [];
     } catch (error) {

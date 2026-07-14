@@ -19,6 +19,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback is not 
     tomllib = None  # type: ignore[assignment]
 
 REQUIRED_SECRET_NAMES = {
+    "GALLERY_TOKEN_SECRET",
     "NVIDIA_API_KEY",
     "GEMINI_API_KEY",
     "TURNSTILE_SECRET_KEY",
@@ -34,6 +35,7 @@ REQUIRED_VARS = {
     "TURNSTILE_REQUIRED",
     "TURNSTILE_SITE_KEY",
     "USAGE_ESTIMATED_COST_USD_PER_IMAGE",
+    "USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST",
     "USAGE_ALERT_DAILY_GENERATIONS",
 }
 
@@ -68,6 +70,9 @@ REQUIRED_RELEASE_ACCEPTANCE_ITEMS = {
     "隱私政策法務確認",
     "授權與商用說明法務確認",
     "Sign-off",
+    "CF_VERSION_METADATA",
+    "GitHub Actions CI",
+    "wrangler rollback",
     "不可公開",
 }
 
@@ -105,13 +110,54 @@ def list_contains_object(items: Any, key: str, value: str) -> dict[str, Any] | N
 
 def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[str]) -> None:
     wrangler_path = root / "cloudflare" / "wrangler.toml"
+    legacy_deploy_path = root / "cloudflare" / "wrangler.deploy.toml"
     require(wrangler_path.exists(), "缺少 cloudflare/wrangler.toml", errors)
+    require(
+        not legacy_deploy_path.exists(),
+        "不得保留第二份 cloudflare/wrangler.deploy.toml；部署設定必須只有 wrangler.toml",
+        errors,
+    )
     if not wrangler_path.exists():
         return
     data = read_toml(wrangler_path)
 
     require(data.get("main") == "src/index.js", "wrangler main 必須是 src/index.js", errors)
     require(data.get("compatibility_date"), "wrangler 必須設定 compatibility_date", errors)
+    require("nodejs_compat" in (data.get("compatibility_flags") or []), "wrangler 必須啟用 nodejs_compat", errors)
+
+    version_metadata = data.get("version_metadata")
+    require(
+        isinstance(version_metadata, dict) and version_metadata.get("binding") == "CF_VERSION_METADATA",
+        "必須設定 [version_metadata] binding = CF_VERSION_METADATA",
+        errors,
+    )
+
+    observability = data.get("observability")
+    require(
+        isinstance(observability, dict) and observability.get("enabled") is True,
+        "必須啟用 [observability]",
+        errors,
+    )
+    if isinstance(observability, dict):
+        sample_rate = observability.get("head_sampling_rate")
+        require(
+            isinstance(sample_rate, (int, float)) and 0 < sample_rate <= 1,
+            "observability head_sampling_rate 必須介於 0（不含）與 1 之間",
+            errors,
+        )
+        logs = observability.get("logs")
+        require(
+            isinstance(logs, dict) and logs.get("enabled") is True,
+            "必須啟用 [observability.logs]",
+            errors,
+        )
+        if isinstance(logs, dict):
+            log_sample_rate = logs.get("head_sampling_rate")
+            require(
+                isinstance(log_sample_rate, (int, float)) and 0 < log_sample_rate <= 1,
+                "observability.logs head_sampling_rate 必須介於 0（不含）與 1 之間",
+                errors,
+            )
     assets = data.get("assets")
     require(isinstance(assets, dict), "wrangler 必須設定 [assets]", errors)
     if isinstance(assets, dict):
@@ -154,6 +200,11 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
             require(float(vars_section.get("USAGE_ESTIMATED_COST_USD_PER_IMAGE")) >= 0, "USAGE_ESTIMATED_COST_USD_PER_IMAGE 不可為負", errors)
         except (TypeError, ValueError):
             errors.append("USAGE_ESTIMATED_COST_USD_PER_IMAGE 必須是數字字串")
+    if "USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST" in vars_section:
+        try:
+            require(float(vars_section.get("USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST")) >= 0, "USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST 不可為負", errors)
+        except (TypeError, ValueError):
+            errors.append("USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST 必須是數字字串")
     if "USAGE_ALERT_DAILY_GENERATIONS" in vars_section:
         try:
             require(int(vars_section.get("USAGE_ALERT_DAILY_GENERATIONS")) > 0, "USAGE_ALERT_DAILY_GENERATIONS 必須大於 0", errors)
@@ -213,6 +264,9 @@ def validate_checklist(root: Path, public: bool, errors: list[str], checks: list
         "npm --prefix cloudflare run qa:a11y",
         "npm --prefix cloudflare run deploy:dry-run",
         "node scripts\\verify.mjs",
+        "wrangler versions list",
+        "wrangler versions view",
+        "wrangler rollback",
     ]:
         require(command in checklist, "deployment checklist 缺少命令：" + command, errors)
     require("docs/release-acceptance-checklist.md" in checklist, "deployment checklist 必須連到 release acceptance checklist", errors)

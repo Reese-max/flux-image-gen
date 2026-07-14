@@ -643,24 +643,30 @@
         <div>
           <span class="section-kicker">站長工具</span>
           <h2>成本 Dashboard</h2>
-          <p>查看今日生成次數、失敗率、估計成本、模型用量與異常提醒。此摘要不保存提示詞、圖片內容或原始 IP。</p>
+          <p>查看所選 UTC 日期的生成次數、供應商嘗試、失敗率、估計成本與異常提醒。需輸入站長 Token；此摘要不保存提示詞、圖片內容或原始 IP。</p>
         </div>
-        <div class="history-actions">
+        <div class="history-actions usage-query-controls">
+          <label class="field" for="galleryAdminToken">
+            <span class="field-label">站長 Token</span>
+            <input id="galleryAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 GALLERY_ADMIN_TOKEN" aria-label="用量與雲端圖庫站長 Token">
+          </label>
           <label class="field" for="usageDate">
-            <span class="field-label">查詢日期</span>
+            <span class="field-label">查詢日期（UTC）</span>
             <input id="usageDate" class="text-input" type="date" aria-label="查詢用量日期">
           </label>
           <button id="refreshUsage" class="btn mini secondary" type="button">重新整理</button>
         </div>
       </div>
       <div id="usageStatus" class="status" role="status" aria-live="polite" aria-atomic="true">尚未載入用量資料。</div>
-      <div class="usage-metrics" aria-label="今日用量摘要">
-        <article class="usage-metric"><span>今日生成圖數</span><strong id="usageGeneratedImages">—</strong></article>
-        <article class="usage-metric"><span>今日失敗次數</span><strong id="usageFailedRequests">—</strong></article>
-        <article class="usage-metric"><span>今日估計成本</span><strong id="usageEstimatedCost">—</strong></article>
-        <article class="usage-metric"><span>平均生成時間</span><strong id="usageAverageMs">—</strong></article>
+      <div class="usage-metrics" aria-label="所選 UTC 日期用量摘要">
+        <article class="usage-metric"><span>當日生成圖數</span><strong id="usageGeneratedImages">—</strong></article>
+        <article class="usage-metric"><span>Provider 嘗試</span><strong id="usageTotalAttempts">—</strong></article>
+        <article class="usage-metric"><span>成功事件</span><strong id="usageSuccessRequests">—</strong></article>
+        <article class="usage-metric"><span>當日失敗次數</span><strong id="usageFailedRequests">—</strong></article>
+        <article class="usage-metric"><span>當日估計成本</span><strong id="usageEstimatedCost">—</strong></article>
+        <article class="usage-metric"><span>平均事件時間</span><strong id="usageAverageMs">—</strong></article>
         <article class="usage-metric"><span>錯誤率</span><strong id="usageErrorRate">—</strong></article>
-        <article class="usage-metric"><span>總請求數</span><strong id="usageTotalRequests">—</strong></article>
+        <article class="usage-metric"><span>事件總數</span><strong id="usageTotalRequests">—</strong></article>
       </div>
       <div id="usageAlerts" class="usage-alerts" aria-live="polite"></div>
       <div class="usage-columns">
@@ -690,10 +696,6 @@
           <span id="galleryAdminCount" class="gallery-admin-count">尚未載入</span>
         </div>
         <div class="gallery-admin-controls">
-          <label class="field" for="galleryAdminToken">
-            <span class="field-label">站長 Token</span>
-            <input id="galleryAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 GALLERY_ADMIN_TOKEN" aria-label="站長雲端圖庫 Token">
-          </label>
           <button id="refreshGalleryAdmin" class="btn mini secondary" type="button">讀取雲端圖庫</button>
           <button id="galleryAdminNext" class="btn mini secondary" type="button" disabled>載入下一頁</button>
         </div>

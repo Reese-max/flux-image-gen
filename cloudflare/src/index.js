@@ -1,7 +1,7 @@
 // Cloudflare Worker entry: serves the static SPA and routes the JSON API.
 // Request handlers live here; pure helpers are split into sibling modules
 // (constants / http / prompt / image / gallery). Mirrors the Python backend.
-import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP } from "./constants.js";
+import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
 import {
   HttpError,
   checkRateLimit,
@@ -21,6 +21,7 @@ import {
   getNvidiaApiKey,
   randomImageSeed,
   validateBatchCount,
+  validateCustomDimension,
   validateEditImages,
   validatePrompt,
   validateSeed,
@@ -31,6 +32,60 @@ import { maybeRunVisionQa } from "./vision.js";
 
 function elapsedMs(started) {
   return Math.max(0, Math.round(Date.now() - started));
+}
+
+function generationUsageTarget(env, model) {
+  if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
+    return { provider: "workers-ai", model };
+  }
+  if (getNvidiaApiKey(env)) {
+    return { provider: "nvidia", model: model === "schnell" ? "dev" : model };
+  }
+  return { provider: "demo", model };
+}
+
+function providerAttemptCount(source, fallback = 0) {
+  const raw = source && source.providerAttempts;
+  const parsed = Number(raw == null ? fallback : raw);
+  return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : Math.max(0, fallback);
+}
+
+function promptUsageTarget(env, route, provider, attempts = 0) {
+  const hasGemini = Boolean(String((env && env.GEMINI_API_KEY) || "").trim());
+  const attemptedGemini = hasGemini && (provider === "gemini" || provider === "rule_based");
+  const usageProvider = attemptedGemini && provider === "rule_based" ? "gemini-fallback" : provider;
+  const model = usageProvider && usageProvider.startsWith("gemini")
+    ? route === "prompt_complete"
+      ? String((env && env.GEMINI_COMPLETE_MODEL) || GEMINI_COMPLETE_DEFAULT_MODEL)
+      : String((env && env.GEMINI_PROMPT_MODEL) || GEMINI_DEFAULT_MODEL)
+    : usageProvider === "rule_based" ? "rule-based" : "unknown";
+  return {
+    provider: usageProvider || "unknown",
+    model,
+    attempt: attemptedGemini ? Math.max(0, Math.round(Number(attempts) || 0)) : 0,
+  };
+}
+
+async function recordPromptEvent(env, request, route, started, event) {
+  await recordUsageEvent(env, request, {
+    route,
+    durationMs: elapsedMs(started),
+    ...event,
+  });
+}
+
+async function recordVisionQaEvent(env, request, started, visionQa) {
+  if (!visionQa) return;
+  await recordUsageEvent(env, request, {
+    route: "vision_qa",
+    outcome: visionQa.available ? "success" : "error",
+    statusCode: visionQa.available ? 200 : 503,
+    errorCode: visionQa.available ? "" : (visionQa.code || "vision_qa_failed"),
+    provider: "gemini",
+    model: String((env && env.GEMINI_VISION_MODEL) || "gemini-2.5-flash"),
+    durationMs: elapsedMs(started),
+    attempt: providerAttemptCount(visionQa),
+  });
 }
 
 function constantTimeStringEqual(a, b) {
@@ -46,6 +101,15 @@ function buildHealthResponse(env) {
   const hasNvidia = Boolean(getNvidiaApiKey(env));
   const hasWorkersAI = Boolean(env.AI);
   const storageAvailable = Boolean(env.IMAGE_BUCKET && typeof env.IMAGE_BUCKET.put === "function");
+  const versionId = env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.id
+    ? String(env.CF_VERSION_METADATA.id)
+    : "";
+  const versionTag = env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.tag
+    ? String(env.CF_VERSION_METADATA.tag)
+    : "";
+  const versionTimestamp = env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.timestamp
+    ? String(env.CF_VERSION_METADATA.timestamp)
+    : "";
   let providerStatus = "demo";
   let mode = "demo";
   let message = "Demo 模式，不會真實出圖";
@@ -75,6 +139,9 @@ function buildHealthResponse(env) {
     turnstile: turnstileConfig(env),
     message,
     checkedAt: new Date().toISOString(),
+    ...(versionId ? { versionId } : {}),
+    ...(versionTag ? { versionTag } : {}),
+    ...(versionTimestamp ? { versionTimestamp } : {}),
   };
 }
 
@@ -169,8 +236,8 @@ async function handleGenerate(request, env) {
     if (!MODEL_ENDPOINTS[model]) throw new HttpError("不支援的模型", 400, "bad_request");
     size = payload.size || "square";
     if (size !== "custom" && !SIZE_MAP[size]) throw new HttpError("不支援的尺寸", 400, "bad_request");
-    width = payload.width;
-    height = payload.height;
+    width = size === "custom" ? validateCustomDimension(payload.width) : payload.width;
+    height = size === "custom" ? validateCustomDimension(payload.height) : payload.height;
   } catch (e) {
     if (e instanceof HttpError) {
       await recordUsageEvent(env, request, {
@@ -188,9 +255,8 @@ async function handleGenerate(request, env) {
 
   try {
     const result = await generateOneImage(env, { prompt, model, size, width, height, seed });
-    const visionQa = payload.visionQa ? await maybeRunVisionQa(result.image, prompt, env) : null;
-    if (visionQa) result.visionQa = visionQa;
-    const galleryToken = await issueGalleryToken(env);
+    // Persist the billable image immediately. Optional QA must never hide a
+    // completed provider call or make the client retry the generation.
     await recordUsageEvent(env, request, {
       route: "generate",
       outcome: "success",
@@ -199,17 +265,30 @@ async function handleGenerate(request, env) {
       model: result.model,
       imageCount: 1,
       durationMs: elapsedMs(started),
+      attempt: providerAttemptCount(result, result.provider === "demo" ? 0 : 1),
     });
+    if (payload.visionQa) {
+      const qaStarted = Date.now();
+      const visionQa = await maybeRunVisionQa(result.image, prompt, env);
+      await recordVisionQaEvent(env, request, qaStarted, visionQa);
+      if (visionQa) result.visionQa = visionQa;
+    }
+    const galleryToken = await issueGalleryToken(env);
     return json(galleryToken ? { ...result, galleryToken } : result);
   } catch (e) {
     if (e instanceof HttpError) {
+      const target = generationUsageTarget(env, model);
+      const fallbackAttempts = e.code !== "bad_request" && e.code !== "missing_api_key" && target.provider !== "demo" ? 1 : 0;
+      const attempts = providerAttemptCount(e, fallbackAttempts);
       await recordUsageEvent(env, request, {
         route: "generate",
         outcome: "error",
         statusCode: e.status,
         errorCode: e.code,
-        model,
+        provider: attempts > 0 ? target.provider : "unknown",
+        model: target.model,
         durationMs: elapsedMs(started),
+        attempt: attempts,
       });
       return httpErrorJson(e);
     }
@@ -288,8 +367,8 @@ async function handleGenerateBatch(request, env) {
     if (!MODEL_ENDPOINTS[model]) throw new HttpError("不支援的模型", 400, "bad_request");
     size = payload.size || "square";
     if (size !== "custom" && !SIZE_MAP[size]) throw new HttpError("不支援的尺寸", 400, "bad_request");
-    width = payload.width;
-    height = payload.height;
+    width = size === "custom" ? validateCustomDimension(payload.width) : payload.width;
+    height = size === "custom" ? validateCustomDimension(payload.height) : payload.height;
     count = validateBatchCount(payload.count);
   } catch (e) {
     if (e instanceof HttpError) {
@@ -314,34 +393,64 @@ async function handleGenerateBatch(request, env) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
       tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed }));
     }
-    const images = await Promise.all(tasks);
+    const settled = await Promise.allSettled(tasks);
+    const images = [];
+    const errors = [];
+    const target = generationUsageTarget(env, model);
+    for (let index = 0; index < settled.length; index++) {
+      const item = settled[index];
+      if (item.status === "fulfilled") {
+        images.push(item.value);
+        await recordUsageEvent(env, request, {
+          route: "generate_batch",
+          outcome: "success",
+          statusCode: 200,
+          provider: item.value.provider,
+          model: item.value.model,
+          imageCount: 1,
+          durationMs: elapsedMs(started),
+          attempt: providerAttemptCount(item.value, item.value.provider === "demo" ? 0 : 1),
+          batchIndex: index,
+        });
+      } else {
+        const error = item.reason instanceof HttpError
+          ? item.reason
+          : new HttpError("圖片生成失敗，請稍後再試", 502, "generation_failed");
+        const fallbackAttempts = error.code !== "bad_request" && error.code !== "missing_api_key" && target.provider !== "demo" ? 1 : 0;
+        const attempts = providerAttemptCount(error, fallbackAttempts);
+        errors.push({ index, error: error.message, code: error.code, status: error.status });
+        await recordUsageEvent(env, request, {
+          route: "generate_batch",
+          outcome: "error",
+          statusCode: error.status,
+          errorCode: error.code,
+          provider: attempts > 0 ? target.provider : "unknown",
+          model: target.model,
+          durationMs: elapsedMs(started),
+          attempt: attempts,
+          batchIndex: index,
+        });
+      }
+    }
+    if (!images.length) {
+      const first = settled[0] && settled[0].status === "rejected" && settled[0].reason instanceof HttpError
+        ? settled[0].reason
+        : new HttpError("圖片生成失敗，請稍後再試", 502, "generation_failed");
+      return httpErrorJson(first);
+    }
     if (payload.visionQa) {
       for (const image of images) {
+        const qaStarted = Date.now();
         const visionQa = await maybeRunVisionQa(image.image, prompt, env);
+        await recordVisionQaEvent(env, request, qaStarted, visionQa);
         if (visionQa) image.visionQa = visionQa;
       }
     }
     const galleryToken = await issueGalleryToken(env);
-    await recordUsageEvent(env, request, {
-      route: "generate_batch",
-      outcome: "success",
-      statusCode: 200,
-      provider: images[0] ? images[0].provider : "unknown",
-      model: images[0] ? images[0].model : model,
-      imageCount: images.length,
-      durationMs: elapsedMs(started),
-    });
-    return json(galleryToken ? { images, galleryToken } : { images });
+    const response = { images, errors, partial: errors.length > 0 };
+    return json(galleryToken ? { ...response, galleryToken } : response);
   } catch (e) {
     if (e instanceof HttpError) {
-      await recordUsageEvent(env, request, {
-        route: "generate_batch",
-        outcome: "error",
-        statusCode: e.status,
-        errorCode: e.code,
-        model,
-        durationMs: elapsedMs(started),
-      });
       return httpErrorJson(e);
     }
     throw e;
@@ -438,17 +547,21 @@ async function handleEdit(request, env) {
       model: result.model,
       imageCount: 1,
       durationMs: elapsedMs(started),
+      attempt: 1,
     });
     return json(result);
   } catch (e) {
     if (e instanceof HttpError) {
+      const providerStarted = e.code !== "bad_request" && e.code !== "missing_api_key";
       await recordUsageEvent(env, request, {
         route: "edit",
         outcome: "error",
         statusCode: e.status,
         errorCode: e.code,
-        model: "edit",
+        provider: providerStarted ? "workers-ai" : "unknown",
+        model: WORKERS_AI_EDIT_MODEL,
         durationMs: elapsedMs(started),
+        attempt: providerStarted ? 1 : 0,
       });
       return httpErrorJson(e);
     }
@@ -541,11 +654,13 @@ async function handleGalleryGet(env, id) {
   return new Response(object.body, { status: 200, headers });
 }
 
-function requireGalleryAdmin(request, env) {
+function requireGalleryAdmin(request, env, scope = "gallery") {
   const expected = env && env.GALLERY_ADMIN_TOKEN;
   const provided = request.headers.get("x-gallery-admin-token") || "";
   if (!expected) {
-    return json({ error: "站長雲端圖庫列表尚未啟用", code: "admin_gallery_disabled" }, 503);
+    return scope === "usage"
+      ? json({ error: "站長用量查詢尚未啟用", code: "admin_usage_disabled" }, 503)
+      : json({ error: "站長雲端圖庫列表尚未啟用", code: "admin_gallery_disabled" }, 503);
   }
   if (!constantTimeStringEqual(provided, expected)) {
     return json({ error: "站長圖庫授權無效", code: "unauthorized" }, 401);
@@ -892,29 +1007,54 @@ async function handleSharePage(env, id) {
 }
 
 async function handlePromptTransform(request, env) {
+  const route = "prompt_transform";
+  const started = Date.now();
   // Each call can hit the Gemini API (separate paid quota); throttle like /generate.
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
-  if (limited) return limited;
+  if (limited) {
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+    });
+    return limited;
+  }
 
   let payload;
   try {
     payload = await readJsonPayload(request);
   } catch (e) {
-    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
+    if (e instanceof HttpError) {
+      await recordPromptEvent(env, request, route, started, {
+        outcome: "error", statusCode: e.status, errorCode: e.code,
+      });
+      return httpErrorJson(e);
+    }
     throw e;
   }
 
   const source = String(payload.source || "").trim();
-  if (!source) return json({ error: "請先輸入白話描述", code: "bad_request" }, 400);
+  if (!source) {
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: 400, errorCode: "bad_request",
+    });
+    return json({ error: "請先輸入白話描述", code: "bad_request" }, 400);
+  }
   if (source.length > MAX_TRANSFORM_SOURCE_LENGTH) {
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: 400, errorCode: "bad_request",
+    });
     return json({ error: "描述太長", code: "bad_request" }, 400);
   }
 
   // LLM-first: try Gemini when a key is configured, then gracefully fall back.
+  const providerTelemetry = { attempts: 0 };
   if (String((env && env.GEMINI_API_KEY) || "").trim()) {
     try {
       const resolvedStyle = resolveStyle(source, normalizeStyle(payload.style));
-      const prompt = await geminiTransformPrompt(source, resolvedStyle, env);
+      const prompt = await geminiTransformPrompt(source, resolvedStyle, env, providerTelemetry);
+      await recordPromptEvent(env, request, route, started, {
+        outcome: "success", statusCode: 200,
+        ...promptUsageTarget(env, route, "gemini", providerTelemetry.attempts),
+      });
       return json({ source, prompt, provider: "gemini", warnings: [] });
     } catch (geminiErr) {
       console.error(JSON.stringify({ event: "gemini_transform_failed", error: String(geminiErr) }));
@@ -924,6 +1064,10 @@ async function handlePromptTransform(request, env) {
 
   try {
     const result = transformPlainPrompt(source, payload.style);
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "success", statusCode: 200,
+      ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
+    });
     return json({
       source: result.source,
       prompt: result.prompt,
@@ -931,32 +1075,64 @@ async function handlePromptTransform(request, env) {
       warnings: result.warnings,
     });
   } catch (e) {
-    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
+    const status = e instanceof HttpError ? e.status : 400;
+    const code = e instanceof HttpError ? e.code : "bad_request";
+    const provider = String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: status, errorCode: code,
+      ...promptUsageTarget(env, route, provider, providerTelemetry.attempts),
+    });
+    if (e instanceof HttpError) return httpErrorJson(e);
     return json({ error: String(e), code: "bad_request" }, 400);
   }
 }
 
 async function handlePromptComplete(request, env) {
+  const route = "prompt_complete";
+  const started = Date.now();
   // Gemma completion can consume paid quota; throttle like /prompt/transform.
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
-  if (limited) return limited;
+  if (limited) {
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+    });
+    return limited;
+  }
 
   let payload;
   try {
     payload = await readJsonPayload(request);
   } catch (e) {
-    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
+    if (e instanceof HttpError) {
+      await recordPromptEvent(env, request, route, started, {
+        outcome: "error", statusCode: e.status, errorCode: e.code,
+      });
+      return httpErrorJson(e);
+    }
     throw e;
   }
 
   const source = String(payload.source || "").trim();
-  if (!source) return json({ error: "請先輸入白話描述", code: "bad_request" }, 400);
+  if (!source) {
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: 400, errorCode: "bad_request",
+    });
+    return json({ error: "請先輸入白話描述", code: "bad_request" }, 400);
+  }
   if (source.length > MAX_TRANSFORM_SOURCE_LENGTH) {
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: 400, errorCode: "bad_request",
+    });
     return json({ error: "描述太長", code: "bad_request" }, 400);
   }
 
+  const providerTelemetry = { attempts: 0 };
   try {
-    const result = await completePlainPrompt(source, payload.style, env);
+    const result = await completePlainPrompt(source, payload.style, env, providerTelemetry);
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "success", statusCode: 200,
+      ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
+    });
     return json({
       source: result.source,
       prompt: result.prompt,
@@ -964,6 +1140,13 @@ async function handlePromptComplete(request, env) {
       warnings: result.warnings,
     });
   } catch (e) {
+    const status = e instanceof HttpError ? e.status : 502;
+    const code = e instanceof HttpError ? e.code : "prompt_complete_failed";
+    const provider = String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: status, errorCode: code,
+      ...promptUsageTarget(env, route, provider, providerTelemetry.attempts),
+    });
     if (e instanceof HttpError) return httpErrorJson(e);
     console.error(JSON.stringify({ event: "gemini_complete_failed", error: String(e) }));
     return json({ error: "Gemma 中文補全失敗，請稍後再試", code: "prompt_complete_failed" }, 502);
@@ -971,15 +1154,28 @@ async function handlePromptComplete(request, env) {
 }
 
 async function handlePromptEnhance(request, env) {
+  const route = "prompt_enhance";
+  const started = Date.now();
   // Effect optimisation hits Gemini; throttle like /prompt/transform.
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
-  if (limited) return limited;
+  if (limited) {
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+    });
+    return limited;
+  }
 
   let payload;
+  const providerTelemetry = { attempts: 0 };
   try {
     payload = await readJsonPayload(request);
   } catch (e) {
-    if (e instanceof HttpError) return json({ error: e.message, code: e.code }, e.status);
+    if (e instanceof HttpError) {
+      await recordPromptEvent(env, request, route, started, {
+        outcome: "error", statusCode: e.status, errorCode: e.code,
+      });
+      return httpErrorJson(e);
+    }
     throw e;
   }
 
@@ -987,12 +1183,22 @@ async function handlePromptEnhance(request, env) {
     const prompt = String(payload.prompt || "").trim();
     const effect = String(payload.effect || "").trim();
     if (prompt.length > MAX_ENHANCE_PROMPT_LENGTH) {
+      await recordPromptEvent(env, request, route, started, {
+        outcome: "error", statusCode: 400, errorCode: "bad_request",
+      });
       return json({ error: "提示詞太長", code: "bad_request" }, 400);
     }
     if (effect.length > MAX_ENHANCE_EFFECT_LENGTH) {
+      await recordPromptEvent(env, request, route, started, {
+        outcome: "error", statusCode: 400, errorCode: "bad_request",
+      });
       return json({ error: "效果描述太長", code: "bad_request" }, 400);
     }
-    const result = await enhancePrompt(payload.prompt, payload.effect, env);
+    const result = await enhancePrompt(payload.prompt, payload.effect, env, providerTelemetry);
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "success", statusCode: 200,
+      ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
+    });
     return json({
       prompt: result.prompt,
       provider: result.provider,
@@ -1000,6 +1206,15 @@ async function handlePromptEnhance(request, env) {
       warnings: result.warnings || [],
     });
   } catch (e) {
+    const status = e instanceof HttpError ? e.status : 502;
+    const code = e instanceof HttpError ? e.code : "prompt_enhance_failed";
+    const provider = e instanceof HttpError
+      ? "unknown"
+      : String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
+    await recordPromptEvent(env, request, route, started, {
+      outcome: "error", statusCode: status, errorCode: code,
+      ...promptUsageTarget(env, route, provider, providerTelemetry.attempts),
+    });
     if (e instanceof HttpError) return httpErrorJson(e);
     console.error(JSON.stringify({ event: "gemini_enhance_failed", error: String(e) }));
     return json({ error: "效果優化失敗，請稍後再試", code: "prompt_enhance_failed" }, 502);
@@ -1015,10 +1230,15 @@ export default {
       return json(buildHealthResponse(env));
     }
     if (url.pathname === "/api/usage" && request.method === "GET") {
+      const adminError = requireGalleryAdmin(request, env, "usage");
+      if (adminError) return adminError;
       try {
-        return json(buildUsageSummary(env, url.searchParams.get("date")));
+        return json(await buildUsageSummary(env, url.searchParams.get("date")));
       } catch (e) {
-        return json({ error: e.message || "date 必須使用 YYYY-MM-DD", code: "bad_request" }, 400);
+        return json(
+          { error: e.message || "date 必須使用 YYYY-MM-DD", code: e.code || "bad_request" },
+          e.status || 400
+        );
       }
     }
     if (url.pathname === "/api/gallery" && request.method === "GET") {

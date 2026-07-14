@@ -758,6 +758,14 @@
     });
   }
 
+  function switchToGenerateTab() {
+    if (typeof root.showTab !== 'function' || !root.showTab('generate')) {
+      setAppStatus('生成分頁尚未就緒', 'fail');
+      return false;
+    }
+    return true;
+  }
+
   function regenerateHistoryDetail() {
     var record = getSelectedRecord();
     if (!root.ImageGenApp || typeof root.ImageGenApp.setGenerationSettings !== 'function' || typeof root.ImageGenApp.generate !== 'function') {
@@ -768,14 +776,18 @@
       setAppStatus('尚無可再生的作品', 'warn');
       return;
     }
+    if (!switchToGenerateTab()) { return; }
     if (typeof root.ImageGenApp.setNextGenerationSourceRecord === 'function') {
       root.ImageGenApp.setNextGenerationSourceRecord(record.id);
     }
     root.ImageGenApp.setGenerationSettings({
-      prompt: toText(record && record.prompt),
-      avoid: toText(record && record.avoid),
+      prompt: toText(record && (record.userPrompt || record.prompt)),
+      providerPrompt: toText(record && record.providerPrompt),
+      avoid: toText(record && (record.negativePrompt || record.avoid)),
       model: toText(record && record.model) || 'schnell',
       size: toText(record && record.size) || 'square',
+      width: record && record.width,
+      height: record && record.height,
       seed: 0
     });
     closeHistoryDetail();

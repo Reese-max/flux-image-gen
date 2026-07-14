@@ -1,5 +1,36 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- 防止隱性重複計費：Workers AI 生圖／改圖每個使用者請求最多一次 `AI.run`，啟動後不自動重送或跨供應商；NVIDIA、Gemini 與 Vision QA 則記錄實際 Provider 嘗試次數與保守估算成本。
+- Batch 改用完整收斂結果：部分成功回傳成功圖片與逐張錯誤，全部失敗維持非 2xx；前端會顯示成功／失敗張數，不再把空結果當成功。
+- Turnstile 加入 5 秒預設 timeout、bounded 設定與 `action=turnstile-spin-v1` 驗證；缺少 `GALLERY_TOKEN_SECRET` 時 R2 圖庫寫入改為 fail-closed。
+- 手機切換分頁後回到新 panel 起點；歷史再生完整帶回中文／Provider prompt、負面提示、尺寸與解析度，且先顯示生成分頁再送出。
+- Service Worker 不再安裝後自行接管；只有本分頁按下更新才 `skipWaiting` 並重載，network-first 快取寫入也納入事件生命週期。
+- 成本 Dashboard 共用 `GALLERY_ADMIN_TOKEN` 呼叫受保護的 `/api/usage`，新增 Provider 嘗試與成功事件，並修正手機查詢列遮擋／壓縮。
+
+### Added
+
+- 用量事件以既有 `IMAGE_BUCKET` 的 `usage-events/YYYY-MM-DD/` metadata 持久保存；摘要不含 prompt、圖片、原始 IP 或 IP 雜湊，超過單日 1,000 筆時明確標示部分資料。
+- Prompt／Vision 單次成本可用 `USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 校準；目前預設 `0`，只保證嘗試次數完整，不宣稱美元估值完整。
+
+### Infrastructure
+
+- 移除會部署過期、未追蹤 bundle 的 `wrangler.deploy.toml` 路徑；原生與 WSL deploy 現在共用 `wrangler.toml` 與 `src/index.js`，WSL fallback 固定 Wrangler `4.104.0`。
+- `npm run deploy`／`deploy:dry-run` 強制先跑完整離線 verify；正式 deploy 另強制 public Turnstile preflight，未設定正式 widget／site key／secret 時會安全停止。
+- 加入 `CF_VERSION_METADATA` binding 與 10% Workers Logs observability sampling；traces 暫不啟用，待成本另行核准。
+- 新增最小 GitHub Actions CI，在 Windows／Node 22／Python 3.12 執行既有完整 verify，不含 deploy。
+- 補齊可執行 rollback runbook：版本列舉／檢視、明確 Version ID 回滾、health／assets smoke，以及 commit／Version ID 紀錄格式。
+- 正式 Windows／WSL deploy 新增共用 fail-closed gate：worktree 有 staged、unstaged 或 untracked 變更即停止，並在上傳前唯讀確認五個必要 production secret 名稱；輸出不含 secret 值。
+- 部署 wrapper 固定 `flux-image-gen` production 目標與 `git-<HEAD12>`／`commit <HEAD>` 版本標記；僅接受 `--dry-run`，拒絕 target、entrypoint、tag 或 message 覆寫。
+- WSL fallback 將 OAuth refresh 同步移入 EXIT cleanup；readiness 或 deploy 失敗時也會先備份／更新 Windows 憑證，再還原原有 WSL 登入。
+
+### Not deployed
+
+- 本節變更尚未部署。正式站仍缺 `TURNSTILE_SECRET_KEY` 與公開 site key；repo 亦尚無 Git remote，需完成外部設定後才能通過公開 release gate。
+
 ## 2026-07-11
 
 ### Fixed

@@ -13,10 +13,12 @@
     status: document.getElementById('usageStatus'),
     generatedImages: document.getElementById('usageGeneratedImages'),
     failedRequests: document.getElementById('usageFailedRequests'),
+    successRequests: document.getElementById('usageSuccessRequests'),
     estimatedCost: document.getElementById('usageEstimatedCost'),
     averageMs: document.getElementById('usageAverageMs'),
     errorRate: document.getElementById('usageErrorRate'),
     totalRequests: document.getElementById('usageTotalRequests'),
+    totalAttempts: document.getElementById('usageTotalAttempts'),
     alerts: document.getElementById('usageAlerts'),
     byModel: document.getElementById('usageByModel'),
     byProvider: document.getElementById('usageByProvider'),
@@ -303,6 +305,7 @@
     appendCell(head, '成功');
     appendCell(head, '失敗');
     appendCell(head, '圖數');
+    appendCell(head, '嘗試');
     appendCell(head, '成本');
     node.appendChild(head);
 
@@ -315,6 +318,7 @@
       appendCell(row, numberText(item.successes));
       appendCell(row, numberText(item.failures));
       appendCell(row, numberText(item.images));
+      appendCell(row, numberText(item.attempts));
       appendCell(row, costText(item.estimatedCostUsd));
       node.appendChild(row);
     });
@@ -347,10 +351,12 @@
   function renderUsage(data) {
     setText(els.generatedImages, numberText(data.generatedImages));
     setText(els.failedRequests, numberText(data.failedRequests));
+    setText(els.successRequests, numberText(data.successRequests));
     setText(els.estimatedCost, costText(data.estimatedCostUsd));
     setText(els.averageMs, msText(data.averageGenerationMs));
     setText(els.errorRate, percentText(data.errorRate));
     setText(els.totalRequests, numberText(data.totalRequests));
+    setText(els.totalAttempts, numberText(data.totalAttempts));
     renderAlerts(data.alerts);
     renderUsageBucket(els.byModel, data.byModel || {});
     renderUsageBucket(els.byProvider, data.byProvider || {});
@@ -361,10 +367,18 @@
 
   function fetchUsage() {
     var date = els.date && els.date.value ? els.date.value : todayKey();
+    var token = els.galleryToken && els.galleryToken.value ? els.galleryToken.value : '';
+    if (!token) {
+      setStatus('請先輸入站長 Token；此欄位只保留在目前頁面，不寫入 localStorage。', 'fail');
+      return Promise.resolve();
+    }
     loadedOnce = true;
     if (els.refresh) { els.refresh.disabled = true; }
     setStatus('正在載入用量資料…', 'busy');
-    return fetch('/api/usage?date=' + encodeURIComponent(date), { method: 'GET' })
+    return fetch('/api/usage?date=' + encodeURIComponent(date), {
+      method: 'GET',
+      headers: { 'X-Gallery-Admin-Token': token }
+    })
       .then(function (response) {
         return response.json().catch(function () { return {}; }).then(function (data) {
           if (!response.ok) {

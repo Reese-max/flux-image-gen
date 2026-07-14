@@ -1765,9 +1765,20 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   padding: clamp(16px, 3.5vw, 22px);
   margin-bottom: 28px;
 }
+.usage-dashboard .history-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.usage-query-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, .55fr) auto;
+  align-items: end;
+  width: 100%;
+}
+.usage-query-controls .btn { min-height: 44px; }
 .usage-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
   margin: 14px 0;
 }
@@ -1832,10 +1843,10 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 .usage-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.6fr) repeat(5, minmax(54px, .7fr));
+  grid-template-columns: minmax(120px, 1.6fr) repeat(6, minmax(54px, .7fr));
   gap: 8px;
   align-items: center;
-  min-width: 520px;
+  min-width: 580px;
   padding: 8px;
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -2078,6 +2089,8 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .project-create { grid-template-columns: 1fr; }
   .project-columns { grid-template-columns: 1fr; }
   .project-add-row { grid-template-columns: 1fr; }
+  .usage-query-controls { grid-template-columns: minmax(0, 1fr); }
+  .usage-query-controls .btn { width: 100%; }
   .usage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-columns { grid-template-columns: 1fr; }
   .gallery-admin-head { flex-direction: column; }

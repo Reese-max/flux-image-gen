@@ -133,6 +133,7 @@ def test_public_deployment_checklist_documents_required_gates():
         "IMAGE_BUCKET",
         "GENERATE_RATE_LIMITER",
         "USAGE_ESTIMATED_COST_USD_PER_IMAGE",
+        "USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST",
         "python scripts\\scan_public_secrets.py",
         "python scripts\\check_deployment_preflight.py",
         "python scripts\\check_deployment_preflight.py --public",
@@ -500,18 +501,47 @@ def test_pwa_and_mobile_ui_are_wired():
     assert '@media (max-width: 720px)' in styles
 
 
+def test_tab_switch_resets_scroll_without_overriding_ideas_deep_link():
+    tabs_js = read_static("tabs.js")
+    activate = re.search(
+        r"function activate\(name, focusTab, options\) \{([\s\S]*?)\n  \}\n\n  tabs\.forEach",
+        tabs_js,
+    )
+    ideas_route = re.search(
+        r"if \(name === 'ideas'\) \{([\s\S]*?)\n    \}",
+        tabs_js,
+    )
+
+    assert activate
+    assert ideas_route
+    assert "function scrollToPanelStart(panel)" in tabs_js
+    assert "getComputedStyle(tablist).top" in tabs_js
+    assert "scrollToPanelStart(activePanel)" in activate.group(1)
+    assert "options.skipPanelScroll" in activate.group(1)
+    assert "skipPanelScroll: true" in ideas_route.group(1)
+    assert ideas_route.group(1).index("activate('generate'") < ideas_route.group(1).index("scrollToIdeas()")
+    assert "scrollToPanelStart(usagePanel)" in tabs_js
+    assert "activate(nameOf(tabs[0]), false, { skipPanelScroll: true })" in tabs_js
+
+
 def test_service_worker_static_cache_is_safe():
     service_worker_js = read_static("service-worker.js")
+    install_handler = service_worker_js.split("self.addEventListener('install'", 1)[1].split(
+        "self.addEventListener('activate'", 1
+    )[0]
+    message_handler = service_worker_js.split("self.addEventListener('message'", 1)[1]
 
     assert "request.method !== 'GET'" in service_worker_js
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v22" in service_worker_js
+    assert "ai-image-generator-pwa-v23" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
-    assert "self.skipWaiting()" in service_worker_js
+    assert "self.skipWaiting()" not in install_handler
+    assert "self.skipWaiting()" in message_handler
+    assert "event.waitUntil(cache.put(event.request, response.clone())" in service_worker_js
     assert "self.clients.claim()" in service_worker_js
     assert "type === 'SKIP_WAITING'" in service_worker_js
     for lazy_script in [
@@ -521,6 +551,23 @@ def test_service_worker_static_cache_is_safe():
         "usage-dashboard.js",
     ]:
         assert f"'/static/{lazy_script}'" not in service_worker_js
+
+
+def test_history_regenerate_restores_complete_settings_before_visible_generation():
+    history_wall_js = read_static("history-wall.js")
+    regenerate = re.search(
+        r"function regenerateHistoryDetail\(\) \{([\s\S]*?)\n  \}\n\n  function deleteHistoryRecord",
+        history_wall_js,
+    )
+
+    assert regenerate
+    body = regenerate.group(1)
+    for setting in ["providerPrompt:", "width:", "height:"]:
+        assert setting in body
+    assert "switchToGenerateTab()" in body
+    assert "if (!switchToGenerateTab()) { return; }" in body
+    assert body.index("switchToGenerateTab()") < body.index("setNextGenerationSourceRecord")
+    assert body.index("switchToGenerateTab()") < body.index("ImageGenApp.setGenerationSettings({") < body.index("ImageGenApp.generate()")
 
 
 def test_cloudflare_csp_allows_local_image_preview_blobs():
@@ -871,10 +918,12 @@ def test_usage_dashboard_ui_is_wired():
     assert "站長工具" in html
     assert 'id="usageDashboard"' in html
     assert "成本 Dashboard" in html
-    assert "今日生成次數、失敗率、估計成本、模型用量與異常提醒" in html
+    assert "所選 UTC 日期的生成次數、供應商嘗試、失敗率、估計成本與異常提醒" in html
     assert "此摘要不保存提示詞、圖片內容或原始 IP" in html
     assert 'id="usageDate"' in html
     assert 'id="refreshUsage"' in html
+    assert 'class="history-actions usage-query-controls"' in html
+    assert "查詢日期（UTC）" in html
     assert 'id="galleryAdminToken"' in html
     assert 'id="refreshGalleryAdmin"' in html
     assert 'id="galleryAdminNext"' in html
@@ -891,6 +940,8 @@ def test_usage_dashboard_ui_is_wired():
     assert "不會顯示未公開的完整 prompt" in html
     for metric_id in [
         "usageGeneratedImages",
+        "usageTotalAttempts",
+        "usageSuccessRequests",
         "usageFailedRequests",
         "usageEstimatedCost",
         "usageAverageMs",
@@ -905,6 +956,8 @@ def test_usage_dashboard_ui_is_wired():
     assert "'/static/usage-dashboard.js'" in read_static("tabs.js")
 
     assert "fetch('/api/usage?date='" in usage_js
+    assert "headers: { 'X-Gallery-Admin-Token': token }" in usage_js
+    assert "請先輸入站長 Token" in usage_js
     assert "function renderUsage" in usage_js
     assert "function renderUsageBucket" in usage_js
     assert "byModel" in usage_js
@@ -936,6 +989,7 @@ def test_usage_dashboard_ui_is_wired():
     ).group(1)
 
     assert ".usage-dashboard" in styles
+    assert ".usage-query-controls" in styles
     assert ".usage-metrics" in styles
     assert ".usage-columns" in styles
     assert ".usage-row" in styles
@@ -945,6 +999,17 @@ def test_usage_dashboard_ui_is_wired():
     assert ".gallery-admin-list" in styles
     assert ".gallery-admin-item" in styles
     assert "body[data-tab=\"usage\"] #mobileGenerateBar" in styles
+
+
+def test_batch_partial_failure_and_pwa_reload_are_visible_and_user_initiated():
+    app_js = read_static("app.js")
+
+    assert "batchErrors = (data && Array.isArray(data.errors))" in app_js
+    assert "batchErrors.length ? '，' + batchErrors.length + ' 張失敗'" in app_js
+    assert "if(!images.length)" in app_js
+    assert "var pwaUpdateRequested = false" in app_js
+    assert "if(!pwaUpdateRequested){ return; }" in app_js
+    assert app_js.index("pwaUpdateRequested = true") < app_js.index("postMessage({ type: 'SKIP_WAITING' })")
 
 
 def test_usage_panel_reachable_without_tab_button():

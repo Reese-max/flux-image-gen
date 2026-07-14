@@ -1,7 +1,7 @@
 (function(){
   // Bump this whenever the caching strategy changes. The activate handler deletes
   // any cache that does not match, forcing a clean re-cache of current assets.
-  var CACHE_NAME = 'ai-image-generator-pwa-v22';
+  var CACHE_NAME = 'ai-image-generator-pwa-v23';
   var STATIC_URLS = [
     '/',
     '/static/styles.css',
@@ -29,8 +29,6 @@
         return cache.addAll(STATIC_URLS.map(function(url){
           return new Request(url, { cache: 'reload' });
         }));
-      }).then(function(){
-        return self.skipWaiting();
       })
     );
   });
@@ -70,7 +68,7 @@
           // no-cache：帶 ETag 向伺服器驗證，確保拿到的是最新部署。
           var network = fetch(new Request(event.request, { cache: 'no-cache' })).then(function(response){
             if(response && response.status === 200){
-              cache.put(event.request, response.clone());
+              event.waitUntil(cache.put(event.request, response.clone()).catch(function(){}));
             }
             return response;
           }).catch(function(){

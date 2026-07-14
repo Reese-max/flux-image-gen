@@ -19,6 +19,20 @@ function envFlag(value) {
   return String(value || '').trim().toLowerCase() === 'true';
 }
 
+function visionTimeoutMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 5000;
+  return Math.max(250, Math.min(15000, Math.round(parsed)));
+}
+
+function withVisionAttempts(result, attempts) {
+  Object.defineProperty(result, 'providerAttempts', {
+    value: Math.max(0, Math.round(Number(attempts) || 0)),
+    configurable: true,
+  });
+  return result;
+}
+
 function parseGeminiText(data) {
   const feedback = (data && data.promptFeedback) || {};
   if (feedback.blockReason) throw new Error(`vision qa blocked: ${feedback.blockReason}`);
@@ -72,7 +86,7 @@ function extractInlineImage(image) {
   return { mimeType: match[1], data: b64 };
 }
 
-async function runGeminiVisionQa(image, prompt, env) {
+async function runGeminiVisionQa(image, prompt, env, telemetry) {
   const apiKey = String((env && env.GEMINI_API_KEY) || '').trim();
   if (!apiKey) throw new Error('missing GEMINI_API_KEY');
   const inline = extractInlineImage(image);
@@ -89,10 +103,12 @@ async function runGeminiVisionQa(image, prompt, env) {
       responseSchema: VISION_QA_SCHEMA,
     },
   };
+  telemetry.attempts = 1;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(visionTimeoutMs(env && env.VISION_QA_TIMEOUT_MS)),
   });
   if (response.status !== 200) throw new Error(`vision qa returned HTTP ${response.status}`);
   const text = parseGeminiText(await response.json());
@@ -102,15 +118,16 @@ async function runGeminiVisionQa(image, prompt, env) {
 export async function maybeRunVisionQa(image, prompt, env) {
   if (!envFlag(env && env.VISION_QA_ENABLED)) return null;
   if (!String((env && env.GEMINI_API_KEY) || '').trim()) return null;
+  const telemetry = { attempts: 0 };
   try {
-    return await runGeminiVisionQa(image, prompt, env);
+    return withVisionAttempts(await runGeminiVisionQa(image, prompt, env, telemetry), telemetry.attempts);
   } catch (e) {
-    return {
+    return withVisionAttempts({
       provider: 'gemini',
       available: false,
       code: 'vision_qa_failed',
       message: '視覺 QA 暫時不可用，已保留本機 QAReport',
       detail: String((e && e.message) || e).slice(0, 160),
-    };
+    }, telemetry.attempts);
   }
 }

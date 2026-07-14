@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { transformSync } from 'esbuild';
@@ -12,6 +12,28 @@ function jsonRequest(path, body) {
   return new Request(`https://example.test${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+const TEST_GALLERY_SECRET = 'test-gallery-secret';
+
+function adminGet(path, token = 'admin-secret') {
+  return new Request(`https://example.test${path}`, {
+    method: 'GET',
+    headers: { 'X-Gallery-Admin-Token': token },
+  });
+}
+
+function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
+  const timestamp = Date.now().toString();
+  const signature = createHmac('sha256', secret).update(timestamp).digest('hex');
+  return new Request('https://example.test/gallery', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Gallery-Token': `${timestamp}.${signature}`,
+    },
     body: JSON.stringify(body),
   });
 }
@@ -226,9 +248,15 @@ test('POST /prompt/complete uses Gemma Chinese completion model', async () => {
 });
 
 test('POST /prompt/complete aborts a hung Gemma call and falls back without retrying', async () => {
+  resetUsageMetrics();
   const originalFetch = globalThis.fetch;
   let calls = 0;
   let sawSignal = false;
+  const env = fakeEnv({
+    GEMINI_API_KEY: 'test-key',
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
+  });
   globalThis.fetch = async (_url, init) => {
     calls += 1;
     sawSignal = Boolean(init && init.signal);
@@ -237,15 +265,19 @@ test('POST /prompt/complete aborts a hung Gemma call and falls back without retr
   try {
     const response = await worker.fetch(
       jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
-      fakeEnv({ GEMINI_API_KEY: 'test-key' })
+      env
     );
     const data = await response.json();
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
 
     assert.equal(response.status, 200);
     assert.equal(data.provider, 'rule_based');
     assert.match(data.warnings[0], /Gemma 暫時不可用/);
     assert.equal(sawSignal, true, 'Gemma completion fetch must use an AbortSignal');
     assert.equal(calls, 1, 'interactive completion must not retry after a timeout');
+    assert.equal(usage.totalAttempts, 1);
+    assert.equal(usage.estimatedCostUsd, 0.001);
+    assert.equal(usage.byRoute.prompt_complete.attempts, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -550,9 +582,62 @@ test('POST /generate can attach optional Gemini vision QA without leaking image 
   }
 });
 
-test('GET /api/usage summarizes Worker generation without prompt or raw IP', async () => {
+test('POST /generate preserves a completed image when Vision QA times out', async () => {
   resetUsageMetrics();
-  const env = fakeEnv({ USAGE_ALERT_DAILY_GENERATIONS: '1' });
+  const originalFetch = globalThis.fetch;
+  let sawSignal = false;
+  globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
+    sawSignal = Boolean(init && init.signal);
+    if (!init || !init.signal) {
+      reject(new Error('missing Vision QA abort signal'));
+      return;
+    }
+    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+  });
+  const env = fakeEnv({
+    GEMINI_API_KEY: 'test-key',
+    VISION_QA_ENABLED: 'true',
+    VISION_QA_TIMEOUT_MS: '10',
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
+  });
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', {
+        prompt: 'a person holding a cup',
+        model: 'schnell',
+        size: 'square',
+        visionQa: true,
+      }),
+      env
+    );
+    const data = await response.json();
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+
+    assert.equal(response.status, 200);
+    assert.match(data.image, /^data:image\//);
+    assert.equal(data.visionQa.available, false);
+    assert.equal(data.visionQa.code, 'vision_qa_failed');
+    assert.equal(sawSignal, true);
+    assert.equal(usage.generatedImages, 1);
+    assert.equal(usage.byRoute.generate.successes, 1);
+    assert.equal(usage.byRoute.vision_qa.failures, 1);
+    assert.equal(usage.byRoute.vision_qa.attempts, 1);
+    assert.equal(usage.estimatedCostUsd, 0.001);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('GET /api/usage requires admin auth and reads persistent prompt-free R2 events', async () => {
+  resetUsageMetrics();
+  const bucket = fakeBucket();
+  const env = fakeEnv({
+    IMAGE_BUCKET: bucket,
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ALERT_DAILY_GENERATIONS: '1',
+  });
   const generated = await worker.fetch(
     new Request('https://example.test/generate', {
       method: 'POST',
@@ -569,25 +654,41 @@ test('GET /api/usage summarizes Worker generation without prompt or raw IP', asy
     }),
     env
   );
-  const usage = await worker.fetch(new Request('https://example.test/api/usage'), env);
+  const unauthorized = await worker.fetch(new Request('https://example.test/api/usage'), env);
+  resetUsageMetrics();
+  const usage = await worker.fetch(adminGet('/api/usage'), env);
   const body = await usage.json();
 
   assert.equal(generated.status, 200);
+  assert.equal(unauthorized.status, 401);
   assert.equal(usage.status, 200);
+  const usageKey = [...bucket.store.keys()].find((key) => key.startsWith('usage-events/'));
+  assert.ok(usageKey);
+  assert.equal(Object.hasOwn(bucket.store.get(usageKey).options.customMetadata, 'actorHash'), false);
   assert.equal(body.generatedImages, 1);
   assert.equal(body.failedRequests, 0);
   assert.equal(body.byModel.schnell.images, 1);
   assert.equal(body.byProvider.demo.requests, 1);
   assert.equal(body.byRoute.generate.successes, 1);
   assert.equal(body.alerts[0].code, 'daily_generation_threshold');
+  assert.equal(Object.hasOwn(body, 'byActor'), false);
   const serialized = JSON.stringify(body);
   assert.equal(serialized.includes('secret provider prompt'), false);
   assert.equal(serialized.includes('秘密中文描述'), false);
   assert.equal(serialized.includes('203.0.113.88'), false);
 });
 
+test('GET /api/usage reports a missing admin secret as disabled', async () => {
+  const response = await worker.fetch(adminGet('/api/usage'), fakeEnv());
+  const body = await response.json();
+
+  assert.equal(response.status, 503);
+  assert.equal(body.code, 'admin_usage_disabled');
+});
+
 test('GET /api/usage records Worker failure codes and validates date', async () => {
   resetUsageMetrics();
+  const env = fakeEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret' });
   const blocked = await worker.fetch(
     jsonRequest('/generate', {
       prompt: 'clean product photo',
@@ -595,10 +696,10 @@ test('GET /api/usage records Worker failure codes and validates date', async () 
       model: 'schnell',
       size: 'square',
     }),
-    fakeEnv()
+    env
   );
-  const usage = await worker.fetch(new Request('https://example.test/api/usage'), fakeEnv());
-  const invalid = await worker.fetch(new Request('https://example.test/api/usage?date=not-a-date'), fakeEnv());
+  const usage = await worker.fetch(adminGet('/api/usage'), env);
+  const invalid = await worker.fetch(adminGet('/api/usage?date=not-a-date'), env);
   const body = await usage.json();
   const invalidBody = await invalid.json();
 
@@ -611,10 +712,94 @@ test('GET /api/usage records Worker failure codes and validates date', async () 
   assert.equal(invalidBody.code, 'bad_request');
 });
 
+test('paid prompt routes record prompt-free success and failure usage', async () => {
+  resetUsageMetrics();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    candidates: [{ content: { parts: [{ text: '{"prompt":"a serene mountain at dawn"}' }] } }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const env = fakeEnv({
+    GEMINI_API_KEY: 'test-key',
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
+  });
+
+  try {
+    const transformed = await worker.fetch(
+      jsonRequest('/prompt/transform', { source: '清晨的山', style: 'auto' }),
+      env
+    );
+    const invalidEnhance = await worker.fetch(
+      jsonRequest('/prompt/enhance', { prompt: '', effect: '' }),
+      env
+    );
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+
+    assert.equal(transformed.status, 200);
+    assert.equal(invalidEnhance.status, 400);
+    assert.equal(usage.byRoute.prompt_transform.successes, 1);
+    assert.equal(usage.byRoute.prompt_enhance.failures, 1);
+    assert.equal(usage.byProvider.gemini.estimatedCostUsd, 0.001);
+    assert.equal(JSON.stringify(usage).includes('清晨的山'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Gemini transform and enhance usage count every provider retry', async () => {
+  resetUsageMetrics();
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let allSignalsPresent = true;
+  globalThis.fetch = async (_url, init) => {
+    calls += 1;
+    allSignalsPresent = allSignalsPresent && Boolean(init && init.signal);
+    if (calls % 2 === 1) return new Response('busy', { status: 503 });
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ text: '{"prompt":"a refined prompt"}' }] } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const env = fakeEnv({
+    GEMINI_API_KEY: 'test-key',
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
+  });
+
+  try {
+    const transformed = await worker.fetch(
+      jsonRequest('/prompt/transform', { source: '清晨的山', style: 'auto' }),
+      env
+    );
+    const enhanced = await worker.fetch(
+      jsonRequest('/prompt/enhance', { prompt: 'a mountain', effect: '更夢幻' }),
+      env
+    );
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+
+    assert.equal(transformed.status, 200);
+    assert.equal(enhanced.status, 200);
+    assert.equal(calls, 4);
+    assert.equal(allSignalsPresent, true);
+    assert.equal(usage.totalAttempts, 4);
+    assert.equal(usage.estimatedCostUsd, 0.004);
+    assert.equal(usage.byRoute.prompt_transform.attempts, 2);
+    assert.equal(usage.byRoute.prompt_enhance.attempts, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('GET /health reports workers-ai when only the AI binding is present', async () => {
   const response = await worker.fetch(
     new Request('https://example.test/health'),
-    fakeEnv({ AI: { run() {} } })
+    fakeEnv({
+      AI: { run() {} },
+      CF_VERSION_METADATA: {
+        id: 'version-123',
+        tag: 'commit-abc',
+        timestamp: '2026-07-14T12:34:56.000Z',
+      },
+    })
   );
   const data = await response.json();
 
@@ -624,6 +809,9 @@ test('GET /health reports workers-ai when only the AI binding is present', async
   assert.equal(data.mode, 'live');
   assert.deepEqual(data.providers, { nvidia: false, workersAI: true, modal: false });
   assert.deepEqual(data.providerList, ['workers-ai']);
+  assert.equal(data.versionId, 'version-123');
+  assert.equal(data.versionTag, 'commit-abc');
+  assert.equal(data.versionTimestamp, '2026-07-14T12:34:56.000Z');
 });
 
 test('GET /health lists both providers when NVIDIA key and AI binding are present', async () => {
@@ -672,7 +860,7 @@ test('POST /generate verifies Turnstile token before Workers AI generation', asy
   let verifyBody = '';
   globalThis.fetch = async (_url, init) => {
     verifyBody = String(init.body || '');
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({ success: true, action: 'turnstile-spin-v1' }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
@@ -699,11 +887,76 @@ test('POST /generate verifies Turnstile token before Workers AI generation', asy
   }
 });
 
-test('POST /generate forwards explicit seed to NVIDIA and returns it', async () => {
+test('POST /generate rejects a Turnstile token issued for another action', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  globalThis.fetch = async () => new Response(
+    JSON.stringify({ success: true, action: 'different-action' }),
+    { status: 200, headers: { 'content-type': 'application/json' } }
+  );
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', {
+        prompt: 'a cat',
+        model: 'schnell',
+        size: 'square',
+        turnstileToken: 'wrong-action-token',
+      }),
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+    );
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, 'turnstile_failed');
+    assert.equal(ai.calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate bounds a hung Turnstile verification before provider access', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  let sawSignal = false;
+  globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
+    sawSignal = Boolean(init.signal);
+    if (!init.signal) {
+      reject(new Error('missing Turnstile abort signal'));
+      return;
+    }
+    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+  });
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', {
+        prompt: 'a cat',
+        model: 'schnell',
+        size: 'square',
+        turnstileToken: 'token-hangs',
+      }),
+      fakeEnv({
+        AI: ai,
+        TURNSTILE_REQUIRED: 'true',
+        TURNSTILE_SECRET_KEY: 'secret',
+        TURNSTILE_TIMEOUT_MS: '10',
+      })
+    );
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, 'turnstile_unavailable');
+    assert.equal(ai.calls.length, 0);
+    assert.equal(sawSignal, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate routes AI-less schnell to NVIDIA dev and keeps the seed', async () => {
   const originalFetch = globalThis.fetch;
   let providerPayload;
+  let providerUrl;
 
-  globalThis.fetch = async function (_url, init) {
+  globalThis.fetch = async function (url, init) {
+    providerUrl = String(url);
     providerPayload = JSON.parse(init.body);
     return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
       status: 200,
@@ -718,8 +971,11 @@ test('POST /generate forwards explicit seed to NVIDIA and returns it', async () 
     );
     const data = await response.json();
     assert.equal(response.status, 200);
+    assert.match(providerUrl, /flux\.1-dev$/);
     assert.equal(providerPayload.seed, 12345);
-    assert.deepEqual(Object.keys(providerPayload).sort(), ['height', 'prompt', 'seed', 'width']);
+    assert.equal(providerPayload.steps, 30);
+    assert.equal(providerPayload.cfg_scale, 5);
+    assert.equal(data.model, 'dev');
     assert.equal(data.seed, 12345);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1053,8 +1309,14 @@ test('Cloudflare package exposes repeatable performance QA scripts', async () =>
 });
 
 test('POST /generate retries a transient 5xx then succeeds', async () => {
+  resetUsageMetrics();
   const originalFetch = globalThis.fetch;
   let calls = 0;
+  const env = fakeEnv({
+    NVIDIA_API_KEY: 'test-key',
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.01',
+  });
 
   globalThis.fetch = async function () {
     calls += 1;
@@ -1070,20 +1332,31 @@ test('POST /generate retries a transient 5xx then succeeds', async () => {
   try {
     const response = await worker.fetch(
       jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
-      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+      env
     );
     const data = await response.json();
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
     assert.equal(response.status, 200);
     assert.equal(calls, 2);
     assert.equal(data.provider, 'nvidia');
+    assert.equal(Object.hasOwn(data, 'providerAttempts'), false);
+    assert.equal(usage.totalAttempts, 2);
+    assert.equal(usage.estimatedCostUsd, 0.02);
+    assert.equal(usage.byProvider.nvidia.attempts, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
 test('POST /generate surfaces the error after exhausting retries on 5xx', async () => {
+  resetUsageMetrics();
   const originalFetch = globalThis.fetch;
   let calls = 0;
+  const env = fakeEnv({
+    NVIDIA_API_KEY: 'test-key',
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.01',
+  });
 
   globalThis.fetch = async function () {
     calls += 1;
@@ -1096,12 +1369,16 @@ test('POST /generate surfaces the error after exhausting retries on 5xx', async 
   try {
     const response = await worker.fetch(
       jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
-      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+      env
     );
     const data = await response.json();
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
     assert.equal(response.status, 503);
     assert.equal(calls, 2);
     assert.equal(data.code, 'nvidia_error');
+    assert.equal(usage.totalAttempts, 2);
+    assert.equal(usage.estimatedCostUsd, 0.02);
+    assert.equal(usage.byProvider.nvidia.attempts, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1227,7 +1504,11 @@ function fakeBucket() {
     async get(key) {
       if (!store.has(key)) return null;
       const entry = store.get(key);
-      return { body: entry.value, httpMetadata: entry.options?.httpMetadata };
+      return {
+        body: entry.value,
+        httpMetadata: entry.options?.httpMetadata,
+        customMetadata: entry.options?.customMetadata,
+      };
     },
     async delete(key) {
       store.delete(key);
@@ -1240,12 +1521,21 @@ function fakeBucket() {
       const selected = keys.slice(start, start + limit);
       const next = start + selected.length;
       return {
-        objects: selected.map((key) => ({ key })),
+        objects: selected.map((key) => ({
+          key,
+          customMetadata: options.include?.includes('customMetadata')
+            ? store.get(key).options?.customMetadata
+            : undefined,
+        })),
         truncated: next < keys.length,
         cursor: next < keys.length ? String(next) : undefined,
       };
     },
   };
+}
+
+function galleryEnv(bucket, extra = {}) {
+  return fakeEnv({ IMAGE_BUCKET: bucket, GALLERY_TOKEN_SECRET: TEST_GALLERY_SECRET, ...extra });
 }
 
 const TINY_PNG_DATA_URL =
@@ -1261,12 +1551,23 @@ test('POST /gallery returns 503 when no R2 bucket is bound', async () => {
   assert.equal(data.code, 'gallery_disabled');
 });
 
+test('POST /gallery is fail-closed when GALLERY_TOKEN_SECRET is missing', async () => {
+  const bucket = fakeBucket();
+  const response = await worker.fetch(
+    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL }),
+    fakeEnv({ IMAGE_BUCKET: bucket })
+  );
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, 'unauthorized');
+  assert.equal(bucket.store.size, 0);
+});
+
 test('POST /gallery stores the image and GET /gallery/:id round-trips it', async () => {
   const bucket = fakeBucket();
 
   const saveResponse = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat', seed: 7 } }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat', seed: 7 } }),
+    galleryEnv(bucket)
   );
   const saved = await saveResponse.json();
   assert.equal(saveResponse.status, 201);
@@ -1281,7 +1582,7 @@ test('POST /gallery stores the image and GET /gallery/:id round-trips it', async
 
   const getResponse = await worker.fetch(
     new Request(`https://example.test/gallery/${saved.id}`, { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   assert.equal(getResponse.status, 200);
   assert.equal(getResponse.headers.get('content-type'), 'image/png');
@@ -1292,8 +1593,8 @@ test('POST /gallery stores the image and GET /gallery/:id round-trips it', async
 test('POST /gallery keeps prompt private by default and only stores it when explicitly public', async () => {
   const privateBucket = fakeBucket();
   const privateResponse = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', seed: 7 } }),
-    fakeEnv({ IMAGE_BUCKET: privateBucket })
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', seed: 7 } }),
+    galleryEnv(privateBucket)
   );
   const privateSaved = await privateResponse.json();
   const privateMeta = JSON.parse(privateBucket.store.get(`gallery-meta/${privateSaved.id}.json`).value);
@@ -1303,8 +1604,8 @@ test('POST /gallery keeps prompt private by default and only stores it when expl
 
   const publicBucket = fakeBucket();
   const publicResponse = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'public prompt', promptPublic: true, visibility: 'public' } }),
-    fakeEnv({ IMAGE_BUCKET: publicBucket })
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'public prompt', promptPublic: true, visibility: 'public' } }),
+    galleryEnv(publicBucket)
   );
   const publicSaved = await publicResponse.json();
   const publicMeta = JSON.parse(publicBucket.store.get(`gallery-meta/${publicSaved.id}.json`).value);
@@ -1315,13 +1616,13 @@ test('POST /gallery keeps prompt private by default and only stores it when expl
 
 test('GET /api/gallery requires admin token and lists cloud metadata without delete hashes', async () => {
   const bucket = fakeBucket();
-  const env = fakeEnv({ IMAGE_BUCKET: bucket, GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const env = galleryEnv(bucket, { GALLERY_ADMIN_TOKEN: 'admin-secret' });
   const first = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { title: '第一張', prompt: 'private prompt', model: 'schnell', size: 'square' } }),
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { title: '第一張', prompt: 'private prompt', model: 'schnell', size: 'square' } }),
     env
   );
   const second = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { title: '第二張', prompt: 'public prompt', promptPublic: true, visibility: 'public', seed: 9, mode: 'agent' } }),
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { title: '第二張', prompt: 'public prompt', promptPublic: true, visibility: 'public', seed: 9, mode: 'agent' } }),
     env
   );
   const firstSaved = await first.json();
@@ -1333,7 +1634,7 @@ test('GET /api/gallery requires admin token and lists cloud metadata without del
 
   const disabled = await worker.fetch(
     new Request('https://example.test/api/gallery', { method: 'GET', headers: { 'X-Gallery-Admin-Token': 'admin-secret' } }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   assert.equal(disabled.status, 503);
   assert.equal((await disabled.json()).code, 'admin_gallery_disabled');
@@ -1366,8 +1667,8 @@ test('GET /api/gallery requires admin token and lists cloud metadata without del
 test('DELETE /gallery/:id deletes image and metadata only with the owner delete token', async () => {
   const bucket = fakeBucket();
   const saveResponse = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'delete me', seed: 7 } }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'delete me', seed: 7 } }),
+    galleryEnv(bucket)
   );
   const saved = await saveResponse.json();
   const deleteUrl = new URL(`https://example.test${saved.deleteUrl}`);
@@ -1383,7 +1684,7 @@ test('DELETE /gallery/:id deletes image and metadata only with the owner delete 
 
   const deletePage = await worker.fetch(
     new Request(`https://example.test${saved.deleteUrl}`, { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   const deletePageHtml = await deletePage.text();
   assert.equal(deletePage.status, 200);
@@ -1394,7 +1695,7 @@ test('DELETE /gallery/:id deletes image and metadata only with the owner delete 
 
   const invalidDeletePage = await worker.fetch(
     new Request(`https://example.test/gallery/${saved.id}/delete?deleteToken=bad-token`, { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   const invalidDeletePageHtml = await invalidDeletePage.text();
   assert.equal(invalidDeletePage.status, 401);
@@ -1402,21 +1703,21 @@ test('DELETE /gallery/:id deletes image and metadata only with the owner delete 
 
   const missingToken = await worker.fetch(
     new Request(`https://example.test/gallery/${saved.id}`, { method: 'DELETE' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   assert.equal(missingToken.status, 401);
   assert.equal(bucket.store.size, 2);
 
   const badToken = await worker.fetch(
     new Request(`https://example.test/gallery/${saved.id}?deleteToken=bad-token`, { method: 'DELETE' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   assert.equal(badToken.status, 401);
   assert.equal(bucket.store.size, 2);
 
   const deleted = await worker.fetch(
     new Request(`https://example.test/gallery/${saved.id}?deleteToken=${encodeURIComponent(deleteToken)}`, { method: 'DELETE' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   const deletedBody = await deleted.json();
   assert.equal(deleted.status, 200);
@@ -1426,7 +1727,7 @@ test('DELETE /gallery/:id deletes image and metadata only with the owner delete 
 
   const afterDelete = await worker.fetch(
     new Request(`https://example.test/gallery/${saved.id}`, { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   assert.equal(afterDelete.status, 404);
 });
@@ -1434,13 +1735,13 @@ test('DELETE /gallery/:id deletes image and metadata only with the owner delete 
 test('GET /share/:id hides prompts by default and only renders public prompts', async () => {
   const privateBucket = fakeBucket();
   const privateResponse = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', model: 'schnell', size: 'square', style: 'realistic', useCase: 'social' } }),
-    fakeEnv({ IMAGE_BUCKET: privateBucket })
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', model: 'schnell', size: 'square', style: 'realistic', useCase: 'social' } }),
+    galleryEnv(privateBucket)
   );
   const privateSaved = await privateResponse.json();
   const privateShare = await worker.fetch(
     new Request(`https://example.test/share/${privateSaved.id}`, { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: privateBucket })
+    galleryEnv(privateBucket)
   );
   const privateHtml = await privateShare.text();
   assert.equal(privateShare.status, 200);
@@ -1459,7 +1760,7 @@ test('GET /share/:id hides prompts by default and only renders public prompts', 
 
   const publicBucket = fakeBucket();
   const publicResponse = await worker.fetch(
-    jsonRequest('/gallery', {
+    signedGalleryRequest({
       image: TINY_PNG_DATA_URL,
       meta: {
         title: '測試作品標題',
@@ -1476,12 +1777,12 @@ test('GET /share/:id hides prompts by default and only renders public prompts', 
         useCaseLabel: '簡報插圖',
       },
     }),
-    fakeEnv({ IMAGE_BUCKET: publicBucket })
+    galleryEnv(publicBucket)
   );
   const publicSaved = await publicResponse.json();
   const publicShare = await worker.fetch(
     new Request(`https://example.test/share/${publicSaved.id}`, { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: publicBucket })
+    galleryEnv(publicBucket)
   );
   const publicHtml = await publicShare.text();
   assert.equal(publicShare.status, 200);
@@ -1504,7 +1805,7 @@ test('GET /share/:id hides prompts by default and only renders public prompts', 
 test('GET /share/:id does not leak sensitive metadata fields even if R2 metadata is polluted', async () => {
   const bucket = fakeBucket();
   const response = await worker.fetch(
-    jsonRequest('/gallery', {
+    signedGalleryRequest({
       image: TINY_PNG_DATA_URL,
       meta: {
         title: '安全分享測試',
@@ -1515,7 +1816,7 @@ test('GET /share/:id does not leak sensitive metadata fields even if R2 metadata
         size: 'square',
       },
     }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   const saved = await response.json();
   const metaKey = `gallery-meta/${saved.id}.json`;
@@ -1534,7 +1835,7 @@ test('GET /share/:id does not leak sensitive metadata fields even if R2 metadata
 
   const share = await worker.fetch(
     new Request(`https://example.test/share/${saved.id}`, { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    galleryEnv(bucket)
   );
   const html = await share.text();
 
@@ -1587,7 +1888,7 @@ test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', as
     env
   );
   assert.equal(withToken.status, 201);
-  assert.equal(bucket.store.size, 2);
+  assert.equal([...bucket.store.keys()].filter((key) => key.startsWith('gallery')).length, 2);
 });
 
 test('POST /gallery accepts a realistic-size image larger than the generic 64KB JSON cap', async () => {
@@ -1597,8 +1898,8 @@ test('POST /gallery accepts a realistic-size image larger than the generic 64KB 
   const bigImage = 'data:image/png;base64,' + 'QUJD'.repeat(38400);
 
   const response = await worker.fetch(
-    jsonRequest('/gallery', { image: bigImage, meta: { prompt: 'big qa image' } }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
+    signedGalleryRequest({ image: bigImage, meta: { prompt: 'big qa image' } }),
+    galleryEnv(bucket)
   );
   const data = await response.json();
   assert.equal(response.status, 201);
@@ -1617,9 +1918,10 @@ test('GET /gallery/:id returns 404 for an unknown id', async () => {
 });
 
 test('POST /gallery rejects a non-data-URL image', async () => {
+  const bucket = fakeBucket();
   const response = await worker.fetch(
-    jsonRequest('/gallery', { image: 'https://example.test/not-allowed.png' }),
-    fakeEnv({ IMAGE_BUCKET: fakeBucket() })
+    signedGalleryRequest({ image: 'https://example.test/not-allowed.png' }),
+    galleryEnv(bucket)
   );
   const data = await response.json();
   assert.equal(response.status, 400);
@@ -1675,6 +1977,58 @@ test('POST /generate/batch rejects an out-of-range count', async () => {
   assert.equal(response.status, 400);
   assert.equal(data.code, 'bad_request');
   assert.match(data.error, /count/);
+});
+
+test('POST /generate/batch returns partial successes and records every image attempt', async () => {
+  resetUsageMetrics();
+  const ai = fakeAi([
+    new Error('NSFW content detected'),
+    { image: 'iVBORw0KGgo=' },
+    { image: 'iVBORw0KGgo=' },
+    { image: 'iVBORw0KGgo=' },
+  ]);
+  const env = fakeEnv({ AI: ai, GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const response = await worker.fetch(
+    jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 4 }),
+    env
+  );
+  const data = await response.json();
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+
+  assert.equal(response.status, 200);
+  assert.equal(data.partial, true);
+  assert.equal(data.images.length, 3);
+  assert.equal(data.errors.length, 1);
+  assert.equal(data.errors[0].index, 0);
+  assert.equal(data.errors[0].code, 'content_filtered');
+  assert.equal(ai.calls.length, 4);
+  assert.equal(usage.totalRequests, 4);
+  assert.equal(usage.successRequests, 3);
+  assert.equal(usage.failedRequests, 1);
+  assert.equal(usage.generatedImages, 3);
+  assert.equal(usage.byProvider['workers-ai'].images, 3);
+});
+
+test('POST /generate/batch returns non-2xx when every image fails', async () => {
+  resetUsageMetrics();
+  const ai = fakeAi([
+    new Error('NSFW content detected'),
+    new Error('NSFW content detected'),
+  ]);
+  const env = fakeEnv({ AI: ai, GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const response = await worker.fetch(
+    jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+    env
+  );
+  const body = await response.json();
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+
+  assert.equal(response.status, 422);
+  assert.equal(body.code, 'content_filtered');
+  assert.equal(ai.calls.length, 2);
+  assert.equal(usage.totalRequests, 2);
+  assert.equal(usage.failedRequests, 2);
+  assert.equal(usage.generatedImages, 0);
 });
 
 function fakeAi(result) {
@@ -1783,34 +2137,27 @@ test('POST /generate model=schnell maps a Workers AI failure to a clean 502', as
   assert.equal(data.code, 'workers_ai_error');
   // The raw provider error must stay server-side, not leak to the client.
   assert.ok(!data.error.includes('internal binding rpc detail'), 'raw error must not leak');
-  assert.equal(ai.calls.length, 2, 'a transient failure should be retried once');
+  assert.equal(ai.calls.length, 1, 'an uncancellable Workers AI run must never be retried');
 });
 
-test('POST /generate model=schnell retries once and succeeds on Workers AI', async () => {
+test('POST /generate model=schnell does not retry even if a later call would succeed', async () => {
   const ai = fakeAi([new Error('model overloaded'), { image: 'iVBORw0KGgo=' }]);
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 42 }),
     fakeEnv({ AI: ai })
   );
   const data = await response.json();
-  assert.equal(response.status, 200);
-  assert.equal(data.provider, 'workers-ai');
-  assert.equal(data.seed, 42);
-  assert.equal(ai.calls.length, 2);
-  // Streams cannot be replayed: the retry must rebuild the multipart form.
-  assert.equal(ai.calls[1].fields.prompt, 'a cat');
-  assert.equal(ai.calls[1].fields.seed, '42');
+  assert.equal(response.status, 502);
+  assert.equal(data.code, 'workers_ai_error');
+  assert.equal(ai.calls.length, 1);
 });
 
-test('POST /generate model=schnell falls back to NVIDIA dev after a Workers AI failure', async () => {
+test('POST /generate never crosses to NVIDIA after a Workers AI run starts', async () => {
   const originalFetch = globalThis.fetch;
-  let nvidiaBody = null;
-  globalThis.fetch = async function (_url, init) {
-    nvidiaBody = JSON.parse(init.body);
-    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+  let nvidiaCalls = 0;
+  globalThis.fetch = async function () {
+    nvidiaCalls += 1;
+    throw new Error('NVIDIA must not be called after Workers AI starts');
   };
   const ai = fakeAi(new Error('model overloaded'));
 
@@ -1820,18 +2167,10 @@ test('POST /generate model=schnell falls back to NVIDIA dev after a Workers AI f
       fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
     );
     const data = await response.json();
-    assert.equal(response.status, 200);
-    assert.equal(data.provider, 'nvidia-fallback');
-    assert.equal(data.model, 'dev');
-    assert.equal(data.width, 1344);
-    assert.equal(data.height, 768);
-    assert.equal(data.seed, 42);
-    assert.equal(ai.calls.length, 1, 'must fail over instead of repeating the stalled Workers AI call');
-    assert.equal(nvidiaBody.prompt, 'a cat');
-    assert.equal(nvidiaBody.width, 1344);
-    assert.equal(nvidiaBody.height, 768);
-    assert.equal(nvidiaBody.seed, 42);
-    assert.equal(nvidiaBody.steps, 30);
+    assert.equal(response.status, 502);
+    assert.equal(data.code, 'workers_ai_error');
+    assert.equal(ai.calls.length, 1);
+    assert.equal(nvidiaCalls, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1874,14 +2213,25 @@ test('POST /generate model=schnell maps a CONTENT_FILTERED artifact from Workers
 });
 
 test('POST /generate model=schnell maps a Workers AI timeout to a clean 504', async () => {
+  resetUsageMetrics();
   const ai = fakeAi(Object.assign(new Error('hang'), { name: 'TimeoutError' }));
+  const env = fakeEnv({
+    AI: ai,
+    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.01',
+  });
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
-    fakeEnv({ AI: ai })
+    env
   );
   const data = await response.json();
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
   assert.equal(response.status, 504);
   assert.equal(data.code, 'timeout');
+  assert.equal(ai.calls.length, 1);
+  assert.equal(usage.totalAttempts, 1);
+  assert.equal(usage.estimatedCostUsd, 0.01);
+  assert.equal(usage.byProvider['workers-ai'].attempts, 1);
 });
 
 test('POST /generate/batch model=schnell runs every image on Workers AI', async () => {
@@ -2088,12 +2438,14 @@ test('POST /edit forwards prompt + input_image_0.. field names to Workers AI', a
 });
 
 test('POST /edit maps a Workers AI timeout to a clean 504', async () => {
+  let calls = 0;
   const response = await worker.fetch(
     editRequest('edit', 1),
-    aiEnv(async () => { throw Object.assign(new Error('hang'), { name: 'TimeoutError' }); })
+    aiEnv(async () => { calls++; throw Object.assign(new Error('hang'), { name: 'TimeoutError' }); })
   );
   assert.equal(response.status, 504);
   assert.equal((await response.json()).code, 'timeout');
+  assert.equal(calls, 1);
 });
 
 test('POST /edit maps a Workers AI content-filter error to 422 without retrying', async () => {
@@ -2107,15 +2459,15 @@ test('POST /edit maps a Workers AI content-filter error to 422 without retrying'
   assert.equal(calls, 1); // deterministic safety rejection -> no retry
 });
 
-test('POST /edit retries a transient Workers AI error once then succeeds', async () => {
+test('POST /edit never retries an uncancellable Workers AI error', async () => {
   let calls = 0;
-  const base64 = Buffer.from('\x89PNG\r\n\x1a\n' + '0'.repeat(60), 'binary').toString('base64');
   const response = await worker.fetch(
     editRequest('edit', 1),
-    aiEnv(async () => { calls++; if (calls === 1) throw new Error('transient'); return { image: base64 }; })
+    aiEnv(async () => { calls++; throw new Error('transient'); })
   );
-  assert.equal(response.status, 200);
-  assert.equal(calls, 2);
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, 'workers_ai_error');
+  assert.equal(calls, 1);
 });
 
 test('POST /edit rejects an oversized (>12MB) image with 400 and never calls AI', async () => {

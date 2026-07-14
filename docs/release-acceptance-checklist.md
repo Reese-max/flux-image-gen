@@ -15,6 +15,12 @@
 | [ ] | 全量 verify | `node scripts\verify.mjs` | 是 |
 | [ ] | Wrangler dry-run | `npm --prefix cloudflare run deploy:dry-run` | 是 |
 | [ ] | Node LTS for Wrangler | 若 Wrangler dry-run crash，需改用 Node 20 或 22 LTS 後重跑 `check:wrangler` 與 `deploy:dry-run` | 是 |
+| [ ] | 乾淨部署來源 | 正式 deploy 前 `git status --porcelain` 必須無輸出；wrapper 通過 readiness gate 後才可用 HEAD 標記版本 | 是 |
+| [ ] | 固定 production 目標 | Wrapper 只接受無參數正式 deploy 或 `--dry-run`；不得用 `--env`、`--name`、`--config`、自訂 entrypoint、`--tag` 或 `--message` 改寫目標／版本對照 | 是 |
+| [ ] | Production secrets inventory | `node cloudflare\scripts\check-deploy-readiness.mjs` 唯讀確認 `TURNSTILE_SECRET_KEY`、`GALLERY_TOKEN_SECRET`、`GALLERY_ADMIN_TOKEN`、`NVIDIA_API_KEY`、`GEMINI_API_KEY` 全部存在；輸出不得含 secret 值 | 是 |
+| [ ] | GitHub Actions CI | `.github/workflows/ci.yml` 的 `verify` job 在目標 commit 通過；repo 尚無 remote 時不得勾選 | 是 |
+| [ ] | Version metadata／observability | `wrangler.toml` 有 `CF_VERSION_METADATA` 與取樣後 Workers Logs；部署後 health 可對應 active Version ID | 是 |
+| [ ] | Rollback rehearsal | 依 `docs/deployment-checklist.md` 執行 `wrangler versions list`／`wrangler versions view` 的唯讀步驟，確認已知正常版本與 `wrangler rollback <VERSION_ID>` 指令；不要為演練真的 rollback | 是 |
 
 ## 1. 正式網域與 health / provider 一致性
 
@@ -92,7 +98,7 @@
 | [ ] | Rate limit | 超過限制回 `429 rate_limited`，不暴露內部錯誤；Worker binding 生效 | TASK-036 | 是 |
 | [ ] | Prompt moderation | 高風險 prompt 不呼叫 provider；log 不保存敏感全文 | TASK-040 | 是 |
 | [ ] | 成本 Dashboard | 今日生成次數、失敗次數、估計成本、模型用量、錯誤率、平均生成時間可查 | TASK-039 | 是 |
-| [ ] | 成本估算校準 | 用實際 provider 價格更新 `USAGE_ESTIMATED_COST_USD_PER_IMAGE` | TASK-039 | 是 |
+| [ ] | 成本估算校準 | 用實際 provider 價格更新 `USAGE_ESTIMATED_COST_USD_PER_IMAGE` 與 `USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST`；維持 `0` 時只能宣稱已記嘗試，不可宣稱 prompt／Vision 成本完整 | TASK-039 | 是 |
 
 ## 9. 隱私、授權與內容來源
 
@@ -114,6 +120,6 @@
 
 ## Release 判定
 
-- **可公開**：所有 Release blocker 皆完成，且 `node scripts\verify.mjs`、`python scripts\check_deployment_preflight.py --public`、正式網址 health smoke 皆通過。
+- **可公開**：所有 Release blocker 皆完成，且 GitHub Actions CI、`node scripts\verify.mjs`、`python scripts\check_deployment_preflight.py --public`、乾淨部署來源、production secrets inventory、正式網址 health smoke 與版本 metadata 對照皆通過。
 - **可內部預覽**：自動化 gate 通過，但真機、法務或正式網域項目尚未完成；需限制分享範圍與額度。
 - **不可公開**：任一安全、金鑰、Turnstile、Rate Limit、分享隱私、白屏、成本失控項目未通過。
