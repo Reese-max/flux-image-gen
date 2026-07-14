@@ -1656,6 +1656,7 @@ function renderBatchResults(stage, images, base){
   var mainLock;
   var mainDownload;
   var thumbButtons = [];
+  var records = [];
   var qaReports = [];
   var bestIndex = -1;
   var bestReport = null;
@@ -1671,6 +1672,7 @@ function renderBatchResults(stage, images, base){
     var qaScore;
     var fallback = getSizeDimensions(base.size);
     var j;
+    lastGeneration = shallowClone(records[index]);
     mainImage.src = image;
     mainImage.alt = '生成圖片變體第 ' + String(index + 1) + ' 張';
     mainImage.width = typeof item.width === 'number' ? item.width : fallback.width;
@@ -1788,6 +1790,7 @@ function renderBatchResults(stage, images, base){
     var label = document.createElement('span');
     var fallback = getSizeDimensions(base.size);
     var qaReport = isAgent ? qaReports[index] : null;
+    var record;
 
     card.className = 'batch-card' + (isAgent && index === bestIndex ? ' is-recommended' : '');
     card.setAttribute('role', 'listitem');
@@ -1809,7 +1812,7 @@ function renderBatchResults(stage, images, base){
     card.appendChild(thumb);
     grid.appendChild(card);
 
-    document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: {
+    record = {
       image: image,
       thumbnail: image,
       prompt: base.prompt,
@@ -1828,7 +1831,9 @@ function renderBatchResults(stage, images, base){
       agentRecommendation: isAgent ? outcome.text : '',
       autoRetry: isAgent ? retryPlan : null,
       nextSuggestions: isAgent ? suggestions : []
-    }}));
+    };
+    records.push(record);
+    document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: shallowClone(record) }));
   });
   viewer.appendChild(mainFrame);
   viewer.appendChild(grid);
