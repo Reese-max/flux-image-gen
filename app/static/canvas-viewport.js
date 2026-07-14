@@ -128,6 +128,7 @@
 
   stage.addEventListener('pointerdown', function (event) {
     if (!getTarget() || !isDesktop() || event.button !== 0) { return; }
+    if (event.target && event.target.closest && event.target.closest('a, button, input, select, textarea, summary, label')) { return; }
     drag = {
       pointerId: event.pointerId,
       startX: event.clientX,
