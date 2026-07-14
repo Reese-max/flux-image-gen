@@ -454,7 +454,8 @@ export async function completePlainPrompt(source, style = "auto", env = {}, tele
   }
   if (!prompt) {
     const base = sourceText.replace(/[，。,.！!？?；;\s]+$/g, "");
-    prompt = `${base}，${fallbackDetails[resolvedStyle] || fallbackDetails.auto}。`;
+    const detail = fallbackDetails[resolvedStyle] || fallbackDetails.auto;
+    prompt = base.includes(detail) ? `${base}。` : `${base}，${detail}。`;
     if (prompt.length > 180) prompt = `${prompt.slice(0, 179).replace(/[，。,.；;\s]+$/g, "")}。`;
   }
   return {

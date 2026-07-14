@@ -27,7 +27,7 @@ class PromptCompleteResult:
 def rule_based_complete_prompt(source: str, style: str) -> str:
     base = source.rstrip("，。,.！!？?；; ")
     detail = STYLE_FALLBACK_DETAILS.get(style, STYLE_FALLBACK_DETAILS["auto"])
-    completed = f"{base}，{detail}。"
+    completed = f"{base}。" if detail in base else f"{base}，{detail}。"
     if len(completed) > 180:
         completed = completed[:179].rstrip("，。,.；; ") + "。"
     return completed
