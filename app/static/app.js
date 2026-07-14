@@ -987,20 +987,19 @@ function applyAgentSelection(analysis){
   var useCase = el('useCase');
   var size = el('size');
   var model = el('model');
-  var batch = el('batchCount');
   if(style && style.value === 'auto' && analysis.style !== 'auto'){ style.value = analysis.style; }
   if(useCase && useCase.value === 'auto' && analysis.useCase !== 'general'){ useCase.value = analysis.useCase; }
   if(size){ size.value = analysis.size; }
   if(model){ model.value = analysis.model; }
-  if(batch && batch.value === '1'){ batch.value = '4'; }
   updateMobileGenerateSummary();
 }
 function describeAgentRecommendation(analysis){
   var sizeLabel = selectedOptionText('size', analysis.size);
   var modelLabel = selectedOptionText('model', analysis.model);
+  var batchCount = readBatchCount();
   var warnings = analysis.riskFlags.length ? ' 注意：' + analysis.riskFlags.join('；') : '';
   var missing = analysis.missingFields.length ? ' 建議補充：' + analysis.missingFields.join('、') + '。' : '';
-  return '已解析主體：「' + (analysis.subject || '未明確指定') + '」。推薦 ' + modelLabel + '、' + sizeLabel + '，並預設生成 4 張方便挑選。' + missing + warnings;
+  return '已解析主體：「' + (analysis.subject || '未明確指定') + '」。推薦 ' + modelLabel + '、' + sizeLabel + '，依你選擇生成 ' + batchCount + ' 張。' + missing + warnings;
 }
 function prepareAgentFlow(){
   var source = el('plainPrompt') ? el('plainPrompt').value.trim() : '';
