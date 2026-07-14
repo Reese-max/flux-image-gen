@@ -48,7 +48,7 @@
   function usePrompt(prompt) {
     var app = window.ImageGenApp;
     if (app && typeof app.setPromptForReview === 'function') {
-      app.setPromptForReview(prompt, '隨機精選提示詞');
+      app.setPromptForReview(prompt, 'HF 靈感 prompt');
     } else {
       var field = document.getElementById('prompt');
       if (field) field.value = prompt;
