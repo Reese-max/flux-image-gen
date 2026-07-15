@@ -247,6 +247,15 @@ test('POST /prompt/complete uses Gemma Chinese completion model', async () => {
   }
 });
 
+test('Gemma completion timeout covers observed production latency', async () => {
+  const constants = JSON.parse(
+    await readFile(new URL('../../shared/prompt-constants.json', import.meta.url), 'utf8')
+  );
+
+  assert.ok(constants.geminiCompleteTimeoutMs >= 15000);
+  assert.equal(constants.geminiCompleteMaxAttempts, 1);
+});
+
 test('POST /prompt/complete aborts a hung Gemma call and falls back without retrying', async () => {
   resetUsageMetrics();
   const originalFetch = globalThis.fetch;

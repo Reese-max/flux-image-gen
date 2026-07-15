@@ -5,7 +5,7 @@
   "geminiDefaultBaseUrl": "https://generativelanguage.googleapis.com/v1beta",
   "geminiMaxAttempts": 2,
   "geminiCompleteMaxAttempts": 1,
-  "geminiCompleteTimeoutMs": 5000,
+  "geminiCompleteTimeoutMs": 15000,
   "geminiRetryableStatus": [
     429,
     500,
