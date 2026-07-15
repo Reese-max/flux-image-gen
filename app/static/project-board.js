@@ -314,15 +314,7 @@
     if (!recordList || !cardList) { return; }
     clearNode(recordList);
     clearNode(cardList);
-    if (!project) {
-      if (title) { title.textContent = '尚未選取作品集'; }
-      if (meta) { meta.textContent = '建立作品集後，可以把作品與風格卡整理在一起。'; }
-      empty = document.createElement('div');
-      empty.className = 'project-empty';
-      empty.textContent = '作品集內容會出現在這裡。';
-      recordList.appendChild(empty);
-      return;
-    }
+    if (!project) { return; }
     if (title) { title.textContent = project.name; }
     if (meta) {
       meta.textContent = (project.description || '無描述') + ' · ' + String(project.records.length) + ' 作品 · ' + String(project.promptCards.length) + ' 風格卡';
@@ -370,11 +362,13 @@
 
   function renderProjectBoard() {
     var deleteButton = el('deleteProject');
+    var detail = el('projectDetail');
     var hasActiveProject = Boolean(getActiveProject());
     if (deleteButton) {
       deleteButton.hidden = !hasActiveProject;
       deleteButton.disabled = !hasActiveProject;
     }
+    if (detail) { detail.hidden = !hasActiveProject; }
     renderProjectList();
     renderProjectDetail();
   }
