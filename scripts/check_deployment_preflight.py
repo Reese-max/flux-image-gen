@@ -211,9 +211,8 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
         except (TypeError, ValueError):
             errors.append("USAGE_ALERT_DAILY_GENERATIONS 必須是整數字串")
 
-    if public:
-        require(str(vars_section.get("TURNSTILE_REQUIRED", "")).lower() == "true", "--public 模式要求 TURNSTILE_REQUIRED = true", errors)
-        require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式要求 TURNSTILE_SITE_KEY 不可空白", errors)
+    if public and str(vars_section.get("TURNSTILE_REQUIRED", "")).lower() == "true":
+        require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白", errors)
 
     checks.append("wrangler bindings OK")
 

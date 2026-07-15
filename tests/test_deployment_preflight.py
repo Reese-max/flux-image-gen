@@ -60,16 +60,19 @@ def test_deployment_preflight_passes_current_repo_default_mode():
     assert payload["publicMode"] is False
 
 
-def test_deployment_preflight_public_mode_requires_turnstile_vars(tmp_path):
+def test_deployment_preflight_public_mode_allows_turnstile_opt_out(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
     set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "")
     result = run_preflight(root, "--public")
+    assert result.returncode == 0, result.stderr
+
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
+    result = run_preflight(root, "--public")
     assert result.returncode == 1
     payload = json.loads(result.stderr)
-    assert "--public 模式要求 TURNSTILE_REQUIRED = true" in payload["errors"]
-    assert "--public 模式要求 TURNSTILE_SITE_KEY 不可空白" in payload["errors"]
+    assert "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白" in payload["errors"]
 
 
 def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tmp_path):
