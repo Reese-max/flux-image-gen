@@ -241,6 +241,7 @@ test('POST /prompt/complete uses Gemma Chinese completion model', async () => {
     assert.match(providerPayload.system_instruction.parts[0].text, /繁體中文/);
     assert.match(providerPayload.system_instruction.parts[0].text, /不要輸出 JSON/);
     assert.equal(providerPayload.generationConfig.responseMimeType, 'text/plain');
+    assert.equal(providerPayload.generationConfig.thinkingConfig.thinkingLevel, 'minimal');
     assert.equal(Object.hasOwn(providerPayload.generationConfig, 'responseSchema'), false);
   } finally {
     globalThis.fetch = originalFetch;

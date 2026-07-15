@@ -198,6 +198,7 @@ export async function geminiCompletePrompt(source, style, env, telemetry) {
       temperature: 0.2,
       maxOutputTokens: 300,
       responseMimeType: "text/plain",
+      thinkingConfig: { thinkingLevel: "minimal" },
     },
   };
 
