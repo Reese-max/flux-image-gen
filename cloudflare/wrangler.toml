@@ -44,8 +44,8 @@ VISION_QA_ENABLED = "false"
 # Public Turnstile config. Public deployments should set TURNSTILE_REQUIRED to
 # "true", fill TURNSTILE_SITE_KEY, and set the secret with:
 #   npx wrangler secret put TURNSTILE_SECRET_KEY
-TURNSTILE_REQUIRED = "false"
-TURNSTILE_SITE_KEY = ""
+TURNSTILE_REQUIRED = "true"
+TURNSTILE_SITE_KEY = "0x4AAAAAAD2QELaSWsFTNJOV"
 # Cost/usage dashboard. Worker logs structured usage_event lines and exposes
 # aggregated, prompt-free counters at GET /api/usage.
 USAGE_ESTIMATED_COST_USD_PER_IMAGE = "0.003"

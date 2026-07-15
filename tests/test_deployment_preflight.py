@@ -43,6 +43,13 @@ def replace(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def set_wrangler_var(path: Path, name: str, value: str) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    prefix = f"{name} = "
+    assert sum(line.startswith(prefix) for line in lines) == 1
+    path.write_text("\n".join(f'{name} = "{value}"' if line.startswith(prefix) else line for line in lines) + "\n", encoding="utf-8")
+
+
 def test_deployment_preflight_passes_current_repo_default_mode():
     result = run_preflight(ROOT)
     assert result.returncode == 0, result.stderr
@@ -53,8 +60,12 @@ def test_deployment_preflight_passes_current_repo_default_mode():
     assert payload["publicMode"] is False
 
 
-def test_deployment_preflight_public_mode_requires_turnstile_vars():
-    result = run_preflight(ROOT, "--public")
+def test_deployment_preflight_public_mode_requires_turnstile_vars(tmp_path):
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
+    set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "")
+    result = run_preflight(root, "--public")
     assert result.returncode == 1
     payload = json.loads(result.stderr)
     assert "--public 模式要求 TURNSTILE_REQUIRED = true" in payload["errors"]
@@ -64,8 +75,8 @@ def test_deployment_preflight_public_mode_requires_turnstile_vars():
 def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
-    replace(wrangler, 'TURNSTILE_REQUIRED = "false"', 'TURNSTILE_REQUIRED = "true"')
-    replace(wrangler, 'TURNSTILE_SITE_KEY = ""', 'TURNSTILE_SITE_KEY = "1x00000000000000000000AA"')
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
+    set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "1x00000000000000000000AA")
     result = run_preflight(root, "--public")
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
