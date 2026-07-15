@@ -80,7 +80,7 @@ const dryRun = forwardedArgs.includes('--dry-run');
 // that external blocker is being resolved.
 await requireGate('full offline verify', process.execPath, [verifyScript]);
 if (!dryRun) {
-  await requireGate('public deployment preflight', 'python', [publicPreflightScript, '--public']);
+  await requireGate('public deployment preflight', 'python', [publicPreflightScript, '--root', repoDir, '--public']);
 }
 
 // Gate: the Cloudflare copy must match the canonical app/static before deploy.

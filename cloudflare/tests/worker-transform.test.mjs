@@ -1228,6 +1228,7 @@ test('Cloudflare deploy wrapper is wired and normalizes known Wrangler success o
   assert.equal(packageJson.devDependencies.playwright, '^1.61.1');
   assert.match(deployScript, /hasSuccessfulDeployOutput/);
   assert.match(deployScript, /hasSuccessfulDryRunOutput/);
+  assert.match(deployScript, /\[publicPreflightScript, '--root', repoDir, '--public'\]/);
   assert.match(deployScript, /Current Version ID/);
   assert.match(deployScript, /Deployed\\s\+flux-image-gen\\s\+triggers/);
   assert.match(deployScript, /Wrangler dry-run output verified/);
