@@ -629,6 +629,9 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   background: var(--surface-2);
 }
 .advanced-settings summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
   cursor: pointer;
   color: var(--text);
   font-weight: 800;
@@ -730,7 +733,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--surface-2);
 }
 .seed-mode-btn {
-  flex: 1; padding: 9px 12px; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
+  flex: 1; min-height: 44px; padding: 9px 12px; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
   font-family: var(--font); font-size: 13px; font-weight: 700; color: var(--muted);
   background: transparent; white-space: nowrap;
   -webkit-appearance: none; appearance: none; touch-action: manipulation;
@@ -795,7 +798,7 @@ select option { background: var(--surface); color: var(--text); }
 }
 .btn.download:hover { background: var(--bg-2); border-color: var(--line-2); transform: translateY(-2px); }
 .btn:disabled, .btn.is-disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
-.btn.mini { padding: 9px 12px; font-size: 12.5px; border-radius: var(--radius-sm); }
+.btn.mini { min-height: 44px; padding: 9px 12px; font-size: 12.5px; border-radius: var(--radius-sm); }
 .btn.danger {
   color: var(--danger-ink); background: var(--danger-soft); border-color: var(--danger-line);
 }
@@ -1657,6 +1660,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   margin: 10px 0 16px;
 }
 .project-chip {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: var(--surface);
