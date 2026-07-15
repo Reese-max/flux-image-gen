@@ -91,13 +91,13 @@
     var section = el('section', 'ideas hf-ideas');
     section.setAttribute('aria-label', '隨機靈感');
     var title = el('div', 'ideas-title');
-    title.appendChild(document.createTextNode('🎲 隨機靈感'));
+    title.appendChild(document.createTextNode('✦ 隨機靈感'));
     title.appendChild(el('span', 'hint', '（從精選提示詞庫隨機抽取 · 不會自動消耗額度）'));
     section.appendChild(title);
 
     var controls = el('div');
     controls.style.cssText = 'display:flex;gap:8px;align-items:center;margin:8px 0;';
-    var button = el('button', 'btn mini secondary', '🎲 抽一批靈感');
+    var button = el('button', 'btn mini secondary', '抽一批靈感');
     button.type = 'button';
     var status = el('span', 'hint', '');
     controls.appendChild(button);
@@ -108,7 +108,7 @@
     grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:6px;';
     section.appendChild(grid);
     button.addEventListener('click', function () {
-      button.textContent = '🔄 換一批';
+      button.textContent = '換一批';
       showBatch(grid, status, button);
     });
 

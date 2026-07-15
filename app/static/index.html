@@ -345,20 +345,20 @@
 
     <!-- 靈感 section：原「靈感」分頁內容併入生成分頁（#ideas hash 會捲動到這裡；元素 id 全部保留） -->
     <section class="ideas" id="ideasSection" aria-label="提示詞靈感">
-      <div class="ideas-title">💡 幫我想梗<span class="hint">（點一下只帶入描述，不會自動消耗額度）</span></div>
+      <div class="ideas-title">✦ 幫我想梗<span class="hint">（點一下只帶入描述，不會自動消耗額度）</span></div>
       <div class="idea-grid">
         <button class="idea" type="button" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-ink.webp" alt="" loading="lazy" decoding="async"><span class="lbl">水墨山水</span></button>
         <button class="idea" type="button" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cyber-market.webp" alt="" loading="lazy" decoding="async"><span class="lbl">賽博夜市</span></button>
         <button class="idea" type="button" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-diamond-dino.webp" alt="" loading="lazy" decoding="async"><span class="lbl">鑽石恐龍</span></button>
         <button class="idea" type="button" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-manga.webp" alt="" loading="lazy" decoding="async"><span class="lbl">動漫漫畫</span></button>
         <button class="idea" type="button" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cutaway.webp" alt="" loading="lazy" decoding="async"><span class="lbl">剖面圖</span></button>
-        <button id="random" class="idea" type="button"><span class="emo">🎲</span><span class="lbl">隨機驚喜</span></button>
+        <button id="random" class="idea" type="button"><img class="random-thumb idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-vaporwave.webp" alt="" loading="lazy" decoding="async"><span class="lbl">隨機驚喜</span></button>
       </div>
 
       <div class="custom-ideas">
         <div class="custom-ideas-head">
           <div>
-            <div class="ideas-title">🧩 我的風格卡<span class="hint">（提示詞卡，儲存在這台瀏覽器）</span></div>
+            <div class="ideas-title">✦ 我的風格卡<span class="hint">（提示詞卡，儲存在這台瀏覽器）</span></div>
             <p class="custom-ideas-copy">保存常用描述、畫質、尺寸與預覽圖，點卡片即可重新套用。</p>
             <p class="custom-ideas-copy">匯出備份檔會包含完整描述、畫質與尺寸；公開分享前請先檢查內容。</p>
           </div>
@@ -553,7 +553,7 @@
     <section id="projectBoard" class="project-board glass" aria-label="作品集管理">
       <div class="history-head">
         <div>
-          <div class="ideas-title">📁 作品集<span class="hint">（整理同一主題的作品與風格卡）</span></div>
+          <div class="ideas-title">▣ 作品集<span class="hint">（整理同一主題的作品與風格卡）</span></div>
           <p class="custom-ideas-copy">建立作品集後，可把歷史作品與風格卡收進同一主題，之後從作品集繼續生成。</p>
         </div>
         <button id="deleteProject" class="btn mini secondary" type="button" hidden disabled>刪除目前作品集</button>
@@ -590,7 +590,7 @@
     <section id="historyWall" class="history-wall glass" aria-label="歷史記錄牆">
       <div class="history-head">
         <div>
-          <div class="ideas-title">🖼️ 歷史記錄牆<span class="hint">（存在這台瀏覽器）</span></div>
+          <div class="ideas-title">◷ 歷史記錄牆<span class="hint">（存在這台瀏覽器）</span></div>
           <p class="custom-ideas-copy">保留最近生成的圖片，可重新下載、複製提示詞或再生。</p>
         </div>
         <button id="clearHistory" class="btn mini secondary" type="button" hidden disabled>清空歷史</button>
@@ -690,7 +690,7 @@
       <section class="gallery-admin-card" aria-label="站長雲端圖庫管理">
         <div class="gallery-admin-head">
           <div>
-            <h3>☁️ 雲端圖庫管理</h3>
+            <h3>◇ 雲端圖庫管理</h3>
             <p>用 Worker secret <code>GALLERY_ADMIN_TOKEN</code> 讀取 R2 metadata 清單；此工具不會暴露刪除 token hash，也不會顯示未公開的完整 prompt。</p>
           </div>
           <span id="galleryAdminCount" class="gallery-admin-count">尚未載入</span>

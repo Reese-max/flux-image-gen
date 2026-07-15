@@ -132,7 +132,7 @@
     section.setAttribute('aria-label', '精選提示詞');
 
     var title = el('div', 'ideas-title');
-    title.appendChild(document.createTextNode('✨ 精選提示詞'));
+    title.appendChild(document.createTextNode('✦ 精選提示詞'));
     var hint = el('span', 'hint', '（展開後再選擇，不會自動消耗額度）');
     title.appendChild(hint);
     section.appendChild(title);

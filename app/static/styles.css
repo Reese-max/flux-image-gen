@@ -69,6 +69,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font);
+  font-variant-emoji: text;
   line-height: 1.6;
   overflow-x: clip; /* 最後保險：主因已在 .tabs 等處修正 */
   -webkit-font-smoothing: antialiased;
