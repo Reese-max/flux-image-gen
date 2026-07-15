@@ -67,7 +67,7 @@
     var idFactory = typeof makeId === 'function' ? makeId : defaultMakeId;
 
     if (!id) { id = toText(idFactory()); }
-    if (!name) { throw new Error('專案名稱不可空白'); }
+    if (!name) { throw new Error('作品集名稱不可空白'); }
 
     return {
       id: id,

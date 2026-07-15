@@ -65,7 +65,7 @@ test('normalizeProject rejects blank names', () => {
 
   assert.throws(
     () => Store.normalizeProject({ name: '   ' }, () => 'project-1'),
-    /專案名稱不可空白/
+    /作品集名稱不可空白/
   );
 });
 

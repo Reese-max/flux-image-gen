@@ -1094,7 +1094,7 @@ def test_privacy_and_license_policy_modals_are_wired():
     assert "ImageProjectStore.STORAGE_KEY" in app_js
     assert "aiImageTutorialSeen.v1" in app_js
     assert "window.localStorage.removeItem" in app_js
-    assert "本機歷史、風格卡、專案與教學偏好" in html
+    assert "本機歷史、風格卡、作品集與教學偏好" in html
     assert ".footer-link" in styles
     assert ".policy-modal" in styles
     assert ".policy-copy" in styles
@@ -1415,6 +1415,9 @@ def test_project_board_ui_and_scripts_are_wired():
     assert 'id="panel-projects"' in html
     assert 'id="projectBoard"' in html
     assert 'id="projectName"' in html
+    assert 'aria-label="作品集"' in html
+    assert 'aria-label="作品集名稱"' in html
+    assert "建立作品集後" in html
     assert 'id="projectDescription"' in html
     assert 'id="createProject"' in html
     assert 'id="deleteProject"' in html

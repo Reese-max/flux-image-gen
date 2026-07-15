@@ -87,8 +87,8 @@
       <button class="tab" id="tab-edit" role="tab" type="button" aria-label="AI 改圖" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
         <span class="tab-ico" aria-hidden="true">◫</span><span class="tab-label">AI 改圖</span><span class="tab-mobile-label" aria-hidden="true">改圖</span>
       </button>
-      <button class="tab" id="tab-projects" role="tab" type="button" aria-label="專案" aria-selected="false" aria-controls="panel-projects" tabindex="-1" data-tab="projects">
-        <span class="tab-ico" aria-hidden="true">▣</span><span class="tab-label">專案</span><span class="tab-mobile-label" aria-hidden="true">專案</span>
+      <button class="tab" id="tab-projects" role="tab" type="button" aria-label="作品集" aria-selected="false" aria-controls="panel-projects" tabindex="-1" data-tab="projects">
+        <span class="tab-ico" aria-hidden="true">▣</span><span class="tab-label">作品集</span><span class="tab-mobile-label" aria-hidden="true">作品集</span>
       </button>
       <button class="tab" id="tab-history" role="tab" type="button" aria-label="歷史作品" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">
         <span class="tab-ico" aria-hidden="true">◷</span><span class="tab-label">歷史作品</span><span class="tab-mobile-label" aria-hidden="true">歷史</span><span class="tab-badge" id="historyTabBadge" hidden></span>
@@ -550,35 +550,35 @@
     </div><!-- /panel-edit -->
 
     <div class="tabpanel" id="panel-projects" role="tabpanel" aria-labelledby="tab-projects" hidden>
-    <section id="projectBoard" class="project-board glass" aria-label="專案管理">
+    <section id="projectBoard" class="project-board glass" aria-label="作品集管理">
       <div class="history-head">
         <div>
-          <div class="ideas-title">📁 專案<span class="hint">（整理同一主題的作品與風格卡）</span></div>
-          <p class="custom-ideas-copy">建立專案後，可把歷史作品與風格卡收進同一主題，之後從專案繼續生成。</p>
+          <div class="ideas-title">📁 作品集<span class="hint">（整理同一主題的作品與風格卡）</span></div>
+          <p class="custom-ideas-copy">建立作品集後，可把歷史作品與風格卡收進同一主題，之後從作品集繼續生成。</p>
         </div>
-        <button id="deleteProject" class="btn mini secondary" type="button" hidden disabled>刪除目前專案</button>
+        <button id="deleteProject" class="btn mini secondary" type="button" hidden disabled>刪除目前作品集</button>
       </div>
       <div class="project-create">
-        <input id="projectName" class="text-input" type="text" maxlength="48" aria-label="專案名稱" placeholder="專案名稱，例如：品牌主視覺">
-        <input id="projectDescription" class="text-input" type="text" maxlength="280" aria-label="專案描述" placeholder="描述，例如：官網 Hero、社群貼文與產品圖方向">
-        <button id="createProject" class="btn primary" type="button">建立專案</button>
+        <input id="projectName" class="text-input" type="text" maxlength="48" aria-label="作品集名稱" placeholder="作品集名稱，例如：品牌主視覺">
+        <input id="projectDescription" class="text-input" type="text" maxlength="280" aria-label="作品集描述" placeholder="描述，例如：官網 Hero、社群貼文與產品圖方向">
+        <button id="createProject" class="btn primary" type="button">建立作品集</button>
       </div>
       <div id="projectStatus" class="form-status" aria-live="polite"></div>
-      <div id="projectList" class="project-list" aria-label="專案清單"></div>
+      <div id="projectList" class="project-list" aria-label="作品集清單"></div>
       <div class="project-detail">
         <div class="project-detail-head">
           <div>
-            <h2 id="projectDetailTitle">尚未選取專案</h2>
-            <p id="projectDetailMeta">建立專案後，可以把作品與風格卡整理在一起。</p>
+            <h2 id="projectDetailTitle">尚未選取作品集</h2>
+            <p id="projectDetailMeta">建立作品集後，可以把作品與風格卡整理在一起。</p>
           </div>
         </div>
         <div class="project-columns">
           <section>
-            <h3>專案作品</h3>
+            <h3>收錄作品</h3>
             <div id="projectRecordList" class="project-item-list"></div>
           </section>
           <section>
-            <h3>專案風格卡</h3>
+            <h3>收錄風格卡</h3>
             <div id="projectCardList" class="project-item-list"></div>
           </section>
         </div>
@@ -775,10 +775,10 @@
         <button id="saveHistoryTags" class="btn secondary" type="button">儲存標籤</button>
         <div class="project-add-row">
           <label class="form-field" for="historyProjectSelect">
-            <span>加入專案</span>
+            <span>加入作品集</span>
             <select id="historyProjectSelect" class="text-input"></select>
           </label>
-          <button id="addHistoryToProject" class="btn secondary" type="button">加入目前專案</button>
+          <button id="addHistoryToProject" class="btn secondary" type="button">加入目前作品集</button>
         </div>
         <label class="tutorial-check" for="hidePromptInShare">
           <input id="hidePromptInShare" type="checkbox">
@@ -881,14 +881,14 @@
           </section>
           <section>
             <h3>本機資料如何保存</h3>
-            <p>本機歷史、風格卡、專案與教學偏好只會存在這台瀏覽器的 localStorage；本站介面不提供作品雲端保存功能。</p>
+            <p>本機歷史、風格卡、作品集與教學偏好只會存在這台瀏覽器的 localStorage；本站介面不提供作品雲端保存功能。</p>
           </section>
           <section>
             <h3>Cookies、localStorage 與刪除資料</h3>
-            <p>本站目前主要使用 localStorage 保存教學狀態、本機歷史、風格卡與專案；不需要登入 cookie。你可以在這裡清除本機資料。</p>
+            <p>本站目前主要使用 localStorage 保存教學狀態、本機歷史、風格卡與作品集；不需要登入 cookie。你可以在這裡清除本機資料。</p>
             <div class="local-data-row">
               <button id="clearLocalData" class="btn danger" type="button">清除本機資料</button>
-              <span>會清除這台瀏覽器中的本機歷史、風格卡、專案與教學偏好。</span>
+              <span>會清除這台瀏覽器中的本機歷史、風格卡、作品集與教學偏好。</span>
             </div>
           </section>
           <section>

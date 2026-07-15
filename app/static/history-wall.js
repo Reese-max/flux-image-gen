@@ -734,14 +734,14 @@
     function addRecord() {
       var added;
       if (!root.ProjectBoard || typeof root.ProjectBoard.addRecordToProject !== 'function') {
-        setAppStatus('專案功能尚未就緒', 'fail');
+        setAppStatus('作品集功能尚未就緒', 'fail');
         return;
       }
       added = root.ProjectBoard.addRecordToProject(record.id, projectId);
-      setAppStatus(added ? '已加入專案' : '請先建立或選取專案', added ? 'done' : 'warn');
+      setAppStatus(added ? '已加入作品集' : '請先建立或選取作品集', added ? 'done' : 'warn');
     }
     if (!record) {
-      setAppStatus('尚無可加入專案的作品', 'warn');
+      setAppStatus('尚無可加入作品集的作品', 'warn');
       return;
     }
     if (root.ProjectBoard && typeof root.ProjectBoard.addRecordToProject === 'function') {
@@ -749,12 +749,12 @@
       return;
     }
     if (!root.ImageFeatureLoader || typeof root.ImageFeatureLoader.load !== 'function') {
-      setAppStatus('專案功能尚未就緒', 'fail');
+      setAppStatus('作品集功能尚未就緒', 'fail');
       return;
     }
-    setAppStatus('正在載入專案功能…', 'busy');
+    setAppStatus('正在載入作品集功能…', 'busy');
     root.ImageFeatureLoader.load('history').then(addRecord).catch(function () {
-      setAppStatus('專案功能載入失敗，請重新整理後再試', 'fail');
+      setAppStatus('作品集功能載入失敗，請重新整理後再試', 'fail');
     });
   }
 

@@ -123,7 +123,7 @@
     var project;
     var nextProjects;
     if (!root.ImageProjectStore) {
-      setStatus('專案儲存模組未載入', 'fail');
+      setStatus('作品集儲存模組未載入', 'fail');
       return;
     }
     try {
@@ -136,7 +136,7 @@
       saveProjects(nextProjects);
       if (name) { name.value = ''; }
       if (description) { description.value = ''; }
-      setStatus('已建立專案：' + project.name, 'done');
+      setStatus('已建立作品集：' + project.name, 'done');
     } catch (error) {
       setStatus(error.message, 'fail');
     }
@@ -146,34 +146,34 @@
     var project = getActiveProject();
     var nextProjects;
     if (!project || !root.ImageProjectStore) {
-      setStatus('尚未選取專案', 'warn');
+      setStatus('尚未選取作品集', 'warn');
       return;
     }
-    if (typeof root.confirm === 'function' && !root.confirm('確定要刪除專案「' + project.name + '」嗎？作品與風格卡本體不會被刪除。')) {
-      setStatus('已取消刪除專案', 'warn');
+    if (typeof root.confirm === 'function' && !root.confirm('確定要刪除作品集「' + project.name + '」嗎？作品與風格卡本體不會被刪除。')) {
+      setStatus('已取消刪除作品集', 'warn');
       return;
     }
     nextProjects = root.ImageProjectStore.deleteProject(projects, project.id);
     activeProjectId = nextProjects.length ? nextProjects[0].id : '';
     saveProjects(nextProjects);
-    setStatus('已刪除專案', 'done');
+    setStatus('已刪除作品集', 'done');
   }
 
   function addRecordToProject(recordId, projectId) {
     var targetProjectId = toText(projectId) || activeProjectId;
     var nextProjects;
     if (!root.ImageProjectStore) {
-      setStatus('專案儲存模組未載入', 'fail');
+      setStatus('作品集儲存模組未載入', 'fail');
       return false;
     }
     if (!targetProjectId) {
-      setStatus('請先建立或選取專案', 'warn');
+      setStatus('請先建立或選取作品集', 'warn');
       return false;
     }
     nextProjects = root.ImageProjectStore.addRecordToProject(projects, targetProjectId, recordId);
     activeProjectId = targetProjectId;
     saveProjects(nextProjects);
-    setStatus('已加入專案', 'done');
+    setStatus('已加入作品集', 'done');
     return true;
   }
 
@@ -181,17 +181,17 @@
     var targetProjectId = toText(projectId) || activeProjectId;
     var nextProjects;
     if (!root.ImageProjectStore) {
-      setStatus('專案儲存模組未載入', 'fail');
+      setStatus('作品集儲存模組未載入', 'fail');
       return false;
     }
     if (!targetProjectId) {
-      setStatus('請先建立或選取專案', 'warn');
+      setStatus('請先建立或選取作品集', 'warn');
       return false;
     }
     nextProjects = root.ImageProjectStore.addPromptCardToProject(projects, targetProjectId, cardId);
     activeProjectId = targetProjectId;
     saveProjects(nextProjects);
-    setStatus('已加入專案', 'done');
+    setStatus('已加入作品集', 'done');
     return true;
   }
 
@@ -215,7 +215,7 @@
     if (!projects.length) {
       empty = document.createElement('div');
       empty.className = 'project-empty';
-      empty.textContent = '尚無專案。先建立一個主題，例如「品牌主視覺」或「角色設定集」。';
+      empty.textContent = '尚無作品集。先建立一個主題，例如「品牌主視覺」或「角色設定集」。';
       list.appendChild(empty);
       return;
     }
@@ -245,7 +245,7 @@
 
     item.className = 'project-item';
     image.src = toText(record.thumbnail || record.image);
-    image.alt = '專案作品預覽';
+    image.alt = '作品集中的作品預覽';
     title.textContent = toText(record.userPrompt || record.prompt || record.providerPrompt).slice(0, 80) || '未命名作品';
     meta.textContent = (toText(record.model) || 'schnell') + ' · ' + (toText(record.size) || 'square');
     actions.className = 'project-item-actions';
@@ -255,7 +255,7 @@
     generate.addEventListener('click', function () { continueFromRecord(record); });
     remove.type = 'button';
     remove.className = 'btn mini secondary';
-    remove.textContent = '移出專案';
+    remove.textContent = '移出作品集';
     remove.addEventListener('click', function () { removeProjectRecord(record.id); });
     actions.appendChild(generate);
     actions.appendChild(remove);
@@ -289,7 +289,7 @@
     generate.addEventListener('click', function () { continueFromCard(card); });
     remove.type = 'button';
     remove.className = 'btn mini secondary';
-    remove.textContent = '移出專案';
+    remove.textContent = '移出作品集';
     remove.addEventListener('click', function () { removeProjectCard(card.id); });
     actions.appendChild(generate);
     actions.appendChild(remove);
@@ -315,11 +315,11 @@
     clearNode(recordList);
     clearNode(cardList);
     if (!project) {
-      if (title) { title.textContent = '尚未選取專案'; }
-      if (meta) { meta.textContent = '建立專案後，可以把作品與風格卡整理在一起。'; }
+      if (title) { title.textContent = '尚未選取作品集'; }
+      if (meta) { meta.textContent = '建立作品集後，可以把作品與風格卡整理在一起。'; }
       empty = document.createElement('div');
       empty.className = 'project-empty';
-      empty.textContent = '專案內容會出現在這裡。';
+      empty.textContent = '作品集內容會出現在這裡。';
       recordList.appendChild(empty);
       return;
     }
@@ -330,7 +330,7 @@
     if (!project.records.length) {
       empty = document.createElement('div');
       empty.className = 'project-empty';
-      empty.textContent = '尚未加入作品。可在歷史作品詳情中加入目前專案。';
+      empty.textContent = '尚未加入作品。可在歷史作品詳情中加入目前作品集。';
       recordList.appendChild(empty);
     } else {
       project.records.forEach(function (recordId) {
@@ -341,7 +341,7 @@
     if (!project.promptCards.length) {
       empty = document.createElement('div');
       empty.className = 'project-empty';
-      empty.textContent = '尚未加入風格卡。可在風格卡上點「加入專案」。';
+      empty.textContent = '尚未加入風格卡。可在風格卡上點「加入作品集」。';
       cardList.appendChild(empty);
     } else {
       project.promptCards.forEach(function (cardId) {
@@ -381,10 +381,10 @@
 
   function loadProjectBoard() {
     if (!root.ImageProjectStore) {
-      setStatus('專案儲存模組未載入', 'fail');
+      setStatus('作品集儲存模組未載入', 'fail');
       return;
     }
-    projects = safeStore('專案讀取失敗', function () {
+    projects = safeStore('作品集讀取失敗', function () {
       return root.ImageProjectStore.loadProjects();
     }, []);
     if (!activeProjectId && projects.length) { activeProjectId = projects[0].id; }
