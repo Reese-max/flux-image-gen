@@ -272,6 +272,7 @@ body {
 }
 .generation-preview .result-actions {
   flex: 0 0 auto;
+  align-items: flex-start;
   justify-content: flex-start;
   max-height: 154px;
   margin: 0;
