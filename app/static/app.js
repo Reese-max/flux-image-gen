@@ -2526,7 +2526,7 @@ function refreshProvider(){
   if(!pill || !text){ return Promise.resolve(); }
   setProviderStatus('checking');
   text.textContent = PROVIDER_STATUS_COPY.checking;
-  return fetch('/api/health').then(function(res){
+  return fetch('/api/health', { cache: 'no-store' }).then(function(res){
     return res.json();
   }).then(function(data){
     lastProviderHealth = data || {};

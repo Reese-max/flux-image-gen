@@ -1227,7 +1227,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === "/health" || url.pathname === "/api/health") {
-      return json(buildHealthResponse(env));
+      const response = json(buildHealthResponse(env));
+      response.headers.set("cache-control", "no-store");
+      return response;
     }
     if (url.pathname === "/api/usage" && request.method === "GET") {
       const adminError = requireGalleryAdmin(request, env, "usage");

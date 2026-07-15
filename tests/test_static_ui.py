@@ -795,6 +795,7 @@ def test_turnstile_generation_gate_is_wired():
     assert "turnstileToken: readTurnstileToken()" in app_js
     assert "requireTurnstileReady" in app_js
     assert "data.turnstile" in app_js
+    assert "fetch('/api/health', { cache: 'no-store' })" in app_js
     assert "fd.append('turnstileToken'" in image_edit_js
     assert ".turnstile-gate" in styles
     assert ".turnstile-status" in styles

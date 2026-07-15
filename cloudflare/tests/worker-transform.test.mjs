@@ -814,6 +814,7 @@ test('GET /health reports workers-ai when only the AI binding is present', async
   const data = await response.json();
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   assert.equal(data.provider, 'workers-ai');
   assert.equal(data.providerStatus, 'degraded');
   assert.equal(data.mode, 'live');
