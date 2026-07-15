@@ -577,6 +577,12 @@ def test_cloudflare_csp_allows_local_image_preview_blobs():
     assert "img-src 'self' data: blob:" in headers
 
 
+def test_cloudflare_csp_allows_turnstile_script_and_frame():
+    headers = read_repo("cloudflare/public/_headers")
+
+    assert "script-src 'self' https://challenges.cloudflare.com" in headers
+    assert "frame-src https://challenges.cloudflare.com" in headers
+
 
 def test_performance_avoids_external_font_payloads():
     html = read_static("index.html")
