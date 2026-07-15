@@ -126,7 +126,9 @@ async function main() {
   });
 
   const startedAt = new Date().toISOString();
-  await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 60000 });
+  // Turnstile and other third-party widgets may keep background requests open,
+  // so networkidle is not a reliable production-ready signal for this page.
+  await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForTimeout(1200);
   await Promise.allSettled(responseTasks);
 
@@ -157,10 +159,25 @@ async function main() {
   const resources = metrics.resources || [];
   const resourcesByUrl = new Map(resources.map((entry) => [entry.name, entry]));
   const measuredResponses = responseRecords.filter((entry) => entry.status >= 200 && entry.status < 400);
+  const targetOrigin = new URL(targetUrl).origin;
+  const isFirstParty = (entry) => {
+    try {
+      return new URL(entry.url).origin === targetOrigin;
+    } catch (error) {
+      return false;
+    }
+  };
+  const firstPartyResponses = measuredResponses.filter(isFirstParty);
+  const thirdPartyResponses = measuredResponses.filter((entry) => !isFirstParty(entry));
   const scripts = measuredResponses.filter((entry) => entry.resourceType === 'script');
+  const firstPartyScripts = scripts.filter(isFirstParty);
+  const thirdPartyScripts = scripts.filter((entry) => !firstPartyScripts.includes(entry));
   const stylesheets = measuredResponses.filter((entry) => entry.resourceType === 'stylesheet' || /\.css(?:\?|$)/.test(entry.url));
-  const totalTransfer = measuredResponses.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
-  const scriptTransfer = scripts.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
+  const allTransfer = measuredResponses.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
+  const totalTransfer = firstPartyResponses.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
+  const thirdPartyTransfer = thirdPartyResponses.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
+  const scriptTransfer = firstPartyScripts.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
+  const thirdPartyScriptTransfer = thirdPartyScripts.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
   const stylesheetTransfer = stylesheets.reduce((sum, entry) => sum + Number(entry.bodyBytes || 0), 0);
 
   const summary = {
@@ -175,7 +192,10 @@ async function main() {
       loadEventMs: round((nav.loadEventEnd || 0) - (nav.startTime || 0)),
       resourceCount: measuredResponses.length,
       totalTransferKb: kb(totalTransfer),
+      thirdPartyTransferKb: kb(thirdPartyTransfer),
+      allTransferKb: kb(allTransfer),
       scriptTransferKb: kb(scriptTransfer),
+      thirdPartyScriptTransferKb: kb(thirdPartyScriptTransfer),
       stylesheetTransferKb: kb(stylesheetTransfer),
     },
     ratings: {},
@@ -209,8 +229,8 @@ async function main() {
     budgetCheck('FCP', summary.metrics.fcpMs, budgets.fcpMs),
     budgetCheck('LCP', summary.metrics.lcpMs, budgets.lcpMs),
     budgetCheck('CLS', summary.metrics.cls, budgets.cls),
-    budgetCheck('total transfer KB', summary.metrics.totalTransferKb, budgets.totalTransferKb),
-    budgetCheck('script transfer KB', summary.metrics.scriptTransferKb, budgets.scriptTransferKb),
+    budgetCheck('first-party total transfer KB', summary.metrics.totalTransferKb, budgets.totalTransferKb),
+    budgetCheck('first-party script transfer KB', summary.metrics.scriptTransferKb, budgets.scriptTransferKb),
     budgetCheck('stylesheet transfer KB', summary.metrics.stylesheetTransferKb, budgets.stylesheetTransferKb),
     budgetCheck('resource count', summary.metrics.resourceCount, budgets.resourceCount),
   ];

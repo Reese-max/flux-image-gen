@@ -1317,6 +1317,13 @@ test('Cloudflare package exposes repeatable performance QA scripts', async () =>
   assert.match(perfScript, /transferSize/);
   assert.match(perfScript, /response\.body\(\)/);
   assert.match(perfScript, /scriptTransferKb:\s*150/);
+  assert.match(perfScript, /thirdPartyScriptTransferKb/);
+  assert.match(perfScript, /thirdPartyTransferKb/);
+  assert.match(perfScript, /allTransferKb/);
+  assert.match(perfScript, /first-party total transfer KB/);
+  assert.match(perfScript, /first-party script transfer KB/);
+  assert.match(perfScript, /waitUntil:\s*'domcontentloaded'/);
+  assert.doesNotMatch(perfScript, /waitUntil:\s*'networkidle'/);
 });
 
 test('POST /generate retries a transient 5xx then succeeds', async () => {
