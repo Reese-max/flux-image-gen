@@ -2054,6 +2054,8 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .controls { flex-direction: column; }
   .idea-grid { grid-template-columns: repeat(3, 1fr); }
   .prompt-pack .idea-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .custom-card .custom-idea { min-height: 148px; padding-bottom: 42px; }
+  .custom-card .card-project { top: auto; bottom: 8px; }
   .example-grid { grid-template-columns: 1fr; }
   .idea { padding: 13px 6px; font-size: 12px; }
   .stage { min-height: 260px; }
