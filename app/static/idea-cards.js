@@ -333,7 +333,7 @@
     reader.readAsText(file);
   }
 
-  function transformAndGenerate(card) {
+  function transformAndApply(card) {
     setGenerationStatus('正在轉換風格卡提示詞…', 'busy');
 
     fetch('/prompt/transform', {
@@ -358,7 +358,7 @@
             size: card.sizePreset,
             seed: card.seed || ''
           });
-          root.ImageGenApp.generate();
+          root.ImageGenApp.setPromptForReview(data.prompt, '風格卡');
         });
       })
       .catch(function (error) {
@@ -367,7 +367,7 @@
   }
 
   function generateFromCard(card) {
-    if (!root.ImageGenApp || typeof root.ImageGenApp.setGenerationSettings !== 'function' || typeof root.ImageGenApp.generate !== 'function') {
+    if (!root.ImageGenApp || typeof root.ImageGenApp.setGenerationSettings !== 'function' || typeof root.ImageGenApp.setPromptForReview !== 'function') {
       return;
     }
 
@@ -383,12 +383,12 @@
         size: card.sizePreset,
         seed: card.seed || ''
       });
-      root.ImageGenApp.generate();
+      root.ImageGenApp.setPromptForReview(card.providerPrompt, '風格卡');
       return;
     }
 
     if (card.userPrompt) {
-      transformAndGenerate(card);
+      transformAndApply(card);
       return;
     }
 
