@@ -162,6 +162,9 @@ async function main() {
     await page.locator('#advancedSettings > summary').click();
     await page.selectOption('#useCase', 'ppt');
     ok('用途會帶入建議尺寸', await page.locator('#size').inputValue() === 'ppt_16_9');
+    ok('用途尺寸會同步畫布摘要',
+      await page.locator('#canvasPresetChip').textContent() === '1344 × 768'
+      && await page.locator('#canvasSizeMeta').textContent() === '1344 × 768');
     await page.selectOption('#size', 'ig_post');
     await page.selectOption('#batchCount', '1');
     await page.click('#go');

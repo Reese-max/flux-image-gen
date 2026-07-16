@@ -451,8 +451,7 @@ function applyUseCaseSize(){
   var size = el('size');
   if(!useCase || !size || useCase.value === 'auto'){ return; }
   size.value = sizeForUseCase(useCase.value);
-  updateCustomSizeVisibility();
-  if(!generationInFlight){ setGenerationState('idle'); }
+  size.dispatchEvent(new Event('change', { bubbles: true }));
 }
 function enableDownload(on){
   var dl = el('dl');
