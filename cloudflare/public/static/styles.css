@@ -1406,7 +1406,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 
 /* ---------- modal ---------- */
 .modal-backdrop {
-  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center;
+  position: fixed; inset: 0; z-index: 80; display: grid; place-items: center;
   padding: 18px; background: rgba(59, 50, 41, 0.42);
 }
 .modal-backdrop[hidden] { display: none; }
