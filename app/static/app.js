@@ -48,23 +48,9 @@ var hadServiceWorkerController = false;
 var providerStatus = 'checking';
 var lastProviderHealth = null;
 var generationState = 'idle';
-var generationMode = 'normal';
-var agentAnalysis = null;
 var turnstileState = { required: false, siteKey: '', widgetId: null, scriptLoading: false };
 var retryBlockedUntil = 0;
 var retryCountdownTimer = null;
-
-var AGENT_STEP_DEFS = [
-  { id: 'parse', label: '解析需求' },
-  { id: 'complete', label: '補全畫面' },
-  { id: 'prompt', label: '產生 prompt' },
-  { id: 'select', label: '選模型與尺寸' },
-  { id: 'generate', label: '生成圖片' },
-  { id: 'qa', label: '檢查品質' },
-  { id: 'recommend', label: '推薦最佳圖' },
-  { id: 'suggest', label: '產生修改建議' }
-];
-var agentSteps = [];
 
 var PROVIDER_STATUS_COPY = {
   checking: '正在檢查服務狀態',
@@ -451,487 +437,6 @@ function updateMobileGenerateSummary(){
   if(!summary){ return; }
   summary.textContent = selectedOptionText('useCase', '自動用途') + '｜' + selectedOptionText('promptStyle', '自動風格');
 }
-function getGenerationMode(){
-  var agent = el('modeAgent');
-  return agent && agent.checked ? 'agent' : 'normal';
-}
-function isAgentMode(){
-  return getGenerationMode() === 'agent';
-}
-function agentStatusText(status){
-  if(status === 'running'){ return '進行中'; }
-  if(status === 'success'){ return '完成'; }
-  if(status === 'error'){ return '失敗'; }
-  return '等待中';
-}
-function renderAgentSteps(){
-  var list = el('agentSteps');
-  var i;
-  var item;
-  var step;
-  var label;
-  var status;
-  if(!list){ return; }
-  clearNode(list);
-  for(i = 0; i < agentSteps.length; i += 1){
-    item = document.createElement('li');
-    step = agentSteps[i];
-    label = document.createElement('span');
-    status = document.createElement('span');
-    item.className = 'agent-step ' + step.status;
-    label.className = 'agent-step-label';
-    status.className = 'agent-step-status';
-    label.textContent = step.label;
-    status.textContent = step.message || agentStatusText(step.status);
-    item.appendChild(label);
-    item.appendChild(status);
-    list.appendChild(item);
-  }
-}
-function resetAgentSteps(){
-  var i;
-  agentSteps = [];
-  for(i = 0; i < AGENT_STEP_DEFS.length; i += 1){
-    agentSteps.push({
-      id: AGENT_STEP_DEFS[i].id,
-      label: AGENT_STEP_DEFS[i].label,
-      status: 'pending',
-      message: ''
-    });
-  }
-  renderAgentSteps();
-}
-function setAgentStep(id, status, message){
-  var i;
-  for(i = 0; i < agentSteps.length; i += 1){
-    if(agentSteps[i].id === id){
-      agentSteps[i].status = status;
-      agentSteps[i].message = message || '';
-      break;
-    }
-  }
-  renderAgentSteps();
-}
-function setAgentPanelVisible(on){
-  var panel = el('agentPanel');
-  if(panel){ panel.hidden = !on; }
-}
-function setAgentSummary(text){
-  var summary = el('agentModeSummary');
-  if(summary){ summary.textContent = text; }
-}
-function setAgentRecommendation(text){
-  var box = el('agentRecommendation');
-  if(box){
-    clearNode(box);
-    box.textContent = text || '';
-  }
-}
-function clampQaScore(value){
-  var number = Number(value);
-  if(!isFinite(number)){ return 0; }
-  if(number < 0){ return 0; }
-  if(number > 100){ return 100; }
-  return Math.round(number);
-}
-function qaAverage(report){
-  var total;
-  var count;
-  if(!report){ return 0; }
-  total = clampQaScore(report.promptMatchScore) + clampQaScore(report.compositionScore) + clampQaScore(report.visualQualityScore);
-  count = 3;
-  if(typeof report.textAccuracyScore === 'number'){
-    total += clampQaScore(report.textAccuracyScore);
-    count += 1;
-  }
-  return Math.round(total / count);
-}
-function formatVisionQaSummary(report){
-  var vision = report && report.visionQa ? report.visionQa : null;
-  var parts = [];
-  var provider;
-  var issues;
-  if(!vision){ return ''; }
-  if(vision.available === false){
-    return '視覺 QA：暫時不可用，已改用本機 QA。';
-  }
-  provider = vision.provider === 'gemini' ? 'Gemini' : (vision.provider || 'Vision');
-  parts.push('視覺 QA：' + provider);
-  if(typeof vision.promptMatchScore === 'number'){ parts.push('符合度 ' + clampQaScore(vision.promptMatchScore) + '/100'); }
-  if(typeof vision.compositionScore === 'number'){ parts.push('構圖 ' + clampQaScore(vision.compositionScore) + '/100'); }
-  if(typeof vision.visualQualityScore === 'number'){ parts.push('畫質 ' + clampQaScore(vision.visualQualityScore) + '/100'); }
-  if(typeof vision.textAccuracyScore === 'number'){ parts.push('文字 ' + clampQaScore(vision.textAccuracyScore) + '/100'); }
-  if(vision.recommendation){ parts.push('建議 ' + String(vision.recommendation)); }
-  if(vision.reason){ parts.push(String(vision.reason)); }
-  issues = vision.detectedIssues && vision.detectedIssues.length ? vision.detectedIssues : [];
-  if(issues.length){ parts.push('問題 ' + issues.join('；')); }
-  return parts.join(' · ');
-}
-function formatImageQualitySummary(report){
-  var quality = report && report.imageQuality ? report.imageQuality : null;
-  var parts = [];
-  var issues;
-  if(!quality){ return ''; }
-  if(quality.checked === false){
-    return '圖片檢查：未能讀取圖片標頭，已保留結果但建議人工確認。';
-  }
-  parts.push('圖片檢查');
-  if(quality.mime){ parts.push(String(quality.mime)); }
-  if(quality.width && quality.height){ parts.push(String(quality.width) + '×' + String(quality.height)); }
-  if(typeof quality.byteSize === 'number'){ parts.push(String(Math.round(quality.byteSize / 1024)) + ' KB'); }
-  issues = quality.issues && quality.issues.length ? quality.issues : [];
-  if(issues.length){ parts.push('問題 ' + issues.join('；')); }
-  return parts.join(' · ');
-}
-function appendQaDetails(box, report){
-  var visionText = formatVisionQaSummary(report);
-  var imageQualityText = formatImageQualitySummary(report);
-  var line;
-  if(!box){ return; }
-  if(imageQualityText){
-    line = document.createElement('div');
-    line.className = 'qa-detail-line';
-    line.textContent = imageQualityText;
-    box.appendChild(line);
-  }
-  if(visionText){
-    line = document.createElement('div');
-    line.className = 'qa-detail-line qa-vision-line';
-    line.textContent = visionText;
-    box.appendChild(line);
-  }
-}
-function hasAgentRisk(analysis, text){
-  var risks = analysis && analysis.riskFlags ? analysis.riskFlags : [];
-  var i;
-  for(i = 0; i < risks.length; i += 1){
-    if(String(risks[i]).indexOf(text) !== -1){ return true; }
-  }
-  return false;
-}
-function createQaReport(imageId, index, total, base, item, analysis){
-  var provider = item && typeof item.provider === 'string' ? item.provider : '';
-  var imageQuality = item && item.imageQuality ? item.imageQuality : null;
-  var imageQualityIssues = imageQuality && imageQuality.issues && imageQuality.issues.length ? imageQuality.issues : [];
-  var visionQa = item && item.visionQa && item.visionQa.available ? item.visionQa : null;
-  var visionIssues = visionQa && visionQa.detectedIssues && visionQa.detectedIssues.length ? visionQa.detectedIssues : [];
-  var report;
-  var issues = [];
-  var promptScore = 76;
-  var compositionScore = 74;
-  var visualScore = 76;
-  var textScore;
-  var reason;
-  var recommendation = 'edit';
-
-  if(base && base.providerPrompt){ promptScore += 8; }
-  if(analysis && analysis.subject){ promptScore += 4; }
-  if(analysis && analysis.useCase && analysis.useCase !== 'general'){ compositionScore += 6; }
-  if(provider === 'demo'){
-    visualScore -= 8;
-    issues.push('目前是 Demo 圖，無法代表真實 FLUX 畫質');
-  }
-  if(imageQuality){
-    if(typeof imageQuality.visualQualityScore === 'number'){
-      visualScore = Math.min(visualScore, clampQaScore(imageQuality.visualQualityScore));
-    }
-    if(imageQuality.checked === false){
-      visualScore -= 6;
-    }
-    for(var q = 0; q < imageQualityIssues.length; q += 1){
-      issues.push(imageQualityIssues[q]);
-    }
-  }
-  if(visionQa){
-    if(typeof visionQa.promptMatchScore === 'number'){ promptScore = Math.round((promptScore + clampQaScore(visionQa.promptMatchScore)) / 2); }
-    if(typeof visionQa.compositionScore === 'number'){ compositionScore = Math.round((compositionScore + clampQaScore(visionQa.compositionScore)) / 2); }
-    if(typeof visionQa.visualQualityScore === 'number'){ visualScore = Math.round((visualScore + clampQaScore(visionQa.visualQualityScore)) / 2); }
-    if(typeof visionQa.textAccuracyScore === 'number'){ textScore = clampQaScore(visionQa.textAccuracyScore); }
-    for(var v = 0; v < visionIssues.length; v += 1){
-      issues.push('視覺 QA：' + visionIssues[v]);
-    }
-  }else if(item && item.visionQa && item.visionQa.available === false){
-    issues.push('視覺 QA 暫時不可用，已使用本機 QA');
-  }
-  if(hasAgentRisk(analysis, '文字亂碼')){
-    textScore = 46;
-    issues.push('含文字需求，建議改為後製加字');
-  }
-  if(hasAgentRisk(analysis, '手部')){
-    issues.push('手部細節可能需要多張挑選');
-    visualScore -= 3;
-  }
-  if(analysis && analysis.missingFields && analysis.missingFields.length){
-    issues.push('原始需求偏短，已用預設構圖補全');
-    promptScore -= 3;
-  }
-  if(total > 1){
-    compositionScore += Math.max(0, 3 - index);
-  }
-
-  report = {
-    imageId: imageId || ('image-' + index),
-    promptMatchScore: clampQaScore(promptScore),
-    compositionScore: clampQaScore(compositionScore),
-    visualQualityScore: clampQaScore(visualScore),
-    detectedIssues: issues,
-    recommendation: recommendation,
-    reason: '',
-    imageQuality: imageQuality || null,
-    visionQa: visionQa || (item && item.visionQa ? item.visionQa : null)
-  };
-  if(typeof textScore === 'number'){ report.textAccuracyScore = clampQaScore(textScore); }
-
-  if(issues.length >= 3 || qaAverage(report) < 62){
-    report.recommendation = 'retry';
-    reason = 'QA 分數偏低，建議調整提示詞後重試。';
-  }else if(visionQa && visionQa.recommendation === 'retry'){
-    report.recommendation = 'retry';
-    reason = visionQa.reason || '視覺 QA 建議重試。';
-  }else if(visionQa && visionQa.recommendation === 'keep'){
-    report.recommendation = 'keep';
-    reason = visionQa.reason || '視覺 QA 判定可保留。';
-  }else if(issues.length){
-    report.recommendation = 'edit';
-    reason = '整體可用，但建議依問題微調後再生。';
-  }else{
-    report.recommendation = 'keep';
-    reason = '主體、構圖與畫質檢查皆達可用標準。';
-  }
-  report.reason = reason;
-  return report;
-}
-function pickBestQaIndex(reports){
-  var bestIndex = -1;
-  var bestScore = -1;
-  var score;
-  var i;
-  for(i = 0; i < reports.length; i += 1){
-    score = qaAverage(reports[i]);
-    if(reports[i].recommendation === 'retry'){ score -= 20; }
-    if(score > bestScore){
-      bestScore = score;
-      bestIndex = i;
-    }
-  }
-  return bestIndex;
-}
-function isSevereQaFailure(report){
-  var issues = report && report.detectedIssues ? report.detectedIssues : [];
-  var text;
-  var i;
-  if(!report){ return false; }
-  if(qaAverage(report) < 62){ return true; }
-  if(clampQaScore(report.visualQualityScore) < 55){ return true; }
-  for(i = 0; i < issues.length; i += 1){
-    text = String(issues[i]);
-    if(text.indexOf('圖片資料為空') !== -1){ return true; }
-    if(text.indexOf('無法解碼') !== -1){ return true; }
-    if(text.indexOf('資料過小') !== -1){ return true; }
-    if(text.indexOf('尺寸') !== -1 && text.indexOf('不一致') !== -1){ return true; }
-    if(text.indexOf('嚴重模糊') !== -1 || text.indexOf('blur') !== -1){ return true; }
-    if(text.indexOf('主體缺失') !== -1 || text.indexOf('missing subject') !== -1){ return true; }
-    if(text.indexOf('手指') !== -1 || text.indexOf('手部') !== -1 || text.indexOf('hand') !== -1 || text.indexOf('finger') !== -1){ return true; }
-    if(text.indexOf('臉部') !== -1 || text.indexOf('face') !== -1){ return true; }
-    if(text.indexOf('浮水印') !== -1 || text.indexOf('watermark') !== -1){ return true; }
-  }
-  return false;
-}
-function collectQaIssueText(report){
-  var parts = [];
-  var issues = report && report.detectedIssues ? report.detectedIssues : [];
-  var vision = report && report.visionQa ? report.visionQa : null;
-  var visionIssues = vision && vision.detectedIssues ? vision.detectedIssues : [];
-  var i;
-  for(i = 0; i < issues.length; i += 1){ parts.push(String(issues[i])); }
-  for(i = 0; i < visionIssues.length; i += 1){ parts.push(String(visionIssues[i])); }
-  if(vision && vision.reason){ parts.push(String(vision.reason)); }
-  return parts.join('；');
-}
-function issueTextHasAny(text, words){
-  var lower = String(text || '').toLowerCase();
-  var i;
-  for(i = 0; i < words.length; i += 1){
-    if(lower.indexOf(String(words[i]).toLowerCase()) !== -1){ return true; }
-  }
-  return false;
-}
-function classifyQaRetry(report){
-  var text = collectQaIssueText(report);
-  var plan = { action: '', reason: '', message: '', negativePatch: '' };
-  if(!report){ return plan; }
-  if((typeof report.textAccuracyScore === 'number' && report.textAccuracyScore < 55) || issueTextHasAny(text, ['文字亂碼', '亂碼', 'gibberish text', 'garbled text'])){
-    plan.action = 'manual_edit';
-    plan.reason = '文字渲染風險高';
-    plan.message = '文字亂碼通常不適合用自動重試硬修，建議改為後製加字，避免浪費額度';
-    plan.negativePatch = 'text, logo, watermark, gibberish, broken typography';
-    return plan;
-  }
-  if(issueTextHasAny(text, ['手指', '手部', 'hand', 'finger'])){
-    plan.action = 'auto_retry';
-    plan.reason = text || '視覺 QA 偵測到手部錯誤';
-    plan.message = '視覺 QA 偵測到手部或手指問題，已加強 negative prompt 並自動重試最多 1 次';
-    plan.negativePatch = 'malformed hands, extra fingers, fused fingers, broken hands, distorted anatomy';
-    return plan;
-  }
-  if(issueTextHasAny(text, ['臉部', '臉', 'face', 'facial'])){
-    plan.action = 'auto_retry';
-    plan.reason = text || '視覺 QA 偵測到臉部錯誤';
-    plan.message = '視覺 QA 偵測到臉部問題，已加強臉部清晰度與 negative prompt 並自動重試最多 1 次';
-    plan.negativePatch = 'deformed face, asymmetrical eyes, distorted facial features, blurry face';
-    return plan;
-  }
-  if(issueTextHasAny(text, ['嚴重模糊', '模糊', 'blur', 'low quality'])){
-    plan.action = 'auto_retry';
-    plan.reason = text || '視覺 QA 偵測到畫面模糊';
-    plan.message = '視覺 QA 偵測到畫面模糊，已加強清晰度並自動重試最多 1 次';
-    plan.negativePatch = 'blurry, low resolution, soft focus, compression artifacts';
-    return plan;
-  }
-  if(issueTextHasAny(text, ['主體缺失', '主體不明', 'missing subject', 'subject missing'])){
-    plan.action = 'auto_retry';
-    plan.reason = text || '視覺 QA 偵測到主體缺失';
-    plan.message = '視覺 QA 偵測到主體缺失，已要求主體完整可見並自動重試最多 1 次';
-    plan.negativePatch = 'cropped subject, missing main subject, hidden subject, broken composition';
-    return plan;
-  }
-  if(report.visionQa && report.visionQa.recommendation === 'retry'){
-    plan.action = 'auto_retry';
-    plan.reason = report.visionQa.reason || text || '視覺 QA 建議重試';
-    plan.message = '視覺 QA 建議重試，智慧體會自動重試最多 1 次，避免成本失控';
-    plan.negativePatch = 'broken layout, low quality, artifacts, watermark';
-    return plan;
-  }
-  return plan;
-}
-function createAutoRetryPlan(report, analysis){
-  var plan = {
-    maxRetries: 1,
-    attempted: false,
-    reason: '',
-    action: 'none',
-    message: '未觸發自動重試',
-    negativePatch: ''
-  };
-  var classified;
-  if(!report){ return plan; }
-  classified = classifyQaRetry(report);
-  if(classified.action){
-    plan.action = classified.action;
-    plan.reason = classified.reason;
-    plan.message = classified.message;
-    plan.negativePatch = classified.negativePatch;
-    return plan;
-  }
-  if(report.recommendation === 'retry' || isSevereQaFailure(report)){
-    plan.action = 'auto_retry';
-    plan.reason = report.detectedIssues && report.detectedIssues.length ? report.detectedIssues.join('；') : 'QA 分數偏低';
-    plan.message = '偵測到嚴重品質問題，智慧體會自動重試最多 1 次，避免成本失控';
-    plan.negativePatch = 'low quality, broken layout, malformed hands, malformed faces, missing subject';
-    return plan;
-  }
-  if(hasAgentRisk(analysis, '手部')){
-    plan.action = 'prompt_patch';
-    plan.reason = '手部細節風險';
-    plan.message = '已建議加強 negative prompt，再生時可降低手部錯誤';
-    plan.negativePatch = 'malformed hands, extra fingers, fused fingers';
-  }
-  return plan;
-}
-function buildAgentSuggestions(analysis, report){
-  var suggestions = [];
-  var useCase = analysis && analysis.useCase ? analysis.useCase : 'general';
-  suggestions.push({ id: 'brighter', label: '讓背景更亮' });
-  if(analysis && analysis.style !== 'anime'){ suggestions.push({ id: 'anime', label: '改成動漫風' }); }
-  suggestions.push({ id: 'variation', label: '保留構圖再變化' });
-  if(useCase !== 'ppt'){ suggestions.push({ id: 'ppt', label: '換成 PPT 橫式' }); }
-  if(report && typeof report.textAccuracyScore === 'number'){ suggestions.push({ id: 'remove_text', label: '移除文字' }); }
-  if(useCase === 'product'){ suggestions.push({ id: 'product_light', label: '加強產品光影' }); }
-  while(suggestions.length < 3){ suggestions.push({ id: 'realistic', label: '變得更寫實' }); }
-  return suggestions.slice(0, 5);
-}
-function applyAgentSuggestion(id){
-  var plain = el('plainPrompt');
-  var style = el('promptStyle');
-  var useCase = el('useCase');
-  var size = el('size');
-  var avoid = el('avoid');
-  var current = plain ? plain.value.trim() : '';
-  if(id === 'brighter' && plain){ plain.value = current + '，背景更明亮，柔和自然光，主體清楚'; }
-  if(id === 'anime'){ if(style){ style.value = 'anime'; } if(plain){ plain.value = current + '，動漫插畫風格，乾淨線條，鮮明色彩'; } }
-  if(id === 'realistic'){ if(style){ style.value = 'realistic'; } if(plain){ plain.value = current + '，寫實攝影風格，自然光影，細節清晰'; } }
-  if(id === 'variation'){
-    if(lastGeneration && isConcreteSeed(lastGeneration.seed)){ lockCompositionSeed(lastGeneration.seed); }
-    if(plain){ plain.value = current + '，保留構圖，產生新的細節變化'; }
-  }
-  if(id === 'ppt'){ if(useCase){ useCase.value = 'ppt'; } if(size){ size.value = 'ppt_16_9'; } if(plain){ plain.value = current + '，適合簡報封面，留白充足，16:9 橫式構圖'; } }
-  if(id === 'remove_text'){ if(plain){ plain.value = current + '，畫面不要出現任何文字、標語或 Logo'; } if(avoid){ avoid.value = (avoid.value ? avoid.value + ', ' : '') + 'text, logo, watermark, gibberish'; } }
-  if(id === 'product_light'){ if(style){ style.value = 'product'; } if(useCase){ useCase.value = 'product'; } if(plain){ plain.value = current + '，產品攝影棚光，乾淨背景，細緻反光，高級商業攝影'; } }
-  if(el('prompt')){
-    el('prompt').value = '';
-    el('prompt').removeAttribute('data-auto-source');
-  }
-  updateMobileGenerateSummary();
-  setGenerationState('idle');
-  setStatus('已套用智慧體建議，可再次按生成圖片', 'done');
-}
-function renderAgentOutcome(outcome){
-  var box = el('agentRecommendation');
-  var text;
-  var retryText;
-  var suggestions;
-  var p;
-  var retry;
-  var actions;
-  var i;
-  if(!box){ return; }
-  clearNode(box);
-  if(!outcome){ return; }
-  text = outcome.text || '';
-  p = document.createElement('p');
-  p.textContent = text;
-  box.appendChild(p);
-  if(outcome.retryPlan && outcome.retryPlan.action !== 'none'){
-    retry = document.createElement('p');
-    retry.className = 'agent-retry-note';
-    retryText = outcome.retryPlan.message || '';
-    retry.textContent = retryText;
-    box.appendChild(retry);
-  }
-  suggestions = outcome.suggestions || [];
-  if(suggestions.length){
-    actions = document.createElement('div');
-    actions.className = 'agent-next-actions';
-    for(i = 0; i < suggestions.length; i += 1){
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'btn mini secondary';
-      btn.setAttribute('data-agent-suggestion', suggestions[i].id);
-      btn.textContent = suggestions[i].label;
-      actions.appendChild(btn);
-    }
-    box.appendChild(actions);
-  }
-}
-function includesAny(text, words){
-  var i;
-  for(i = 0; i < words.length; i += 1){
-    if(text.indexOf(words[i]) !== -1){ return true; }
-  }
-  return false;
-}
-function detectUseCaseFromPrompt(text, selected){
-  if(selected && selected !== 'auto'){ return selected; }
-  if(includesAny(text, ['ppt', '簡報', '投影片'])){ return 'ppt'; }
-  if(includesAny(text, ['ig', '貼文', '社群'])){ return 'social'; }
-  if(includesAny(text, ['限動', 'reels', 'shorts', '短影音'])){ return 'story'; }
-  if(includesAny(text, ['海報', 'poster'])){ return 'poster'; }
-  if(includesAny(text, ['桌布', '手機'])){ return 'wallpaper'; }
-  if(includesAny(text, ['封面', '縮圖', 'youtube'])){ return 'thumbnail'; }
-  if(includesAny(text, ['產品', '商品', '白底'])){ return 'product'; }
-  if(includesAny(text, ['角色', '人物設定', '立繪'])){ return 'character'; }
-  return 'general';
-}
 function sizeForUseCase(useCase){
   if(useCase === 'ppt'){ return 'ppt_16_9'; }
   if(useCase === 'thumbnail'){ return 'youtube_thumb'; }
@@ -941,100 +446,13 @@ function sizeForUseCase(useCase){
   if(useCase === 'hero'){ return 'hero_21_9'; }
   return 'ig_post';
 }
-function detectStyleFromPrompt(text, selected){
-  if(selected && selected !== 'auto'){ return selected; }
-  if(includesAny(text, ['動漫', '動畫', '二次元', '漫畫'])){ return 'anime'; }
-  if(includesAny(text, ['產品', '商品', '白底', '攝影棚'])){ return 'product'; }
-  if(includesAny(text, ['寫實', '真實', '照片', '攝影'])){ return 'realistic'; }
-  if(includesAny(text, ['電影', '電影感', '鏡頭', 'cinematic'])){ return 'cinematic'; }
-  if(includesAny(text, ['可愛', '療癒', '吉祥物'])){ return 'cute'; }
-  return 'auto';
-}
-function modelForIntent(useCase, style){
-  if(useCase === 'product' || useCase === 'character' || style === 'realistic'){ return 'dev'; }
-  return 'schnell';
-}
-function extractSubject(text){
-  var cleaned = text.replace(/[，。,.！!？?：:；;]/g, ' ').replace(/\s+/g, ' ').trim();
-  if(!cleaned){ return ''; }
-  return cleaned.slice(0, 36);
-}
-function analyzeIntentForAgent(){
-  var plain = el('plainPrompt') ? el('plainPrompt').value.trim() : '';
-  var lowered = plain.toLowerCase();
-  var selectedStyle = el('promptStyle') ? el('promptStyle').value : 'auto';
-  var selectedUseCase = el('useCase') ? el('useCase').value : 'auto';
-  var useCase = detectUseCaseFromPrompt(lowered, selectedUseCase);
-  var style = detectStyleFromPrompt(lowered, selectedStyle);
-  var missing = [];
-  var risks = [];
-  if(plain.length < 8){ missing.push('場景或風格'); }
-  if(!includesAny(lowered, ['在', '背景', '場景', '室內', '戶外', '月球', '城市', '森林', '海邊'])){ missing.push('場景'); }
-  if(includesAny(lowered, ['文字', '標語', 'logo', '字', '海報字'])){ risks.push('模型可能產生文字亂碼，建議後製加字'); }
-  if(includesAny(lowered, ['手', '手指', '彈吉他', '拿著'])){ risks.push('手部細節可能需要多張挑選'); }
-  return {
-    subject: extractSubject(plain),
-    style: style,
-    useCase: useCase,
-    size: sizeForUseCase(useCase),
-    model: modelForIntent(useCase, style),
-    missingFields: missing,
-    riskFlags: risks
-  };
-}
-function applyAgentSelection(analysis){
-  var style = el('promptStyle');
+function applyUseCaseSize(){
   var useCase = el('useCase');
   var size = el('size');
-  var model = el('model');
-  if(style && style.value === 'auto' && analysis.style !== 'auto'){ style.value = analysis.style; }
-  if(useCase && useCase.value === 'auto' && analysis.useCase !== 'general'){ useCase.value = analysis.useCase; }
-  if(size){ size.value = analysis.size; }
-  if(model){ model.value = analysis.model; }
-  updateMobileGenerateSummary();
-}
-function describeAgentRecommendation(analysis){
-  var sizeLabel = selectedOptionText('size', analysis.size);
-  var modelLabel = selectedOptionText('model', analysis.model);
-  var batchCount = readBatchCount();
-  var warnings = analysis.riskFlags.length ? ' 注意：' + analysis.riskFlags.join('；') : '';
-  var missing = analysis.missingFields.length ? ' 建議補充：' + analysis.missingFields.join('、') + '。' : '';
-  return '已解析主體：「' + (analysis.subject || '未明確指定') + '」。推薦 ' + modelLabel + '、' + sizeLabel + '，依你選擇生成 ' + batchCount + ' 張。' + missing + warnings;
-}
-function prepareAgentFlow(){
-  var source = el('plainPrompt') ? el('plainPrompt').value.trim() : '';
-  var hasProviderPrompt = !!(el('prompt') && el('prompt').value.trim());
-  setAgentPanelVisible(true);
-  resetAgentSteps();
-  setAgentSummary('解析中文需求中');
-  setAgentStep('parse', 'running', '讀取中文描述');
-  agentAnalysis = analyzeIntentForAgent();
-  setAgentStep('parse', 'success', agentAnalysis.subject ? '主體：' + agentAnalysis.subject : '尚未明確指定主體');
-  if(hasProviderPrompt){
-    setAgentStep('complete', 'success', '使用已編輯的英文提示詞');
-  }else if(agentAnalysis.missingFields.length){
-    setAgentStep('complete', 'running', '生成前將補足視覺細節');
-  }else{
-    setAgentStep('complete', 'success', '需求已足夠');
-  }
-  setAgentStep('select', 'running', '推薦模型與尺寸');
-  applyAgentSelection(agentAnalysis);
-  setAgentStep('select', 'success', '模型與尺寸已套用');
-  setAgentRecommendation(describeAgentRecommendation(agentAnalysis));
-  setAgentSummary(source ? '已完成需求解析' : '請先輸入中文需求');
-}
-function syncGenerationModeUi(){
-  generationMode = getGenerationMode();
-  if(generationMode === 'agent'){
-    setAgentPanelVisible(true);
-    if(!agentSteps.length){ resetAgentSteps(); }
-    setAgentSummary('智慧體模式待命');
-    if(el('batchCount') && el('batchCount').value === '1'){ el('batchCount').value = '4'; }
-  }else{
-    setAgentPanelVisible(false);
-    if(el('batchCount') && el('batchCount').value === '4'){ el('batchCount').value = '1'; }
-  }
-  updateMobileGenerateSummary();
+  if(!useCase || !size || useCase.value === 'auto'){ return; }
+  size.value = sizeForUseCase(useCase.value);
+  updateCustomSizeVisibility();
+  if(!generationInFlight){ setGenerationState('idle'); }
 }
 function enableDownload(on){
   var dl = el('dl');
@@ -1649,27 +1067,15 @@ function renderBatchResults(stage, images, base){
   var mainImageWrap;
   var mainImage;
   var mainMeta;
-  var mainBadge;
-  var mainQa;
   var mainActions;
   var mainSeed;
   var mainLock;
   var mainDownload;
   var thumbButtons = [];
   var records = [];
-  var qaReports = [];
-  var bestIndex = -1;
-  var bestReport = null;
-  var retryPlan = null;
-  var suggestions = [];
-  var outcome = null;
-  var isAgent = isAgentMode();
-  var i;
   function selectImage(index){
     var item = images[index];
     var image = validateImageUrl(item.image);
-    var qaReport = isAgent ? qaReports[index] : null;
-    var qaScore;
     var fallback = getSizeDimensions(base.size);
     var j;
     lastGeneration = shallowClone(records[index]);
@@ -1685,19 +1091,6 @@ function renderBatchResults(stage, images, base){
         setStatus('已鎖定構圖（種子碼 ' + item.seed + '），改描述後生成就能微調', 'done');
       }
     };
-    mainBadge.hidden = !(isAgent && index === bestIndex);
-    clearNode(mainQa);
-    if(qaReport){
-      qaScore = qaAverage(qaReport);
-      mainQa.hidden = false;
-      mainQa.textContent = 'QA ' + qaScore + '/100 · ' + qaReport.reason;
-      if(qaReport.detectedIssues && qaReport.detectedIssues.length){
-        mainQa.textContent += ' 問題：' + qaReport.detectedIssues.join('；');
-      }
-      appendQaDetails(mainQa, qaReport);
-    }else{
-      mainQa.hidden = true;
-    }
     for(j = 0; j < thumbButtons.length; j += 1){
       thumbButtons[j].setAttribute('aria-pressed', j === index ? 'true' : 'false');
     }
@@ -1710,36 +1103,6 @@ function renderBatchResults(stage, images, base){
     renderStageText(stage, '沒有產生任何圖片', 'err');
     return null;
   }
-  if(isAgent){
-    for(i = 0; i < images.length; i += 1){
-      qaReports.push(createQaReport('variation-' + String(i + 1), i, images.length, base, images[i], agentAnalysis));
-    }
-    bestIndex = pickBestQaIndex(qaReports);
-    if(bestIndex < 0){ bestIndex = 0; }
-    for(i = 0; i < qaReports.length; i += 1){
-      if(i === bestIndex){
-        if(qaReports[i].recommendation !== 'retry' && !isSevereQaFailure(qaReports[i])){
-          qaReports[i].recommendation = 'keep';
-          qaReports[i].reason = '主體完整、構圖清楚，綜合分數最高，最適合作為本輪首選。';
-        }else{
-          qaReports[i].reason = '本輪最佳圖仍有嚴重品質問題，智慧體會自動重試一次。';
-        }
-      }else if(qaReports[i].recommendation === 'keep'){
-        qaReports[i].recommendation = 'edit';
-        qaReports[i].reason = '可作為變體候選，但綜合分數略低於推薦圖。';
-      }
-    }
-    bestReport = qaReports[bestIndex];
-    retryPlan = createAutoRetryPlan(bestReport, agentAnalysis);
-    suggestions = buildAgentSuggestions(agentAnalysis, bestReport);
-    outcome = {
-      bestIndex: bestIndex,
-      bestReport: bestReport,
-      retryPlan: retryPlan,
-      suggestions: suggestions,
-      text: '推薦最佳圖：第 ' + String(bestIndex + 1) + ' 張。原因：' + bestReport.reason + ' QA 綜合分數 ' + qaAverage(bestReport) + '/100。'
-    };
-  }
   viewer = document.createElement('div');
   viewer.className = 'batch-viewer';
   mainFrame = document.createElement('div');
@@ -1751,13 +1114,6 @@ function renderBatchResults(stage, images, base){
   mainImageWrap.appendChild(mainImage);
   mainMeta = document.createElement('div');
   mainMeta.className = 'batch-main-meta';
-  mainBadge = document.createElement('span');
-  mainBadge.className = 'batch-best-badge';
-  mainBadge.textContent = '推薦最佳圖';
-  mainBadge.hidden = true;
-  mainQa = document.createElement('div');
-  mainQa.className = 'batch-qa';
-  mainQa.hidden = true;
   mainActions = document.createElement('div');
   mainActions.className = 'batch-card-actions';
   mainSeed = document.createElement('span');
@@ -1772,8 +1128,6 @@ function renderBatchResults(stage, images, base){
   mainActions.appendChild(mainSeed);
   mainActions.appendChild(mainLock);
   mainActions.appendChild(mainDownload);
-  mainMeta.appendChild(mainBadge);
-  mainMeta.appendChild(mainQa);
   mainMeta.appendChild(mainActions);
   mainFrame.appendChild(mainImageWrap);
   mainFrame.appendChild(mainMeta);
@@ -1789,10 +1143,9 @@ function renderBatchResults(stage, images, base){
     var img = document.createElement('img');
     var label = document.createElement('span');
     var fallback = getSizeDimensions(base.size);
-    var qaReport = isAgent ? qaReports[index] : null;
     var record;
 
-    card.className = 'batch-card' + (isAgent && index === bestIndex ? ' is-recommended' : '');
+    card.className = 'batch-card';
     card.setAttribute('role', 'listitem');
     thumb.type = 'button';
     thumb.className = 'batch-thumb';
@@ -1802,7 +1155,7 @@ function renderBatchResults(stage, images, base){
     img.alt = '生成圖片變體第 ' + String(index + 1) + ' 張';
     img.loading = 'lazy';
     label.className = 'batch-thumb-label';
-    label.textContent = '第 ' + String(index + 1) + ' 張' + (isAgent && index === bestIndex ? ' · 推薦' : '');
+    label.textContent = '第 ' + String(index + 1) + ' 張';
     thumb.appendChild(img);
     thumb.appendChild(label);
     thumb.addEventListener('click', function(){
@@ -1825,12 +1178,7 @@ function renderBatchResults(stage, images, base){
       height: typeof item.height === 'number' ? item.height : fallback.height,
       provider: typeof item.provider === 'string' ? item.provider : '',
       sourceRecordId: '',
-      mode: isAgent ? 'agent' : 'normal',
-      qaReport: isAgent ? qaReport : null,
-      recommended: isAgent && index === bestIndex,
-      agentRecommendation: isAgent ? outcome.text : '',
-      autoRetry: isAgent ? retryPlan : null,
-      nextSuggestions: isAgent ? suggestions : []
+      mode: 'normal'
     };
     records.push(record);
     document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: shallowClone(record) }));
@@ -1839,134 +1187,8 @@ function renderBatchResults(stage, images, base){
   viewer.appendChild(grid);
   stage.appendChild(createMobileSaveHint());
   stage.appendChild(viewer);
-  selectImage(isAgent && bestIndex >= 0 ? bestIndex : 0);
-  if(isAgent){ renderAgentOutcome(outcome); }
-  return outcome;
-}
-
-function buildAgentAutoRetryPrompt(providerPrompt, retryPlan){
-  var reason = retryPlan && retryPlan.reason ? retryPlan.reason : 'QA 分數偏低';
-  var negativePatch = retryPlan && retryPlan.negativePatch ? retryPlan.negativePatch : 'blur, watermark, malformed hands, malformed faces, gibberish text, broken layout';
-  return providerPrompt + '\n\nQuality correction retry: fix these issues: ' + reason + '. Generate a complete, sharp, valid image that matches the requested composition, keeps the main subject visible. Negative focus: ' + negativePatch + '. Avoid blur, watermark, malformed hands, malformed faces, gibberish text, and broken layout.';
-}
-
-function runAgentAutoRetry(settings, providerPrompt, prompt, model, size, retryPlan){
-  if(!retryPlan || retryPlan.action !== 'auto_retry' || retryPlan.attempted){ return Promise.resolve(null); }
-  retryPlan.attempted = true;
-  retryPlan.message = '已觸發自動重試一次：' + (retryPlan.reason || 'QA 分數偏低');
-  return fetch('/generate', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({
-      prompt: buildAgentAutoRetryPrompt(providerPrompt, retryPlan),
-      userPrompt: prompt,
-      model: model,
-      size: size,
-      width: settings.width,
-      height: settings.height,
-      seed: 0,
-      visionQa: true,
-      turnstileToken: readTurnstileToken()
-    })
-  }).then(function(response){
-    return response.json().then(function(data){
-      if(!response.ok){
-        throw new Error(data && data.error ? data.error : ('HTTP ' + response.status));
-      }
-      return data;
-    });
-  });
-}
-
-function appendAgentAutoRetryResult(stage, item, base, retryPlan){
-  var grid = stage ? stage.querySelector('.batch-grid') : null;
-  var image;
-  var card;
-  var img;
-  var badge;
-  var qaBox;
-  var qaReport;
-  var qaScore;
-  var actions;
-  var seedTag;
-  var dlLink;
-  var fallback;
-  var suggestions;
-  var outcome;
-  if(!grid || !item){ return null; }
-  image = validateImageUrl(item.image);
-  fallback = getSizeDimensions(base.size);
-  qaReport = createQaReport('auto-retry-1', grid.children.length, grid.children.length + 1, base, item, agentAnalysis);
-  if(!isSevereQaFailure(qaReport) && qaReport.recommendation !== 'retry'){
-    qaReport.recommendation = 'keep';
-    qaReport.reason = '已自動修正一次，圖片格式與尺寸檢查達可用標準。';
-  }
-  card = document.createElement('div');
-  card.className = 'batch-card is-auto-retry';
-  card.setAttribute('role', 'listitem');
-  badge = document.createElement('div');
-  badge.className = 'batch-best-badge';
-  badge.textContent = '已自動修正一次';
-  card.appendChild(badge);
-  img = document.createElement('img');
-  img.src = image;
-  img.alt = '智慧體自動重試後的圖片';
-  img.loading = 'lazy';
-  card.appendChild(img);
-  qaScore = qaAverage(qaReport);
-  qaBox = document.createElement('div');
-  qaBox.className = 'batch-qa';
-  qaBox.textContent = 'QA ' + qaScore + '/100 · ' + qaReport.reason;
-  if(qaReport.detectedIssues && qaReport.detectedIssues.length){
-    qaBox.textContent += ' 問題：' + qaReport.detectedIssues.join('；');
-  }
-  appendQaDetails(qaBox, qaReport);
-  card.appendChild(qaBox);
-  seedTag = document.createElement('span');
-  seedTag.className = 'batch-seed';
-  seedTag.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
-  dlLink = document.createElement('a');
-  dlLink.className = 'btn mini secondary';
-  dlLink.textContent = '⬇ 下載';
-  dlLink.href = image;
-  dlLink.download = slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image);
-  actions = document.createElement('div');
-  actions.className = 'batch-card-actions';
-  actions.appendChild(seedTag);
-  actions.appendChild(dlLink);
-  card.appendChild(actions);
-  grid.appendChild(card);
-  suggestions = buildAgentSuggestions(agentAnalysis, qaReport);
-  retryPlan.message = '已自動修正一次：' + qaReport.reason;
-  outcome = {
-    bestIndex: grid.children.length - 1,
-    bestReport: qaReport,
-    retryPlan: retryPlan,
-    suggestions: suggestions,
-    text: '已自動修正一次。最新候選圖 QA 綜合分數 ' + qaScore + '/100。原因：' + qaReport.reason
-  };
-  renderAgentOutcome(outcome);
-  document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: {
-    image: image,
-    thumbnail: image,
-    prompt: base.prompt,
-    providerPrompt: base.providerPrompt,
-    avoid: base.avoid,
-    model: typeof item.model === 'string' ? item.model : 'schnell',
-    size: base.size,
-    seed: typeof item.seed === 'number' ? item.seed : 0,
-    width: typeof item.width === 'number' ? item.width : fallback.width,
-    height: typeof item.height === 'number' ? item.height : fallback.height,
-    provider: typeof item.provider === 'string' ? item.provider : '',
-    sourceRecordId: '',
-    mode: 'agent',
-    qaReport: qaReport,
-    recommended: qaReport.recommendation === 'keep',
-    agentRecommendation: outcome.text,
-    autoRetry: retryPlan,
-    nextSuggestions: suggestions
-  }}));
-  return qaReport;
+  selectImage(0);
+  return records;
 }
 
 function compileProviderPromptIfNeeded(settings){
@@ -1979,13 +1201,11 @@ function compileProviderPromptIfNeeded(settings){
   var requestBody;
 
   if(existingProviderPrompt || !source){
-    if(isAgentMode()){ setAgentStep('prompt', 'success', existingProviderPrompt ? '使用進階區 prompt' : '沿用原始描述'); }
     return Promise.resolve(settings);
   }
 
   setGenerationState('compiling_prompt');
   setStatus('正在整理提示詞', 'busy');
-  if(isAgentMode()){ setAgentStep('prompt', 'running', '中文轉 FLUX provider prompt'); }
   requestBody = JSON.stringify({ source: source, style: style });
 
   return fetch('/prompt/transform', {
@@ -2006,10 +1226,6 @@ function compileProviderPromptIfNeeded(settings){
       }
       settings.providerPrompt = GenerationSettings.buildProviderPrompt(data.prompt, settings.avoid);
       settings.prompt = source;
-      if(isAgentMode()){
-        setAgentStep('complete', 'success', '已依風格補足視覺細節');
-        setAgentStep('prompt', 'success', '已產生 provider prompt');
-      }
       return settings;
     });
   });
@@ -2038,10 +1254,6 @@ function generate(options){
   var flowStartedAt = typeof opts.startedAt === 'number' ? opts.startedAt : performance.now();
   enableDownload(false);
   setResultActionsVisible(false);
-  generationMode = getGenerationMode();
-  if(generationMode === 'agent' && !opts.skipAgentPrepare){
-    prepareAgentFlow();
-  }
 
   try{
     settings = readGenerationSettings();
@@ -2080,7 +1292,7 @@ function generate(options){
     return compileProviderPromptIfNeeded(settings).then(function(){
       compileTimer.stop();
       generationInFlight = false;
-      return generate({ skipAgentPrepare: true, startedAt: flowStartedAt, triggerButton: triggerButton });
+      return generate({ startedAt: flowStartedAt, triggerButton: triggerButton });
     }, function(error){
       var compileSeconds = compileTimer.stop();
       generationInFlight = false;
@@ -2089,10 +1301,6 @@ function generate(options){
       renderStageText(stage, '提示詞整理失敗：' + error.message, 'err');
       setStatus('❌ 提示詞整理失敗（耗時 ' + compileSeconds + ' 秒）：' + error.message, 'fail');
       setGenerationState('error');
-      if(isAgentMode()){
-        setAgentStep('complete', 'error', error.message);
-        setAgentStep('prompt', 'error', error.message);
-      }
     });
   }
 
@@ -2105,7 +1313,6 @@ function generate(options){
   generationInFlight = true;
   setFieldInvalid(el('plainPrompt'), '');
   setGenerationState('generating');
-  if(generationMode === 'agent'){ setAgentStep('generate', 'running', '呼叫出圖服務'); }
   stage.classList.remove('has-failure-advice');
   stage.classList.remove('has-batch-results');
   stage.classList.remove('has-mobile-save');
@@ -2149,7 +1356,6 @@ function generate(options){
     if(triggerButton && typeof triggerButton.focus === 'function'){
       try{ triggerButton.focus({ preventScroll: true }); }catch(focusError){ triggerButton.focus(); }
     }
-    if(isAgentMode()){ setAgentStep('generate', 'error', message); }
   }
 
   function handleGenerateError(err){
@@ -2172,7 +1378,6 @@ function generate(options){
         height: settings.height,
         seed: settings.seed,
         count: batchCount,
-        visionQa: generationMode === 'agent',
         turnstileToken: readTurnstileToken()
       })
     }).then(function(response){
@@ -2182,7 +1387,6 @@ function generate(options){
         var batchErrors;
         var batchSummary;
         var note;
-        var batchOutcome;
         if(!response.ok){
           showGenerateFailure(generationErrorFromResponse(response, data), 'generate_batch_backend');
           return;
@@ -2196,37 +1400,13 @@ function generate(options){
           return;
         }
         batchSummary = '已生成 ' + images.length + ' 張' + (batchErrors.length ? '，' + batchErrors.length + ' 張失敗' : '');
-        batchOutcome = renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size });
+        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size });
         revealResultStage(true);
         setResultActionsVisible(false);
         pendingSourceRecordId = '';
         note = providerNoteFor(images[0] && images[0].provider);
         setGenerationState('success');
-        if(isAgentMode()){
-          setAgentStep('generate', 'success', batchSummary);
-          setAgentStep('qa', 'success', '已建立每張圖的 QAReport');
-          setAgentStep('recommend', 'success', batchOutcome && typeof batchOutcome.bestIndex === 'number' ? '推薦最佳圖：第 ' + String(batchOutcome.bestIndex + 1) + ' 張' : '推薦保留此圖');
-          setAgentStep('suggest', 'success', '已產生下一步修改建議');
-          setAgentSummary('智慧體流程完成');
-        }
         setStatus('✅ ' + batchSummary + '，耗時 ' + secs + ' 秒 ' + note, 'done');
-        if(isAgentMode() && batchOutcome && batchOutcome.retryPlan && batchOutcome.retryPlan.action === 'auto_retry'){
-          setAgentStep('qa', 'running', '偵測到嚴重品質問題，正在自動重試一次');
-          setStatus('偵測到嚴重品質問題，智慧體自動重試一次', 'busy');
-          return runAgentAutoRetry(settings, providerPrompt, prompt, model, size, batchOutcome.retryPlan).then(function(retryData){
-            var retryReport = appendAgentAutoRetryResult(stage, retryData, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size }, batchOutcome.retryPlan);
-            setAgentStep('qa', 'success', '已自動修正一次並保存 QAReport');
-            setAgentStep('recommend', 'success', retryReport && retryReport.recommendation === 'keep' ? '自動重試結果可保留' : '自動重試後仍建議人工挑選');
-            setAgentSummary('智慧體流程完成，已自動修正一次');
-            setStatus('✅ ' + batchSummary + '，並已自動修正一次 ' + note, 'done');
-          }, function(retryError){
-            reportClientError(retryError, { type: 'agent_auto_retry' });
-            batchOutcome.retryPlan.message = '自動重試失敗：' + retryError.message;
-            renderAgentOutcome(batchOutcome);
-            setAgentStep('qa', 'success', '已建立 QAReport；自動重試失敗');
-            setStatus('✅ ' + batchSummary + '；自動重試失敗：' + retryError.message, 'done');
-          });
-        }
       });
     }).then(function(result){
       cleanupGenerate();
@@ -2247,7 +1427,6 @@ function generate(options){
       width: settings.width,
       height: settings.height,
       seed: settings.seed,
-      visionQa: generationMode === 'agent',
       turnstileToken: readTurnstileToken()
     })
   }).then(function(response){
@@ -2258,11 +1437,6 @@ function generate(options){
       var fallbackDimensions;
       var generatedRecord;
       var providerNote;
-      var qaReport;
-      var retryPlan;
-      var suggestions;
-      var singleOutcome;
-      var qaBox;
 
       if(!response.ok){
         showGenerateFailure(generationErrorFromResponse(response, data), 'generate_backend');
@@ -2283,19 +1457,6 @@ function generate(options){
       stage.appendChild(img);
       stage.appendChild(createMobileSaveHint());
       revealResultStage(true);
-      qaReport = generationMode === 'agent' ? createQaReport('single-result', 0, 1, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size }, data, agentAnalysis) : null;
-      if(qaReport){
-        qaReport.recommendation = qaReport.recommendation === 'retry' ? 'retry' : 'keep';
-        if(qaReport.recommendation === 'keep'){ qaReport.reason = '單張生成完成，主體與畫面設定達可用標準。'; }
-        qaBox = document.createElement('div');
-        qaBox.className = 'single-qa';
-        qaBox.textContent = 'QA ' + qaAverage(qaReport) + '/100 · ' + qaReport.reason;
-        if(qaReport.detectedIssues && qaReport.detectedIssues.length){
-          qaBox.textContent += ' 問題：' + qaReport.detectedIssues.join('；');
-        }
-        appendQaDetails(qaBox, qaReport);
-        stage.appendChild(qaBox);
-      }
       dl.href = image;
       dl.download = slugify(prompt) + '_' + timestamp() + extensionFromImageData(image);
       enableDownload(true);
@@ -2314,12 +1475,7 @@ function generate(options){
         height: typeof data.height === 'number' ? data.height : fallbackDimensions.height,
         provider: typeof data.provider === 'string' ? data.provider : '',
         sourceRecordId: pendingSourceRecordId,
-        mode: generationMode === 'agent' ? 'agent' : 'normal',
-        qaReport: generationMode === 'agent' ? qaReport : null,
-        recommended: generationMode === 'agent',
-        agentRecommendation: generationMode === 'agent' && qaReport ? '推薦保留此圖。原因：' + qaReport.reason + ' QA 綜合分數 ' + qaAverage(qaReport) + '/100。' : '',
-        autoRetry: generationMode === 'agent' && qaReport ? createAutoRetryPlan(qaReport, agentAnalysis) : null,
-        nextSuggestions: generationMode === 'agent' && qaReport ? buildAgentSuggestions(agentAnalysis, qaReport) : []
+        mode: 'normal'
       };
       lastGeneration = shallowClone(generatedRecord);
       if(el('seed') && isConcreteSeed(generatedRecord.seed)){
@@ -2331,23 +1487,6 @@ function generate(options){
       pendingSourceRecordId = '';
       providerNote = providerNoteFor(generatedRecord.provider);
       setGenerationState('success');
-      if(isAgentMode()){
-        retryPlan = generatedRecord.autoRetry;
-        suggestions = generatedRecord.nextSuggestions;
-        singleOutcome = {
-          bestIndex: 0,
-          bestReport: qaReport,
-          retryPlan: retryPlan,
-          suggestions: suggestions,
-          text: generatedRecord.agentRecommendation
-        };
-        renderAgentOutcome(singleOutcome);
-        setAgentStep('generate', 'success', '已生成 1 張');
-        setAgentStep('qa', 'success', '圖片格式有效，已保存 QAReport');
-        setAgentStep('recommend', 'success', qaReport && qaReport.recommendation === 'retry' ? '建議重試或修改' : '推薦保留此圖');
-        setAgentStep('suggest', 'success', '已產生下一步修改建議');
-        setAgentSummary('智慧體流程完成');
-      }
       setStatus('✅ 完成，耗時 ' + secs + ' 秒 ' + providerNote, 'done');
     });
   }).then(function(result){
@@ -2434,7 +1573,6 @@ window.ImageGenApp = {
   lockCompositionFromRecord: lockCompositionFromRecord,
   copyText: copyText,
   setStatus: setStatus,
-  prepareAgentFlow: prepareAgentFlow,
   refreshProvider: refreshProvider,
   getProviderHealth: getProviderHealth,
   el: el
@@ -2576,7 +1714,6 @@ document.addEventListener('DOMContentLoaded', function(){
   registerServiceWorker();
   initGenerationWorkspace();
   setGenerationState('idle');
-  syncGenerationModeUi();
   refreshProvider();
   el('go').addEventListener('click', generate);
   if(el('mobileGenerate')){ el('mobileGenerate').addEventListener('click', generate); }
@@ -2613,27 +1750,13 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
   if(el('prompt')){ el('prompt').addEventListener('input', function(){ setFieldInvalid(el('prompt'), ''); if(!generationInFlight){ setGenerationState('idle'); } }); }
-  if(el('modeNormal')){ el('modeNormal').addEventListener('change', syncGenerationModeUi); }
-  if(el('modeAgent')){ el('modeAgent').addEventListener('change', syncGenerationModeUi); }
-  if(el('agentRecommendation')){
-    el('agentRecommendation').addEventListener('click', function(event){
-      var target = event.target;
-      var suggestion = '';
-      while(target && target !== el('agentRecommendation')){
-        if(target.getAttribute){
-          suggestion = target.getAttribute('data-agent-suggestion') || '';
-          if(suggestion){ break; }
-        }
-        target = target.parentNode;
-      }
-      if(suggestion){
-        event.preventDefault();
-        applyAgentSuggestion(suggestion);
-      }
+  updateMobileGenerateSummary();
+  if(el('useCase')){
+    el('useCase').addEventListener('change', function(){
+      applyUseCaseSize();
+      updateMobileGenerateSummary();
     });
   }
-  updateMobileGenerateSummary();
-  if(el('useCase')){ el('useCase').addEventListener('change', updateMobileGenerateSummary); }
   if(el('promptStyle')){
     el('promptStyle').addEventListener('change', function(){
       clearAutoProviderPrompt();

@@ -52,25 +52,25 @@
 | TASK-013 用途尺寸 Presets | 已覆蓋 | `generation-settings.js`、FastAPI / Worker `SIZE_MAP`、自訂尺寸測試 | 特殊 provider 尺寸限制需實測。 |
 | TASK-014 用途自動選擇 | 已覆蓋 | `inferUseCaseFromPrompt` / `sizePresetForUseCase`、靜態與前端測試 | 中文語句變體需持續擴充。 |
 
-## Milestone 5：真正智慧體模式
+## Milestone 5：單一路徑生成
 
 | Task | 狀態 | 覆蓋證據 | 剩餘風險 |
 |---|---|---|---|
-| TASK-015 模式切換 | 已覆蓋 | normal / agent mode toggle、agent generation flow tests | 無。 |
-| TASK-016 AgentStep | 已覆蓋 | `agentSteps` UI、pending / running / success / error 狀態 | 無。 |
-| TASK-017 需求解析 Agent | 部分覆蓋 | `IntentAnalysis` 類型資料、規則式解析、metadata 保存 | 目前是規則式需求解析，不是真正多輪 reasoning agent。 |
-| TASK-018 自動補全 Agent | 已覆蓋、需品質抽驗 | 智慧體先標示待補細節，中文轉 provider prompt 成功後才把「補全畫面」標為完成；失敗時 AgentStep 明確標錯，避免提前宣稱成功 | 需以真實出圖品質回饋持續調整。 |
-| TASK-019 自動選模型與尺寸 Agent | 已覆蓋 | 用途推論、模型 / 尺寸推薦理由 metadata | 無。 |
-| TASK-020 智慧體多張生成 | 已覆蓋 | batch generate、每張 metadata、失敗不清空成功結果、取消 UI | 真實多張成本與 timeout 需部署驗證。 |
+| TASK-015 模式切換 | 已退役 | 首屏改為單一路徑，不再顯示名不副實的 AI 模式 | 無。 |
+| TASK-016 AgentStep | 已退役 | Agent 進度面板與前端狀態程式已移除 | 無。 |
+| TASK-017 需求解析 Agent | 已退役 | 規則式假分析已移除；用途改由使用者明確選擇 | 無。 |
+| TASK-018 自動補全 Agent | 已替代 | 單一路徑沿用 `/prompt/transform`，失敗會保留輸入並顯示錯誤 | 需持續抽驗真實轉換品質。 |
+| TASK-019 自動選模型與尺寸 Agent | 已替代 | `sizeForUseCase`／`applyUseCaseSize`；用途改變時帶入尺寸，手動尺寸不在送出時覆寫 | 無。 |
+| TASK-020 智慧體多張生成 | 已替代 | `batchCount` 1～4、單張與 batch 路由、縮圖切換、下載與構圖鎖定 E2E | 真實多張仍會增加時間與額度。 |
 
 ## Milestone 6：品質檢查與最佳圖推薦
 
 | Task | 狀態 | 覆蓋證據 | 剩餘風險 |
 |---|---|---|---|
-| TASK-021 QAReport | 部分覆蓋 | `QAReport` schema、每張結果評分 / 評語、後端 `imageQuality` header 診斷、Worker `inspectGeneratedImage`、可選 `visionQa` / Gemini 視覺 QA、測試 | 已可檢查圖片格式、byte size、實際尺寸與尺寸不符；設定 `VISION_QA_ENABLED=true` + `GEMINI_API_KEY` 後可用視覺模型評估 prompt 符合度、構圖、畫質、手指、臉部與文字亂碼；仍需真實 provider 圖片人工抽驗與 Gemini 實際金鑰部署驗證。 |
-| TASK-022 最佳圖推薦 | 已覆蓋 | 多張生成推薦最佳圖、推薦理由、metadata | 推薦品質仰賴 QA 分數準確度。 |
-| TASK-023 自動重試策略 | 已覆蓋、需部署驗證 | `classifyQaRetry`、`createAutoRetryPlan`、`runAgentAutoRetry`、`appendAgentAutoRetryResult`、嚴重 `imageQuality` / `visionQa` 問題最多自動重試一次、靜態測試 | 已能依 Vision QA 的手指、臉部、模糊、主體缺失分類自動重試一次；文字亂碼改提示後製加字以避免成本失控。仍需 Gemini Vision 與真實 provider 圖片部署驗證。 |
-| TASK-024 下一步修改建議 | 已覆蓋 | 成功後至少 3 個一鍵建議、套用 prompt / setting | 無。 |
+| TASK-021 QAReport | 後端保留、前端退役 | 後端選用 `visionQa` 契約與測試保留；前端不主動請求，舊歷史 QAReport 仍可讀取 | 若未來重新公開，必須先啟用真實 Vision QA 並完成人工抽驗。 |
+| TASK-022 最佳圖推薦 | 已退役 | 多張結果改由使用者直接挑選，不再顯示未經真實看圖驗證的推薦 | 無。 |
+| TASK-023 自動重試策略 | 已退役 | 前端不再因假評分額外消耗一次生成額度 | 無。 |
+| TASK-024 下一步修改建議 | 已退役 | 既有結果操作與「以這張構圖再變化」保留 | 無。 |
 
 ## Milestone 7：提示詞卡 / 風格卡 / 歷史
 

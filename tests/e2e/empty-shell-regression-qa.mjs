@@ -159,15 +159,19 @@ async function main() {
     await page.goto(url + '/', { waitUntil: 'networkidle', timeout: 60000 });
     await closeTutorial(page);
     await page.fill('#plainPrompt', '一隻橘貓在台北夜市喝珍珠奶茶，電影感');
-    await page.getByText('讓 AI 幫我調設定', { exact: true }).click();
     await page.locator('#advancedSettings > summary').click();
+    await page.selectOption('#useCase', 'ppt');
+    ok('用途會帶入建議尺寸', await page.locator('#size').inputValue() === 'ppt_16_9');
+    await page.selectOption('#size', 'ig_post');
     await page.selectOption('#batchCount', '1');
     await page.click('#go');
     await page.waitForSelector('#stage img', { timeout: 20000 });
 
-    // Regression for ISSUE-003: agent preparation must not reset the user's 1-image choice to 4.
-    ok('AI 模式保留使用者選擇的 1 張', generationRequests[0]?.path === '/generate'
+    // The single generation path must preserve explicit count and size choices.
+    ok('單一路徑保留使用者選擇的 1 張與尺寸', generationRequests[0]?.path === '/generate'
       && await page.locator('#batchCount').inputValue() === '1'
+      && generationRequests[0]?.body?.size === 'ig_post'
+      && generationRequests[0]?.body?.visionQa !== true
       && await page.locator('.batch-thumb').count() === 0, JSON.stringify(generationRequests[0]));
 
     await page.selectOption('#batchCount', '2');

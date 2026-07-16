@@ -220,8 +220,8 @@ def test_release_acceptance_checklist_tracks_manual_blockers():
         "iPhone Safari",
         "Android Chrome",
         "螢幕閱讀器",
-        "AgentStep 流程",
-        "Vision QA 部署抽驗",
+        "用途帶入尺寸",
+        "張數明確可控",
         "R2 gallery save",
         "分享頁隱藏 prompt",
         "Turnstile 真實驗證",
@@ -1102,70 +1102,30 @@ def test_privacy_and_license_policy_modals_are_wired():
     assert ".model-license-hint" in styles
 
 
-def test_agent_mode_ui_and_flow_are_wired():
+def test_generation_flow_is_single_path_with_explicit_batch_control():
     html = read_static("index.html")
     app_js = read_static("app.js")
     styles = read_static("styles.css")
 
-    assert 'id="modeNormal"' in html
-    assert 'id="modeAgent"' in html
-    assert 'id="agentPanel"' in html
-    assert 'id="agentSteps"' in html
-    assert 'id="agentRecommendation"' in html
-    assert "AGENT_STEP_DEFS" in app_js
-    assert "解析需求" in app_js
-    assert "補全畫面" in app_js
-    assert "產生 prompt" in app_js
-    assert "選模型與尺寸" in app_js
-    assert "檢查品質" in app_js
-    assert "function analyzeIntentForAgent" in app_js
-    assert "function prepareAgentFlow" in app_js
-    assert "function syncGenerationModeUi" in app_js
-    assert "setAgentStep('complete', 'running', '生成前將補足視覺細節')" in app_js
-    assert "setAgentStep('complete', 'success', '已依風格補足視覺細節')" in app_js
-    assert "setAgentStep('complete', 'error', error.message)" in app_js
+    assert 'id="modeNormal"' not in html
+    assert 'id="modeAgent"' not in html
+    assert 'id="agentPanel"' not in html
+    assert 'id="batchCount"' in html
+    assert "多張會使用更多生成額度" in html
+    assert "function sizeForUseCase" in app_js
+    assert "function applyUseCaseSize" in app_js
+    assert "applyUseCaseSize();" in app_js
     assert "finalPromptField.setAttribute('data-auto-source', source)" in app_js
     assert "function clearAutoProviderPrompt" in app_js
     assert "autoSource !== el('plainPrompt').value.trim()" in app_js
     assert "clearAutoProviderPrompt();" in app_js
     assert "el('promptStyle').addEventListener('change', function()" in app_js
-    assert "setAgentStep('generate', 'running'" in app_js
-    assert "mode: generationMode === 'agent' ? 'agent' : 'normal'" in app_js
-    assert "qaReport: generationMode === 'agent'" in app_js
-    assert "function createQaReport" in app_js
-    assert "imageQuality" in app_js
-    assert "imageQualityIssues" in app_js
-    assert "visionQa" in app_js
-    assert "visionIssues" in app_js
-    assert "視覺 QA：" in app_js
-    assert "function formatVisionQaSummary" in app_js
-    assert "function formatImageQualitySummary" in app_js
-    assert "function appendQaDetails" in app_js
-    assert "provider === 'gemini' ? 'Gemini'" in app_js
-    assert "圖片檢查：" in app_js
-    assert ".qa-vision-line" in styles
-    assert "visionQa: generationMode === 'agent'" in app_js
-    assert "visualQualityScore" in app_js
-    assert "function isSevereQaFailure" in app_js
-    assert "function classifyQaRetry" in app_js
-    assert "function collectQaIssueText" in app_js
-    assert "function issueTextHasAny" in app_js
-    assert "malformed hands, extra fingers, fused fingers" in app_js
-    assert "文字亂碼通常不適合用自動重試硬修" in app_js
-    assert "function runAgentAutoRetry" in app_js
-    assert "function appendAgentAutoRetryResult" in app_js
-    assert "Quality correction retry" in app_js
-    assert "Negative focus:" in app_js
-    assert "action = 'auto_retry'" in app_js
-    assert "visionQa: true" in app_js
-    assert "runAgentAutoRetry(settings, providerPrompt, prompt, model, size, batchOutcome.retryPlan)" in app_js
-    assert "已自動修正一次" in app_js
-    assert "function renderAgentOutcome" in app_js
-    assert "推薦最佳圖" in app_js
-    assert "data-agent-suggestion" in app_js
-    assert ".mode-switch" in styles
-    assert ".agent-panel" in styles
-    assert ".agent-step" in styles
+    assert "AGENT_STEP_DEFS" not in app_js
+    assert "function prepareAgentFlow" not in app_js
+    assert "function runAgentAutoRetry" not in app_js
+    assert "visionQa: generationMode === 'agent'" not in app_js
+    assert ".mode-switch" not in styles
+    assert ".agent-panel" not in styles
 
 
 def test_history_detail_share_and_versions_are_wired():

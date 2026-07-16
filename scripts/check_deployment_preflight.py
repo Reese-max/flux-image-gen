@@ -61,7 +61,7 @@ REQUIRED_RELEASE_ACCEPTANCE_ITEMS = {
     "--check-generate --confirm-cost",
     "iPhone Safari",
     "Android Chrome",
-    "Vision QA 部署抽驗",
+    "張數明確可控",
     "R2 gallery save",
     "分享頁隱藏 prompt",
     "Turnstile 真實驗證",

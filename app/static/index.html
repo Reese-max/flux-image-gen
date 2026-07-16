@@ -118,20 +118,8 @@
         <label class="final-prompt-label" for="plainPrompt">用中文描述你想要的畫面</label>
         <p id="plainPromptHelp" class="visually-hidden">必填。請用中文描述主體、場景、風格或用途；按生成圖片後系統會自動整理好再出圖。</p>
         <textarea id="plainPrompt" rows="2" maxlength="2000" aria-describedby="plainPromptHelp status" aria-required="true" placeholder="例如：一隻柴犬在月球吃拉麵，適合放在 PPT 封面，風格可愛但不要太像 AI"></textarea>
-        <!-- 緊湊選項列：模式 segmented ＋ 風格/用途次要 select（漸進揭露，視覺降級） -->
+        <!-- 緊湊選項列：風格與用途保持在首屏，張數與尺寸留在進階設定。 -->
         <div class="composer-options" role="group" aria-label="生成選項">
-          <div class="mode-switch" role="radiogroup" aria-label="生成模式">
-            <label class="mode-option">
-              <input id="modeNormal" name="generationMode" type="radio" value="normal" checked>
-              <span>快速生成</span>
-              <small>快速整理描述後生成圖片</small>
-            </label>
-            <label class="mode-option">
-              <input id="modeAgent" name="generationMode" type="radio" value="agent">
-              <span>讓 AI 幫我調設定</span>
-              <small>自動分析需求、推薦尺寸，一次生成 4 張</small>
-            </label>
-          </div>
           <label class="field option-field">
             <span class="field-label">風格</span>
             <div class="select-wrap">
@@ -150,7 +138,7 @@
             <span class="field-label">用途</span>
             <div class="select-wrap">
                 <select id="useCase" aria-label="選擇圖片用途">
-                  <option value="auto">自動判斷</option>
+                  <option value="auto">不指定用途</option>
                   <option value="ppt">簡報插圖</option>
                   <option value="social">社群貼文</option>
                   <option value="story">IG 限動 / Reels / Shorts</option>
@@ -165,15 +153,6 @@
             </div>
           </label>
         </div>
-        <div id="agentPanel" class="agent-panel" hidden>
-          <div class="agent-panel-head">
-            <strong>AI 調整進度</strong>
-            <span id="agentModeSummary">等待中文需求</span>
-          </div>
-          <ol id="agentSteps" class="agent-steps" aria-live="polite"></ol>
-          <div id="agentRecommendation" class="agent-recommendation"></div>
-        </div>
-
         <div class="prompt-controls">
           <button id="completePrompt" class="btn secondary" type="button" aria-describedby="transformStatus">✨ 幫我補完整</button>
           <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
@@ -273,6 +252,7 @@
                 </select>
                 <span class="chevron" aria-hidden="true">▾</span>
               </div>
+              <small class="seed-advanced-hint">多張會使用更多生成額度，也會花更久時間。</small>
             </label>
           </div>
         </div>

@@ -307,15 +307,6 @@ body.is-workspace-resizing {
 .generation-controls .composer-options {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.generation-controls .composer-options .mode-switch {
-  grid-column: 1 / -1;
-  width: 100%;
-}
-.generation-controls .composer-options .mode-option {
-  flex: 1 1 0;
-  justify-content: center;
-  padding-inline: 9px;
-}
 .generation-controls .advanced-controls {
   grid-template-columns: 1fr;
 }
@@ -479,79 +470,12 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   align-items: stretch;
   gap: 8px;
 }
-.mode-switch {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.mode-option {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-areas: "input title" "input copy";
-  gap: 2px 9px;
-  align-items: center;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  cursor: pointer;
-}
-.mode-option input { grid-area: input; accent-color: var(--accent); }
-.mode-option span { grid-area: title; font-weight: 800; color: var(--text); }
-.mode-option small { grid-area: copy; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.mode-option:has(input:checked) {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-}
-
-/* 首屏漸進揭露：輸入框下方的緊湊選項列——模式改小型 segmented、
-   風格/用途 select 視覺降級為次要（muted、小字、無粗框），桌機一行、手機可換行 */
+/* 首屏只保留風格與用途；張數與尺寸在進階設定。 */
 .composer-options {
   display: grid;
-  grid-template-columns: auto minmax(132px, 1fr) minmax(132px, 1fr);
+  grid-template-columns: repeat(2, minmax(132px, 1fr));
   align-items: center;
   gap: 8px 10px;
-}
-.composer-options .mode-switch {
-  display: inline-flex;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface-2);
-}
-.composer-options .mode-option {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 14px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  transition: background .15s var(--ease);
-}
-.composer-options .mode-option input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-.composer-options .mode-option span {
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--muted);
-}
-/* 緊湊列不放兩行說明文字（完整說明見教學與 agent panel） */
-.composer-options .mode-option small { display: none; }
-.composer-options .mode-option:hover span { color: var(--text); }
-.composer-options .mode-option:has(input:checked) {
-  background: var(--accent-soft);
-}
-.composer-options .mode-option:has(input:checked) span { color: var(--accent-2); }
-.composer-options .mode-option:has(input:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
 }
 .composer-options .option-field {
   flex-direction: row;
@@ -574,46 +498,6 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .composer-options .option-field .chevron { right: 10px; font-size: 10px; }
 /* 主生成鈕：風格/用途移入選項列後成為 composer 唯一主 CTA，佔滿整行更醒目 */
 .prompt-controls .hero-generate { width: 100%; min-width: 0; }
-.agent-panel {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
-}
-.agent-panel[hidden] { display: none; }
-.agent-panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
-.agent-panel-head strong { color: var(--text); }
-.agent-panel-head span { color: var(--muted); font-size: 13px; }
-.agent-steps {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-.agent-step {
-  min-height: 72px;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.agent-step-label { display: block; color: var(--text); font-size: 13px; font-weight: 800; }
-.agent-step-status { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
-.agent-step.running { border-color: var(--sun-line); background: var(--sun-soft); }
-.agent-step.success { border-color: var(--sage-line); background: var(--sage-soft); }
-.agent-step.error { border-color: var(--danger-line); background: var(--danger-soft); }
-.agent-recommendation {
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.55;
-}
-.agent-recommendation p { margin: 0 0 8px; }
-.agent-retry-note { color: var(--sun-ink); }
-.agent-next-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .advanced-controls {
   display: grid;
   grid-template-columns: minmax(150px, 0.45fr) minmax(260px, 1fr);
@@ -1047,9 +931,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   gap: 10px;
   flex-wrap: wrap;
 }
-.batch-main-meta .batch-qa {
-  flex: 1 1 260px;
-}
 .batch-main-meta .batch-card-actions {
   margin-left: auto;
 }
@@ -1068,9 +949,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   position: relative;
   flex: 0 0 92px;
   scroll-snap-align: start;
-}
-.batch-card.is-recommended {
-  border-radius: 13px;
 }
 .batch-thumb {
   width: 100%;
@@ -1109,28 +987,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.batch-best-badge {
-  align-self: flex-start;
-  border: 1px solid var(--accent-line);
-  border-radius: 999px;
-  padding: 4px 9px;
-  color: var(--accent-2);
-  background: var(--surface);
-  font-size: 12px;
-}
-.batch-qa, .single-qa {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.qa-detail-line {
-  margin-top: 4px;
-  color: var(--muted);
-}
-.qa-vision-line {
-  color: var(--accent-2);
-}
-.single-qa { max-width: 720px; margin: 8px auto 0; text-align: left; }
 .batch-card-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .batch-seed { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-right: auto; }
 .mobile-save-hint {
@@ -2066,8 +1922,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 @media (max-width: 760px) {
   .composer-foot { flex-direction: column; align-items: stretch; }
   .prompt-controls { align-items: stretch; }
-  .mode-switch { grid-template-columns: 1fr; }
-  .agent-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .advanced-controls { grid-template-columns: 1fr; }
   .controls { width: 100%; }
   .field { flex: 1; min-width: 0; }
@@ -2592,8 +2446,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .section-heading { gap: 3px; }
   .section-heading p { display: none; }
   .composer-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .composer-options .mode-switch { grid-column: 1 / -1; justify-content: stretch; }
-  .composer-options .mode-option { flex: 1 1 0; justify-content: center; padding-inline: 8px; }
   .composer-options .option-field { min-width: 0; }
   .composer-options .option-field select { width: 100%; }
   .prompt-controls { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); }
