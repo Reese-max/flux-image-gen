@@ -2057,16 +2057,22 @@ function fakeAi(result) {
   return {
     calls,
     async run(model, args) {
-      // Reconstruct the multipart form the worker sent so tests can assert on fields.
-      const req = new Request('https://fake.test', {
-        method: 'POST',
-        headers: { 'content-type': args.multipart.contentType },
-        body: args.multipart.body,
-        // Node's fetch Request requires duplex for stream bodies (workerd does not).
-        duplex: 'half',
-      });
-      const form = await req.formData();
-      calls.push({ model, fields: Object.fromEntries(form.entries()) });
+      let fields;
+      if (args.multipart) {
+        // Reconstruct the multipart form the Worker sent so tests can assert on fields.
+        const req = new Request('https://fake.test', {
+          method: 'POST',
+          headers: { 'content-type': args.multipart.contentType },
+          body: args.multipart.body,
+          // Node's fetch Request requires duplex for stream bodies (workerd does not).
+          duplex: 'half',
+        });
+        const form = await req.formData();
+        fields = Object.fromEntries(form.entries());
+      } else {
+        fields = { ...args };
+      }
+      calls.push({ model, fields });
       const outcome = queue ? queue.shift() : result;
       if (outcome instanceof Error) throw outcome;
       return outcome;
@@ -2094,6 +2100,21 @@ test('POST /generate model=schnell uses Workers AI with size and a real seed', a
   assert.equal(ai.calls[0].fields.width, '1344');
   assert.equal(ai.calls[0].fields.height, '768');
   assert.equal(String(data.seed), ai.calls[0].fields.seed);
+});
+
+test('POST /generate model=schnell uses FLUX.1 schnell for the default square preset', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 12345 }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(data.provider, 'workers-ai');
+  assert.equal(ai.calls.length, 1);
+  assert.equal(ai.calls[0].model, '@cf/black-forest-labs/flux-1-schnell');
+  assert.deepEqual(ai.calls[0].fields, { prompt: 'a cat', seed: 12345, steps: 4 });
 });
 
 test('POST /generate supports productized use-case size presets on Workers AI', async () => {
@@ -2142,7 +2163,7 @@ test('POST /generate model=schnell keeps an explicit seed on Workers AI', async 
   );
   const data = await response.json();
   assert.equal(data.seed, 12345);
-  assert.equal(ai.calls[0].fields.seed, '12345');
+  assert.equal(ai.calls[0].fields.seed, 12345);
 });
 
 test('POST /generate model=schnell maps a Workers AI failure to a clean 502', async () => {
@@ -2269,7 +2290,7 @@ test('POST /generate/batch model=schnell runs every image on Workers AI', async 
   }
   // Each call must carry the seed it reported back (reproducibility contract).
   const sentSeeds = ai.calls.map((c) => c.fields.seed).sort();
-  const returnedSeeds = data.images.map((i) => String(i.seed)).sort();
+  const returnedSeeds = data.images.map((i) => i.seed).sort();
   assert.deepEqual(sentSeeds, returnedSeeds);
 });
 

@@ -48,8 +48,14 @@ class Settings:
     # to NVIDIA dev (see image_service._resolve_provider_and_request).
     cf_account_id: str = os.getenv("CF_ACCOUNT_ID", "")
     cf_api_token: str = os.getenv("CF_API_TOKEN", "")
+    # Default square generations use the cheaper Cloudflare-hosted FLUX.1 schnell
+    # JSON API (no custom dimensions); every other size uses FLUX.2 klein, which
+    # accepts width/height. Mirrors cloudflare/src/constants.js.
     workers_ai_fast_model: str = os.getenv(
-        "WORKERS_AI_FAST_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"
+        "WORKERS_AI_FAST_MODEL", "@cf/black-forest-labs/flux-1-schnell"
+    )
+    workers_ai_sized_model: str = os.getenv(
+        "WORKERS_AI_SIZED_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"
     )
     # AI 改圖（instruction edit）後端。FLUX.2 klein 支援上傳 1-4 張自訂圖做指令式
     # 編輯（NVIDIA hosted kontext 只吃內建範例圖，故本機/雲端一律走 Workers AI）。

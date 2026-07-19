@@ -386,16 +386,26 @@ class WorkersAiProvider:
         # random seed and return it for reproducibility (mirrors the Worker).
         effective_seed = _random_seed() if seed == 0 else seed
 
+        # Default square previews run on the cheaper FLUX.1 schnell JSON API,
+        # whose documented schema does not take custom dimensions; every other
+        # size uses FLUX.2 klein, which accepts width/height. Mirrors the Worker's
+        # square-vs-sized split in cloudflare/src/image.js:runWorkersAiOnce.
+        if width == 1024 and height == 1024:
+            model_id = self.settings.workers_ai_fast_model
+            payload: dict[str, Any] = {"prompt": prompt, "seed": effective_seed, "steps": 4}
+        else:
+            model_id = self.settings.workers_ai_sized_model
+            payload = {"prompt": prompt, "width": width, "height": height, "seed": effective_seed}
+
         endpoint = (
             f"https://api.cloudflare.com/client/v4/accounts/"
-            f"{self.settings.cf_account_id.strip()}/ai/run/{self.settings.workers_ai_fast_model}"
+            f"{self.settings.cf_account_id.strip()}/ai/run/{model_id}"
         )
         headers = {
             "Authorization": f"Bearer {self.settings.cf_api_token.strip()}",
             "Accept": "application/json",
             "Content-Type": "application/json",
         }
-        payload: dict[str, Any] = {"prompt": prompt, "width": width, "height": height, "seed": effective_seed}
 
         last_error: ProviderError | None = None
         async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:

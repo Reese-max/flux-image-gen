@@ -546,17 +546,59 @@ class WorkersAiProviderTests(unittest.IsolatedAsyncioTestCase):
         provider = WorkersAiProvider(self._settings())
         with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
             result = await provider.generate(
-                GenerationRequest(prompt="a corgi", model="schnell", size="square", seed=7)
+                GenerationRequest(prompt="a corgi", model="schnell", size="landscape", seed=7)
             )
 
+        # Non-square sizes use FLUX.2 klein, which accepts width/height.
         self.assertEqual(
             captured["endpoint"],
             "https://api.cloudflare.com/client/v4/accounts/acct-123/ai/run/@cf/black-forest-labs/flux-2-klein-4b",
         )
         self.assertEqual(captured["headers"]["Authorization"], "Bearer cf-tok")
-        self.assertEqual(captured["json"], {"prompt": "a corgi", "width": 1024, "height": 1024, "seed": 7})
+        self.assertEqual(captured["json"], {"prompt": "a corgi", "width": 1344, "height": 768, "seed": 7})
         self.assertEqual(result.provider, "workers-ai")
         self.assertEqual(result.model, "schnell")
+        self.assertEqual(result.seed, 7)
+        self.assertTrue(result.image.startswith("data:image/png;base64,"))
+
+    async def test_default_square_uses_flux_1_schnell(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import WorkersAiProvider
+
+        captured = {}
+        image_b64 = self._long_base64()
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                captured["endpoint"] = endpoint
+                captured["json"] = json
+                return httpx.Response(200, json={"result": {"image": image_b64}, "success": True})
+
+        provider = WorkersAiProvider(self._settings())
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            result = await provider.generate(
+                GenerationRequest(prompt="a corgi", model="schnell", size="square", seed=7)
+            )
+
+        # The default 1024² preset runs on the cheaper FLUX.1 schnell JSON API,
+        # which takes no custom dimensions (mirrors the Cloudflare Worker).
+        self.assertEqual(
+            captured["endpoint"],
+            "https://api.cloudflare.com/client/v4/accounts/acct-123/ai/run/@cf/black-forest-labs/flux-1-schnell",
+        )
+        self.assertEqual(captured["json"], {"prompt": "a corgi", "seed": 7, "steps": 4})
         self.assertEqual(result.seed, 7)
         self.assertTrue(result.image.startswith("data:image/png;base64,"))
 

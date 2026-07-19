@@ -207,7 +207,7 @@
               <span class="field-label">畫質</span>
               <div class="select-wrap">
                 <select id="model" aria-label="選擇畫質">
-                  <!-- 快速檔自 2026-07 起改用 FLUX.2 klein 4B（NVIDIA schnell 故障期間）：本機 FastAPI 走 NVIDIA flux.2-klein-4b，Cloudflare 版走 Workers AI 同名模型 -->
+                  <!-- 快速檔的預設正方形走 Cloudflare FLUX.1 schnell；非正方形與自訂尺寸保留 FLUX.2 klein，避免尺寸設定失效。 -->
                   <option value="schnell" selected>快速（草稿）</option>
                   <option value="dev">高品質（較慢）</option>
                 </select>

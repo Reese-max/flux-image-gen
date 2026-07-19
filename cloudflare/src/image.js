@@ -15,6 +15,7 @@ import {
   WORKERS_AI_EDIT_MODEL,
   WORKERS_AI_FETCH_TIMEOUT_MS,
   WORKERS_AI_FAST_MODEL,
+  WORKERS_AI_SIZED_MODEL,
   sleep,
 } from "./constants.js";
 import { HttpError, readLimitedText } from "./http.js";
@@ -283,14 +284,21 @@ export function randomImageSeed() {
 
 // One AI.run attempt. AI.run cannot be cancelled, so callers must not replay it.
 function runWorkersAiOnce(env, { prompt, width, height, seed }) {
-  // klein takes multipart form input even for a text-only prompt.
+  // FLUX.1 schnell's documented Workers AI input is JSON. It is only used for
+  // the UI's default 1024px square preset, whose output size matches its default.
+  if (width === 1024 && height === 1024) {
+    return env.AI.run(WORKERS_AI_FAST_MODEL, { prompt, seed, steps: 4 });
+  }
+
+  // klein takes multipart form input even for a text-only prompt and preserves
+  // all existing landscape, portrait, wallpaper, and custom-size behaviour.
   const form = new FormData();
   form.append("prompt", prompt);
   form.append("width", String(width));
   form.append("height", String(height));
   form.append("seed", String(seed));
   const formResponse = new Response(form);
-  return env.AI.run(WORKERS_AI_FAST_MODEL, {
+  return env.AI.run(WORKERS_AI_SIZED_MODEL, {
     multipart: {
       body: formResponse.body,
       contentType: formResponse.headers.get("content-type"),
@@ -298,8 +306,8 @@ function runWorkersAiOnce(env, { prompt, width, height, seed }) {
   });
 }
 
-// The "fast" tier runs on Workers AI (FLUX.2 klein 4B) — NVIDIA's hosted
-// flux.1-schnell accepts requests but never responds (2026-07 outage).
+// The fast tier uses Cloudflare Workers AI: its default square output is
+// FLUX.1 schnell, while non-square requests use FLUX.2 klein for dimensions.
 // Kept behind an env.AI check so tests and AI-less deploys fall back to NVIDIA.
 // The wait is bounded for the client, but the uncancellable provider run is never retried.
 async function generateWithWorkersAi(env, { prompt, model, width, height, seed }) {

@@ -164,10 +164,12 @@ export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
 // old 2 × 60s retry path turns a transient model stall into a two-minute wait.
 export const WORKERS_AI_FETCH_TIMEOUT_MS = 45_000;
 
-// Workers AI model backing the UI's "fast" tier. FLUX.2 klein 4B is a 4-step
-// distilled model (schnell-class speed) that, unlike @cf/...flux-1-schnell,
-// supports width/height (256-1920) and seed. Takes multipart form input.
-export const WORKERS_AI_FAST_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
+// Default square fast generations use the cheaper Cloudflare-hosted FLUX.1
+// schnell JSON API. Its public schema does not guarantee custom dimensions.
+export const WORKERS_AI_FAST_MODEL = "@cf/black-forest-labs/flux-1-schnell";
+// Keep FLUX.2 klein for every non-default size: it accepts width/height and
+// multipart input, so the existing aspect-ratio and custom-size contract holds.
+export const WORKERS_AI_SIZED_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 // AI 改圖（instruction edit）：FLUX.2 klein 吃 1-4 張自訂圖（multipart
 // input_image_0..3，每張 < 512x512），回 { image: base64 }。
 export const WORKERS_AI_EDIT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
