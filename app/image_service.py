@@ -359,9 +359,10 @@ class NvidiaProvider:
 
 
 class WorkersAiProvider:
-    """Fast-tier ("schnell") backend on Cloudflare Workers AI (FLUX.2 klein 4B),
-    replacing NVIDIA's dark flux.1-schnell. This is the REST-API twin of the
-    Worker's ``env.AI.run`` path (cloudflare/src/image.js). Active only when
+    """Fast-tier ("schnell") backend on Cloudflare Workers AI. Default 1024²
+    squares run on FLUX.1 schnell (cheap, no custom dims); every other size uses
+    FLUX.2 klein for width/height. This is the REST-API twin of the Worker's
+    ``env.AI.run`` path (cloudflare/src/image.js). Active only when
     CF_ACCOUNT_ID + CF_API_TOKEN are set.
 
     NOTE: the request/response shape follows Cloudflare's documented Workers AI
