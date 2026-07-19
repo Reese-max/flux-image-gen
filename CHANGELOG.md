@@ -30,7 +30,7 @@
 
 ### Not deployed
 
-- 本節變更尚未部署。正式站仍缺 `TURNSTILE_SECRET_KEY` 與公開 site key；repo 亦尚無 Git remote，需完成外部設定後才能通過公開 release gate。
+- 本節變更尚未部署。正式站仍缺 `TURNSTILE_SECRET_KEY` 與公開 site key，需完成外部設定後才能通過公開 release gate。（repo 已建立私有 Git remote `Reese-max/flux-image-gen`。）
 
 ## 2026-07-11
 
