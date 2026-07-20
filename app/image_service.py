@@ -39,6 +39,14 @@ MODEL_ENDPOINTS: dict[str, str] = {
 
 MAX_SEED = 2147483647
 SEED_ERROR_MESSAGE = f"seed 必須是 0 到 {MAX_SEED} 之間的整數"
+# ponytail: dev 逐次調參的邊界取保守值（NVIDIA 官方 API 參考頁是 JS 渲染，抓不到
+# 正式 min/max）。落在範圍內但被 NVIDIA 拒絕時，仍會由既有 ProviderError 回報。
+MIN_DEV_STEPS = 1
+MAX_DEV_STEPS = 50
+STEPS_ERROR_MESSAGE = f"steps 必須是 {MIN_DEV_STEPS} 到 {MAX_DEV_STEPS} 之間的整數"
+MIN_DEV_CFG_SCALE = 1.0
+MAX_DEV_CFG_SCALE = 10.0
+CFG_SCALE_ERROR_MESSAGE = f"cfg_scale 必須介於 {MIN_DEV_CFG_SCALE} 到 {MAX_DEV_CFG_SCALE}"
 MIN_CUSTOM_DIMENSION = 256
 MAX_CUSTOM_DIMENSION = 1920
 CUSTOM_DIMENSION_STEP = 64
@@ -77,6 +85,9 @@ class GenerationRequest:
     seed: int | None = None
     width: int | None = None
     height: int | None = None
+    # 只有 dev 會用到；None 表示沿用 settings 的 NVIDIA_DEV_* 預設值。
+    steps: int | None = None
+    cfg_scale: float | None = None
 
 
 @dataclass(frozen=True)
@@ -242,6 +253,26 @@ def validate_seed(seed: Any) -> int | None:
     return seed
 
 
+def validate_steps(steps: Any) -> int | None:
+    if steps is None:
+        return None
+    if isinstance(steps, bool) or not isinstance(steps, int):
+        raise ValueError(STEPS_ERROR_MESSAGE)
+    if steps < MIN_DEV_STEPS or steps > MAX_DEV_STEPS:
+        raise ValueError(STEPS_ERROR_MESSAGE)
+    return steps
+
+
+def validate_cfg_scale(cfg_scale: Any) -> float | None:
+    if cfg_scale is None:
+        return None
+    if isinstance(cfg_scale, bool) or not isinstance(cfg_scale, (int, float)):
+        raise ValueError(CFG_SCALE_ERROR_MESSAGE)
+    if cfg_scale < MIN_DEV_CFG_SCALE or cfg_scale > MAX_DEV_CFG_SCALE:
+        raise ValueError(CFG_SCALE_ERROR_MESSAGE)
+    return float(cfg_scale)
+
+
 def resolve_seed(request_seed: Any, model: str, settings: Settings) -> int:
     validate_model(model)
     seed = validate_seed(request_seed)
@@ -299,8 +330,10 @@ class NvidiaProvider:
             "seed": seed,
         }
         if model == "dev":
-            payload["cfg_scale"] = self.settings.nvidia_dev_cfg_scale
-            payload["steps"] = self.settings.nvidia_dev_steps
+            cfg_scale = validate_cfg_scale(request.cfg_scale)
+            steps = validate_steps(request.steps)
+            payload["cfg_scale"] = self.settings.nvidia_dev_cfg_scale if cfg_scale is None else cfg_scale
+            payload["steps"] = self.settings.nvidia_dev_steps if steps is None else steps
 
         headers = {
             "Authorization": f"Bearer {self.settings.nvidia_api_key}",

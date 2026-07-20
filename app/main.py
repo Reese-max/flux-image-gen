@@ -77,6 +77,8 @@ class GeneratePayload(BaseModel):
     width: int | None = None
     height: int | None = None
     seed: int | None = None
+    steps: int | None = None
+    cfgScale: float | None = None
     turnstileToken: str | None = None
     visionQa: bool = False
 
@@ -94,6 +96,8 @@ class BatchGeneratePayload(BaseModel):
     width: int | None = None
     height: int | None = None
     seed: int | None = None
+    steps: int | None = None
+    cfgScale: float | None = None
     count: int = 1
     turnstileToken: str | None = None
     visionQa: bool = False
@@ -318,6 +322,8 @@ async def generate(payload: GeneratePayload, request: Request):
                 width=payload.width,
                 height=payload.height,
                 seed=payload.seed,
+                steps=payload.steps,
+                cfg_scale=payload.cfgScale,
             ),
             settings=settings,
         )
@@ -430,6 +436,8 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
                 width=payload.width,
                 height=payload.height,
                 seed=payload.seed,
+                steps=payload.steps,
+                cfg_scale=payload.cfgScale,
             ),
             count,
             settings=settings,

@@ -205,6 +205,24 @@ class AppRouteTests(unittest.TestCase):
         request = mocked_generate.await_args.args[0]
         self.assertEqual(request.seed, 12345)
 
+    def test_generate_forwards_dev_tuning_to_the_provider(self):
+        with patch("app.main.generate_image", new_callable=AsyncMock) as mocked_generate:
+            mocked_generate.return_value = self._generation_result()
+            response = self.client.post(
+                "/generate",
+                json={
+                    "prompt": "a cute corgi astronaut",
+                    "model": "dev",
+                    "size": "square",
+                    "steps": 45,
+                    "cfgScale": 7.5,
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        request = mocked_generate.await_args.args[0]
+        self.assertEqual(request.steps, 45)
+        self.assertEqual(request.cfg_scale, 7.5)
+
     def test_generate_rejects_invalid_seed(self):
         invalid_seeds = [True, "123", 1.5, 2147483648, -1]
         for seed in invalid_seeds:

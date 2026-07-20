@@ -223,6 +223,69 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent_payload["cfg_scale"], 3.5)
         self.assertEqual(sent_payload["steps"], 28)
 
+    async def test_nvidia_provider_dev_payload_honours_per_request_tuning(self):
+        import base64
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import NvidiaProvider
+
+        sent_payload = {}
+
+        class FakeAsyncClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def post(self, endpoint, headers, json):
+                nonlocal sent_payload
+                sent_payload = json
+                png_base64 = base64.b64encode(b"\x89PNG\r\n\x1a\nnot-a-real-full-png").decode("ascii")
+                return httpx.Response(200, json={"artifacts": [{"base64": png_base64}]})
+
+        provider = NvidiaProvider(
+            Settings(
+                nvidia_api_key="dummy-key",
+                image_provider="nvidia",
+                nvidia_dev_cfg_scale=3.5,
+                nvidia_dev_steps=28,
+            )
+        )
+        with patch("app.image_service.httpx.AsyncClient", FakeAsyncClient):
+            await provider.generate(
+                GenerationRequest(
+                    prompt="a cute corgi astronaut floating in space",
+                    model="dev",
+                    size="square",
+                    seed=1,
+                    steps=45,
+                    cfg_scale=7.5,
+                )
+            )
+
+        self.assertEqual(sent_payload["cfg_scale"], 7.5)
+        self.assertEqual(sent_payload["steps"], 45)
+
+    def test_validate_steps_and_cfg_scale_reject_out_of_range(self):
+        from app.image_service import validate_cfg_scale, validate_steps
+
+        self.assertIsNone(validate_steps(None))
+        self.assertIsNone(validate_cfg_scale(None))
+        self.assertEqual(validate_steps(50), 50)
+        self.assertEqual(validate_cfg_scale(1), 1.0)
+        for bad in (0, 51, True, 3.5, "30"):
+            with self.assertRaises(ValueError):
+                validate_steps(bad)
+        for bad in (0.9, 10.1, True, "5"):
+            with self.assertRaises(ValueError):
+                validate_cfg_scale(bad)
+
     async def test_nvidia_provider_rejects_non_json_success_response(self):
         from unittest.mock import patch
 

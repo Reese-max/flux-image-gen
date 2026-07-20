@@ -14,6 +14,8 @@
 
 ### Added
 
+- 生成後 AI 視覺檢查有了實際入口：進階設定新增「生成後 AI 檢查」勾選框，單張生成時會把 `visionQa` 送給後端，完成訊息直接顯示符合度／構圖／畫質分數與偵測到的問題。後端 `/generate` 早已支援此欄位，先前只是前端從未送出，等同永遠關閉。
+- 高品質（FLUX.1-dev）可逐次調參：選到「高品質」時顯示 `steps`（1–50）與 `cfg_scale`（1–10）欄位，留空則沿用 `NVIDIA_DEV_STEPS`／`NVIDIA_DEV_CFG_SCALE`。先前這兩個值只能改環境變數並全域生效。
 - 用量事件以既有 `IMAGE_BUCKET` 的 `usage-events/YYYY-MM-DD/` metadata 持久保存；摘要不含 prompt、圖片、原始 IP 或 IP 雜湊，超過單日 1,000 筆時明確標示部分資料。
 - Prompt／Vision 單次成本可用 `USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 校準；目前預設 `0`，只保證嘗試次數完整，不宣稱美元估值完整。
 

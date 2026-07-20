@@ -199,6 +199,11 @@
             <span class="field-label">不想出現的東西</span>
             <input id="avoid" class="text-input" type="text" maxlength="240" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, extra fingers）">
           </label>
+          <label class="field field-wide">
+            <span class="field-label">生成後 AI 檢查</span>
+            <input id="visionQa" type="checkbox">
+            <small class="seed-advanced-hint">交給視覺模型評分構圖／畫質／符合度並指出問題；只在單張生成時適用，會多花幾秒。</small>
+          </label>
         </div>
 
         <div class="composer-foot">
@@ -212,6 +217,15 @@
                   <option value="dev">高品質（較慢）</option>
                 </select>
                 <span class="chevron" aria-hidden="true">▾</span>
+              </div>
+              <div id="devTuning" class="custom-size-fields" hidden>
+                <label>細緻度 steps
+                  <input id="devSteps" class="text-input" type="number" min="1" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
+                </label>
+                <label>貼合提示詞 cfg_scale
+                  <input id="devCfgScale" class="text-input" type="number" min="1" max="10" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
+                </label>
+                <p class="seed-advanced-hint">只對「高品質」有效。steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
               </div>
               <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
             </label>

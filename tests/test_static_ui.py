@@ -1409,3 +1409,16 @@ def test_project_board_ui_and_scripts_are_wired():
     assert ".project-chip" in styles
     assert ".project-item" in styles
     assert ".project-add-row" in styles
+
+
+def test_optional_generation_controls_are_wired_to_the_backend():
+    html = read_static("index.html")
+    app_js = read_static("app.js")
+
+    # 這些控制項一旦被刪掉，前端會靜默地不再送出對應欄位，後端也就永遠走預設值。
+    assert 'id="visionQa"' in html
+    assert 'id="devSteps"' in html
+    assert 'id="devCfgScale"' in html
+    assert "visionQa: readVisionQa()" in app_js
+    assert "steps: devTuning.steps" in app_js
+    assert "cfgScale: devTuning.cfgScale" in app_js

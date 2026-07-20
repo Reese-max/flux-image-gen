@@ -580,6 +580,21 @@ function updateCustomSizeVisibility(){
   var size = el('size');
   if(box && size){ box.hidden = size.value !== 'custom'; }
 }
+function updateDevTuningVisibility(){
+  var box = el('devTuning');
+  var model = el('model');
+  if(box && model){ box.hidden = model.value !== 'dev'; }
+}
+function readDevTuning(){
+  var model = el('model');
+  var steps = el('devSteps');
+  var cfg = el('devCfgScale');
+  var tuning = { steps: null, cfgScale: null };
+  if(!model || model.value !== 'dev'){ return tuning; }
+  if(steps && steps.value !== ''){ tuning.steps = parseInt(steps.value, 10); }
+  if(cfg && cfg.value !== ''){ tuning.cfgScale = parseFloat(cfg.value); }
+  return tuning;
+}
 function clampWorkspaceWidth(value){
   var width = Number(value);
   if(!isFinite(width)){ width = WORKSPACE_DEFAULT_WIDTH; }
@@ -825,6 +840,7 @@ function setGenerationSettings(settings){
   if(Object.prototype.hasOwnProperty.call(source, 'height') && el('customHeight')){ el('customHeight').value = source.height || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'seed') && el('seed')){ el('seed').value = String(source.seed || 0); }
   updateCustomSizeVisibility();
+  updateDevTuningVisibility();
 }
 function setNextGenerationSourceRecord(id){
   pendingSourceRecordId = id || '';
@@ -1050,6 +1066,22 @@ function clearLocalData(){
       setStatus('清除本機資料失敗：' + error.message, 'fail');
     }
   }
+}
+
+function readVisionQa(){
+  var field = el('visionQa');
+  return !!(field && field.checked);
+}
+
+function visionQaSummary(report){
+  var issues;
+  if(!report){ return ''; }
+  if(report.available === false){ return ' · AI 檢查暫時不可用'; }
+  issues = Array.isArray(report.detectedIssues) ? report.detectedIssues : [];
+  return ' · AI 檢查：符合度 ' + String(report.promptMatchScore || 0) +
+    '／構圖 ' + String(report.compositionScore || 0) +
+    '／畫質 ' + String(report.visualQualityScore || 0) +
+    (issues.length ? '，問題：' + issues.join('、') : '');
 }
 
 function readBatchCount(){
@@ -1364,6 +1396,7 @@ function generate(options){
   }
 
   var batchCount = readBatchCount();
+  var devTuning = readDevTuning();
   if(batchCount > 1){
     return fetch('/generate/batch', {
       method: 'POST',
@@ -1376,6 +1409,8 @@ function generate(options){
         width: settings.width,
         height: settings.height,
         seed: settings.seed,
+        steps: devTuning.steps,
+        cfgScale: devTuning.cfgScale,
         count: batchCount,
         turnstileToken: readTurnstileToken()
       })
@@ -1426,6 +1461,9 @@ function generate(options){
       width: settings.width,
       height: settings.height,
       seed: settings.seed,
+      steps: devTuning.steps,
+      cfgScale: devTuning.cfgScale,
+      visionQa: readVisionQa(),
       turnstileToken: readTurnstileToken()
     })
   }).then(function(response){
@@ -1486,7 +1524,7 @@ function generate(options){
       pendingSourceRecordId = '';
       providerNote = providerNoteFor(generatedRecord.provider);
       setGenerationState('success');
-      setStatus('✅ 完成，耗時 ' + secs + ' 秒 ' + providerNote, 'done');
+      setStatus('✅ 完成，耗時 ' + secs + ' 秒 ' + providerNote + visionQaSummary(data.visionQa), 'done');
     });
   }).then(function(result){
     cleanupGenerate();
@@ -1642,6 +1680,7 @@ function applyTemplateFromUrl(){
   if(el('customWidth') && params.get('width')){ el('customWidth').value = params.get('width'); }
   if(el('customHeight') && params.get('height')){ el('customHeight').value = params.get('height'); }
   updateCustomSizeVisibility();
+  updateDevTuningVisibility();
   setSelectIfOptionExists('promptStyle', params.get('style'));
   setSelectIfOptionExists('useCase', params.get('useCase'));
   if(el('advancedSettings')){ el('advancedSettings').open = true; }
@@ -1763,6 +1802,8 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
   if(el('size')){ el('size').addEventListener('change', function(){ updateCustomSizeVisibility(); if(!generationInFlight){ setGenerationState('idle'); } }); }
+  if(el('model')){ el('model').addEventListener('change', function(){ updateDevTuningVisibility(); }); }
+  updateDevTuningVisibility();
   if(el('customWidth')){ el('customWidth').addEventListener('input', function(){ if(!generationInFlight){ setGenerationState('idle'); } }); }
   if(el('customHeight')){ el('customHeight').addEventListener('input', function(){ if(!generationInFlight){ setGenerationState('idle'); } }); }
   updateCustomSizeVisibility();
