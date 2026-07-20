@@ -507,13 +507,17 @@ def _resolve_provider_and_request(
 ) -> tuple[Any, GenerationRequest]:
     """Pick the backend for the fast tier ("schnell").
 
-    - Workers AI configured -> use it (matches the Cloudflare Worker deploy).
-    - Otherwise the chosen provider handles schnell directly: NVIDIA maps schnell
-      to the live flux.2-klein-4b endpoint (flux.1-schnell went dark 2026-07),
-      and Demo renders it locally. No model rewrite needed.
+    - NVIDIA available -> use it (matches the Cloudflare Worker deploy: the
+      Workers AI models apply a stricter content filter, so Workers AI is only
+      the fallback when no NVIDIA key is configured).
+    - Otherwise Workers AI if configured, else Demo renders it locally.
     """
     provider = choose_provider(settings)
-    if request.model == "schnell" and _workers_ai_configured(settings):
+    if (
+        request.model == "schnell"
+        and _workers_ai_configured(settings)
+        and not isinstance(provider, NvidiaProvider)
+    ):
         return WorkersAiProvider(settings), request
     return provider, request
 

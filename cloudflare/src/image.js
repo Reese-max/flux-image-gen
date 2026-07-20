@@ -474,7 +474,10 @@ export async function generateOneImage(env, { prompt, model, size, width, height
   } else {
     [width, height] = SIZE_MAP[size];
   }
-  if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
+  // Fast tier prefers NVIDIA (schnell maps to flux.1-dev below) because the
+  // Workers AI models apply a stricter content filter; Workers AI is only the
+  // fallback for key-less deploys.
+  if (model === "schnell" && !getNvidiaApiKey(env) && env && env.AI && typeof env.AI.run === "function") {
     return generateWithWorkersAi(env, { prompt, model, width, height, seed });
   }
   const key = getNvidiaApiKey(env);

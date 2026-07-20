@@ -2084,7 +2084,7 @@ test('POST /generate model=schnell uses Workers AI with size and a real seed', a
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'landscape', seed: 0 }),
-    fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+    fakeEnv({ AI: ai })
   );
   const data = await response.json();
 
@@ -2100,6 +2100,34 @@ test('POST /generate model=schnell uses Workers AI with size and a real seed', a
   assert.equal(ai.calls[0].fields.width, '1344');
   assert.equal(ai.calls[0].fields.height, '768');
   assert.equal(String(data.seed), ai.calls[0].fields.seed);
+});
+
+test('POST /generate model=schnell prefers NVIDIA dev over Workers AI when a key exists', async () => {
+  const originalFetch = globalThis.fetch;
+  let providerUrl;
+  globalThis.fetch = async function (url, init) {
+    providerUrl = String(url);
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 12345 }),
+      fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(providerUrl, /flux\.1-dev$/);
+    assert.equal(data.provider, 'nvidia');
+    assert.equal(data.model, 'dev');
+    assert.equal(ai.calls.length, 0, 'Workers AI must not run when NVIDIA is available');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('POST /generate model=schnell uses FLUX.1 schnell for the default square preset', async () => {
@@ -2204,7 +2232,7 @@ test('POST /generate never crosses to NVIDIA after a Workers AI run starts', asy
   try {
     const response = await worker.fetch(
       jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'landscape', seed: 42 }),
-      fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+      fakeEnv({ AI: ai })
     );
     const data = await response.json();
     assert.equal(response.status, 502);
@@ -2278,7 +2306,7 @@ test('POST /generate/batch model=schnell runs every image on Workers AI', async 
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   const response = await worker.fetch(
     jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 3 }),
-    fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
+    fakeEnv({ AI: ai })
   );
   const data = await response.json();
   assert.equal(response.status, 200);

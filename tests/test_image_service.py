@@ -489,12 +489,22 @@ class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
         # No rewrite: schnell hits klein directly (see MODEL_ENDPOINTS).
         self.assertEqual(request.model, "schnell")
 
-    def test_schnell_with_workers_ai_configured_uses_workers_ai(self):
-        from app.image_service import WorkersAiProvider, _resolve_provider_and_request
+    def test_schnell_prefers_nvidia_over_workers_ai_when_key_exists(self):
+        from app.image_service import NvidiaProvider, _resolve_provider_and_request
 
         settings = Settings(
             nvidia_api_key="dummy-key", image_provider="nvidia", cf_account_id="acct", cf_api_token="tok"
         )
+        provider, request = _resolve_provider_and_request(
+            GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
+        )
+        self.assertIsInstance(provider, NvidiaProvider)
+        self.assertEqual(request.model, "schnell")
+
+    def test_schnell_without_nvidia_falls_back_to_workers_ai(self):
+        from app.image_service import WorkersAiProvider, _resolve_provider_and_request
+
+        settings = Settings(nvidia_api_key="", image_provider="auto", cf_account_id="acct", cf_api_token="tok")
         provider, request = _resolve_provider_and_request(
             GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
         )

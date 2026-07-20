@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- 快速檔改為優先走 NVIDIA（schnell 映射到 FLUX.1-dev）：Workers AI 的模型端內容過濾較嚴、易誤殺一般描述，現在只有未設定 NVIDIA 金鑰時才退回 Workers AI。Cloudflare Worker 與 FastAPI REST twin 行為一致。
+
 - 快速檔依尺寸分流以降低成本並保住尺寸設定：預設 1024×1024 正方形改走較便宜的 Cloudflare FLUX.1 schnell（JSON、`steps=4`、不帶自訂尺寸），非正方形與自訂尺寸仍走 FLUX.2 klein（支援 width/height）。Cloudflare Worker 與 FastAPI REST twin 行為一致。
 - 防止隱性重複計費：Workers AI 生圖／改圖每個使用者請求最多一次 `AI.run`，啟動後不自動重送或跨供應商；NVIDIA、Gemini 與 Vision QA 則記錄實際 Provider 嘗試次數與保守估算成本。
 - Batch 改用完整收斂結果：部分成功回傳成功圖片與逐張錯誤，全部失敗維持非 2xx；前端會顯示成功／失敗張數，不再把空結果當成功。
