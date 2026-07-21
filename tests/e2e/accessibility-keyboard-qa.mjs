@@ -453,7 +453,8 @@ async function main() {
     ok('效果強化在離線 fallback 下仍可操作', counters.enhance === 1, JSON.stringify(counters));
     ok('AI 效果強化完成後顯示總耗時', /耗時 \d+\.\d 秒/.test(await page.locator('#status').innerText()));
 
-    const tabStops = await collectTabStops(page);
+    // 調參欄位（devSteps/devCfgScale）合併後永遠顯示，走到結果按鈕需要多幾步。
+    const tabStops = await collectTabStops(page, 20);
     ok('成功後結果操作可用鍵盤抵達', tabStops.indexOf('dl') !== -1 || tabStops.indexOf('regenerate') !== -1 || tabStops.indexOf('copyPrompt') !== -1, JSON.stringify(tabStops));
 
     await page.fill('#plainPrompt', '全新的產品攝影描述');
