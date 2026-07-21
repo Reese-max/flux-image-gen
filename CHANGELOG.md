@@ -4,6 +4,8 @@
 
 ### Changed
 
+- 手機版首屏直達輸入框：≤620px 隱藏 hero 副標語與教學按鈕（教學入口改為頂欄 44px「?」鈕）、主標題縮為單行，描述輸入框在 iPhone 13 首屏即完整可見（promptTop 598→412px）。範例 Gallery 改為橫向滑動卡片，生成分頁總長 5552→2747px。
+
 - 畫質選單合併為單一模型：快速／高品質兩檔實際上都走 NVIDIA FLUX.1-dev，前端移除下拉選單、調參欄位（steps／cfg_scale）永遠顯示。隱藏的 `#model` select 保留在 DOM，歷史再生、分享連結與舊點子卡的 model 值仍可回填，後端也持續接受 `schnell` 值。
 - Cloudflare Worker 補上 `steps`／`cfgScale` 參數支援：先前只有 FastAPI 版接收調參，Worker 一律寫死 30／5；現在 `/generate` 與 `/generate/batch` 會驗證（steps 1–50、cfg_scale 1–10）並傳給 NVIDIA，超界回 400。
 

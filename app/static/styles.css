@@ -2467,6 +2467,27 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .tab-mobile-label { display: inline; font-size: 12px; }
   .tab-ico { font-size: 15px; }
   .tab-badge { min-width: 16px; height: 16px; padding-inline: 4px; margin-left: 0; font-size: 10px; }
+
+  /* 手機首屏直達輸入框：標語只留主標題一行級距，教學入口改由頂欄「?」承接。 */
+  .eyebrow, .lede, .hero .help-btn { display: none; }
+  .topbar-help {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; min-height: 44px; border-radius: 999px;
+    border: 1px solid var(--accent-line); background: var(--accent-soft);
+    color: var(--text); font-weight: 800; cursor: pointer;
+  }
+  .title { margin-bottom: 4px; font-size: clamp(24px, 7.4vw, 30px); }
+  .title br { display: none; }
+  .section-kicker { display: none; }
+  .section-heading h2 { font-size: 17px; }
+  .workspace-panel-head { padding-block: 8px; }
+
+  /* 範例牆改橫向滑動，避免生成分頁在手機被拉成十幾屏長。 */
+  .example-grid {
+    display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+    gap: 12px; padding-bottom: 10px; -webkit-overflow-scrolling: touch;
+  }
+  .example-grid .example-card { flex: 0 0 76%; scroll-snap-align: start; min-width: 0; }
 }
 /* 極窄螢幕仍維持四等分，只再縮小圖示與短標籤。 */
 @media (max-width: 380px) {

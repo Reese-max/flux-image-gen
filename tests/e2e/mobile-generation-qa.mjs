@@ -236,7 +236,7 @@ async function main() {
     await page.waitForFunction(() => document.querySelectorAll('.prompt-pack .idea').length === 6, null, { timeout: 10000 });
     ok('首次展開分類時才建立該分類卡片', await page.locator('.prompt-pack .idea').count() === 6);
     const mobileTargets = await page.evaluate(() => {
-      const selectors = ['#openTutorial', '#tab-generate', '#tab-edit', '#tab-projects', '#tab-history', '#promptStyle', '#useCase', '.prompt-pack-browser > summary', '.prompt-pack .pack-cat > summary', '#openPrivacyPolicy', '#openLicensePolicy', '#openUsagePanel'];
+      const selectors = ['#openTutorialTopbar', '#tab-generate', '#tab-edit', '#tab-projects', '#tab-history', '#promptStyle', '#useCase', '.prompt-pack-browser > summary', '.prompt-pack .pack-cat > summary', '#openPrivacyPolicy', '#openLicensePolicy', '#openUsagePanel'];
       return selectors.map((selector) => {
         const rect = document.querySelector(selector).getBoundingClientRect();
         return { selector, width: rect.width, height: rect.height };
