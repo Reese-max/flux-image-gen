@@ -278,11 +278,14 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(validate_steps(None))
         self.assertIsNone(validate_cfg_scale(None))
         self.assertEqual(validate_steps(50), 50)
-        self.assertEqual(validate_cfg_scale(1), 1.0)
-        for bad in (0, 51, True, 3.5, "30"):
+        self.assertEqual(validate_steps(5), 5)
+        self.assertEqual(validate_cfg_scale(1.5), 1.5)
+        self.assertEqual(validate_cfg_scale(9), 9.0)
+        # NVIDIA flux.1-dev 實測邊界：steps >= 5、cfg_scale > 1 且 <= 9。
+        for bad in (0, 4, 51, True, 3.5, "30"):
             with self.assertRaises(ValueError):
                 validate_steps(bad)
-        for bad in (0.9, 10.1, True, "5"):
+        for bad in (0.9, 1.0, 9.1, True, "5"):
             with self.assertRaises(ValueError):
                 validate_cfg_scale(bad)
 

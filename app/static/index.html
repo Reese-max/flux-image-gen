@@ -217,11 +217,11 @@
                 <option value="dev" selected>高品質（較慢）</option>
               </select>
               <div id="devTuning" class="custom-size-fields">
-                <label>細緻度 steps
-                  <input id="devSteps" class="text-input" type="number" min="1" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
+                <label>細緻度 steps（5–50）
+                  <input id="devSteps" class="text-input" type="number" min="5" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
                 </label>
-                <label>貼合提示詞 cfg_scale
-                  <input id="devCfgScale" class="text-input" type="number" min="1" max="10" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
+                <label>貼合提示詞 cfg_scale（1.5–9）
+                  <input id="devCfgScale" class="text-input" type="number" min="1.5" max="9" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
                 </label>
                 <p class="seed-advanced-hint">steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
               </div>

@@ -2406,6 +2406,35 @@ test('POST /generate maps an upstream fetch timeout to a clean 504 timeout error
   }
 });
 
+test('POST /generate flattens a FastAPI-style detail array from NVIDIA 422', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        detail: [
+          { type: 'less_than_equal', loc: ['body', 'cfg_scale'], msg: 'Input should be less than or equal to 9', input: 10 },
+          { type: 'greater_than_equal', loc: ['body', 'steps'], msg: 'Input should be greater than or equal to 5', input: 1 },
+        ],
+      }),
+      { status: 422, headers: { 'Content-Type': 'application/json' } }
+    );
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'dev', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 422);
+    assert.equal(data.code, 'nvidia_error');
+    assert.ok(!data.error.includes('[object Object]'), 'detail objects must be flattened');
+    assert.match(data.error, /cfg_scale Input should be less than or equal to 9/);
+    assert.match(data.error, /steps Input should be greater than or equal to 5/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate surfaces a clean nvidia_error when a 4xx body is not JSON', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>

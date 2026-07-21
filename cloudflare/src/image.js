@@ -254,19 +254,20 @@ export function validatePrompt(prompt) {
   return cleaned;
 }
 
-// Mirrors the FastAPI twin's dev-tier tuning bounds (steps 1-50, cfg 1-10).
+// Mirrors the FastAPI twin's dev-tier tuning bounds. NVIDIA flux.1-dev's
+// measured limits (2026-07-21): steps >= 5, cfg_scale > 1 and <= 9.
 export function validateSteps(steps) {
   if (steps === undefined || steps === null || steps === "") return null;
-  if (typeof steps !== "number" || !Number.isInteger(steps) || steps < 1 || steps > 50) {
-    throw new HttpError("steps 必須是 1 到 50 之間的整數", 400, "bad_request");
+  if (typeof steps !== "number" || !Number.isInteger(steps) || steps < 5 || steps > 50) {
+    throw new HttpError("steps 必須是 5 到 50 之間的整數", 400, "bad_request");
   }
   return steps;
 }
 
 export function validateCfgScale(cfgScale) {
   if (cfgScale === undefined || cfgScale === null || cfgScale === "") return null;
-  if (typeof cfgScale !== "number" || !Number.isFinite(cfgScale) || cfgScale < 1 || cfgScale > 10) {
-    throw new HttpError("cfg_scale 必須介於 1 到 10", 400, "bad_request");
+  if (typeof cfgScale !== "number" || !Number.isFinite(cfgScale) || cfgScale < 1.5 || cfgScale > 9) {
+    throw new HttpError("cfg_scale 必須介於 1.5 到 9", 400, "bad_request");
   }
   return cfgScale;
 }
@@ -443,14 +444,19 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed, ste
     let msg = `NVIDIA HTTP ${resp.status}`;
     let raw = "";
     try {
-      raw = (await readLimitedText(resp, 300)).trim();
+      raw = (await readLimitedText(resp, 600)).trim();
     } catch {
       // keep the generic message
     }
     if (raw) {
       try {
         const d = JSON.parse(raw);
-        msg = d.error || d.message || (d.detail ? `NVIDIA HTTP ${resp.status}: ${d.detail}` : msg);
+        // detail can be a FastAPI-style array of {loc, msg} objects; plain
+        // string interpolation would render "[object Object]".
+        const detail = Array.isArray(d.detail)
+          ? d.detail.map((item) => (item && item.msg ? `${(item.loc || []).slice(-1)[0] || ""} ${item.msg}`.trim() : String(item))).join("；")
+          : d.detail;
+        msg = d.error || d.message || (detail ? `NVIDIA HTTP ${resp.status}: ${detail}` : msg);
       } catch {
         msg = raw;
       }

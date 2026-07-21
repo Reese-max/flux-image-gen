@@ -41,11 +41,12 @@ MAX_SEED = 2147483647
 SEED_ERROR_MESSAGE = f"seed 必須是 0 到 {MAX_SEED} 之間的整數"
 # ponytail: dev 逐次調參的邊界取保守值（NVIDIA 官方 API 參考頁是 JS 渲染，抓不到
 # 正式 min/max）。落在範圍內但被 NVIDIA 拒絕時，仍會由既有 ProviderError 回報。
-MIN_DEV_STEPS = 1
+# NVIDIA flux.1-dev 實測邊界（2026-07-21）：steps >= 5、cfg_scale > 1 且 <= 9。
+MIN_DEV_STEPS = 5
 MAX_DEV_STEPS = 50
 STEPS_ERROR_MESSAGE = f"steps 必須是 {MIN_DEV_STEPS} 到 {MAX_DEV_STEPS} 之間的整數"
-MIN_DEV_CFG_SCALE = 1.0
-MAX_DEV_CFG_SCALE = 10.0
+MIN_DEV_CFG_SCALE = 1.5
+MAX_DEV_CFG_SCALE = 9.0
 CFG_SCALE_ERROR_MESSAGE = f"cfg_scale 必須介於 {MIN_DEV_CFG_SCALE} 到 {MAX_DEV_CFG_SCALE}"
 MIN_CUSTOM_DIMENSION = 256
 MAX_CUSTOM_DIMENSION = 1920

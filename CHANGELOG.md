@@ -8,7 +8,9 @@
 - 手機版再瘦身：生成前的空預覽畫布整段收起（生成開始或已有結果即恢復；不支援 `:has()` 的舊瀏覽器維持原樣）、「幫我想梗」與自訂風格卡改單列橫滑、風格卡說明文收起。生成分頁總長 2747→2005px。
 
 - 畫質選單合併為單一模型：快速／高品質兩檔實際上都走 NVIDIA FLUX.1-dev，前端移除下拉選單、調參欄位（steps／cfg_scale）永遠顯示。隱藏的 `#model` select 保留在 DOM，歷史再生、分享連結與舊點子卡的 model 值仍可回填，後端也持續接受 `schnell` 值。
-- Cloudflare Worker 補上 `steps`／`cfgScale` 參數支援：先前只有 FastAPI 版接收調參，Worker 一律寫死 30／5；現在 `/generate` 與 `/generate/batch` 會驗證（steps 1–50、cfg_scale 1–10）並傳給 NVIDIA，超界回 400。
+- Cloudflare Worker 補上 `steps`／`cfgScale` 參數支援：先前只有 FastAPI 版接收調參，Worker 一律寫死 30／5；現在 `/generate` 與 `/generate/batch` 會驗證並傳給 NVIDIA，超界回 400。
+- 調參範圍對齊 NVIDIA flux.1-dev 實測邊界：steps 5–50、cfg_scale 1.5–9（原 1–50／1–10 超界值會被 NVIDIA 422 拒絕）。前端輸入框、FastAPI 與 Worker 驗證三處同步。
+- NVIDIA 422 錯誤訊息不再顯示「[object Object]」：FastAPI 式 detail 陣列攤平成「欄位＋原因」，錯誤 body 讀取上限 300→600 字避免截斷。
 
 ### Fixed
 
