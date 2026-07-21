@@ -2647,3 +2647,12 @@ test('POST /edit rejects zero images with 400', async () => {
   const response = await worker.fetch(editRequest('edit', 0), aiEnv(() => ({ image: 'x' })));
   assert.equal(response.status, 400);
 });
+
+test('GET /api/health reports whether Vision QA is enabled', async () => {
+  const off = await (await worker.fetch(new Request('http://worker.test/api/health'), fakeEnv({}))).json();
+  assert.equal(off.visionQa, false);
+  const on = await (
+    await worker.fetch(new Request('http://worker.test/api/health'), fakeEnv({ VISION_QA_ENABLED: 'true' }))
+  ).json();
+  assert.equal(on.visionQa, true);
+});

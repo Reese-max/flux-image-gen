@@ -11,6 +11,8 @@
 - Cloudflare Worker 補上 `steps`／`cfgScale` 參數支援：先前只有 FastAPI 版接收調參，Worker 一律寫死 30／5；現在 `/generate` 與 `/generate/batch` 會驗證並傳給 NVIDIA，超界回 400。
 - 調參範圍對齊 NVIDIA flux.1-dev 實測邊界：steps 5–50、cfg_scale 1.5–9（原 1–50／1–10 超界值會被 NVIDIA 422 拒絕）。前端輸入框、FastAPI 與 Worker 驗證三處同步。
 - NVIDIA 422 錯誤訊息不再顯示「[object Object]」：FastAPI 式 detail 陣列攤平成「欄位＋原因」，錯誤 body 讀取上限 300→600 字避免截斷。
+- 「生成後 AI 檢查」勾選框只在後端真的啟用 Vision QA 時顯示：`/api/health` 新增 `visionQa` 欄位（Worker 與 FastAPI 同步），未啟用時整列收起，不再讓使用者勾了沒效果。
+- 「不想出現的東西」加誠實提示：FLUX 沒有真正的負面提示詞，該欄位只是把 avoid 文字併進描述，不保證排除。
 
 ### Fixed
 

@@ -231,6 +231,7 @@ def api_health() -> dict[str, object]:
         "providers": providers,
         "hasApiKey": has_nvidia_key or has_workers_ai_key,
         "storageAvailable": False,
+        "visionQa": settings.vision_qa_enabled,
         "turnstile": {
             "required": turnstile_enabled(settings),
             "siteKey": settings.turnstile_site_key.strip() if turnstile_enabled(settings) else "",

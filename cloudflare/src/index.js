@@ -138,6 +138,7 @@ function buildHealthResponse(env) {
     ],
     hasApiKey: hasNvidia || hasWorkersAI,
     storageAvailable,
+    visionQa: String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true",
     turnstile: turnstileConfig(env),
     message,
     checkedAt: new Date().toISOString(),

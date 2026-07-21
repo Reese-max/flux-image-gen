@@ -1709,6 +1709,12 @@ function refreshProvider(){
     message = data && data.message ? data.message : (PROVIDER_STATUS_COPY[status] || PROVIDER_STATUS_COPY.error);
     setProviderStatus(status, message);
     configureTurnstile(data && data.turnstile ? data.turnstile : null);
+    // 後端未啟用 Vision QA 時整列收起，避免使用者勾了沒有任何效果。
+    var visionField = el('visionQa');
+    if(visionField){
+      var visionRow = visionField.closest('label.field');
+      if(visionRow){ visionRow.hidden = !(data && data.visionQa === true); }
+    }
     if(window.ImageEdit && typeof window.ImageEdit.applyHealth === 'function'){
       window.ImageEdit.applyHealth(data);
     }
