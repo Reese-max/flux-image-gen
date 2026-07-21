@@ -2499,6 +2499,15 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .idea-grid .custom-empty { flex: 1 0 100%; }
   .custom-ideas-copy { display: none; }
   .custom-ideas { margin-top: 14px; padding-top: 14px; }
+
+  /* 精選提示詞：標題與可點的 summary 列重複，手機只留 summary。 */
+  .prompt-pack .ideas-title { display: none; }
+
+  /* 範例卡縮成兩張一屏的小卡，卡內描述收起（標題與套用按鈕保留）。 */
+  .example-gallery { padding: 14px; margin-bottom: 16px; }
+  .example-grid .example-card { flex-basis: 56%; }
+  .example-body { padding: 10px; gap: 6px; }
+  .example-body p { display: none; }
 }
 /* 極窄螢幕仍維持四等分，只再縮小圖示與短標籤。 */
 @media (max-width: 380px) {
