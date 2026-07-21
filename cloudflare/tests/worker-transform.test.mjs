@@ -2105,8 +2105,10 @@ test('POST /generate model=schnell uses Workers AI with size and a real seed', a
 test('POST /generate model=schnell prefers NVIDIA dev over Workers AI when a key exists', async () => {
   const originalFetch = globalThis.fetch;
   let providerUrl;
+  let providerPayload;
   globalThis.fetch = async function (url, init) {
     providerUrl = String(url);
+    providerPayload = JSON.parse(init.body);
     return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -2116,7 +2118,7 @@ test('POST /generate model=schnell prefers NVIDIA dev over Workers AI when a key
 
   try {
     const response = await worker.fetch(
-      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 12345 }),
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 12345, steps: 15, cfgScale: 3.5 }),
       fakeEnv({ AI: ai, NVIDIA_API_KEY: 'test-key' })
     );
     const data = await response.json();
@@ -2124,9 +2126,29 @@ test('POST /generate model=schnell prefers NVIDIA dev over Workers AI when a key
     assert.match(providerUrl, /flux\.1-dev$/);
     assert.equal(data.provider, 'nvidia');
     assert.equal(data.model, 'dev');
+    // The merged fast tier must honor the user's tuning fields.
+    assert.equal(providerPayload.steps, 15);
+    assert.equal(providerPayload.cfg_scale, 3.5);
     assert.equal(ai.calls.length, 0, 'Workers AI must not run when NVIDIA is available');
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate rejects out-of-range steps and cfgScale with 400', async () => {
+  for (const body of [
+    { prompt: 'a cat', model: 'dev', size: 'square', steps: 0 },
+    { prompt: 'a cat', model: 'dev', size: 'square', steps: 51 },
+    { prompt: 'a cat', model: 'dev', size: 'square', cfgScale: 0.5 },
+    { prompt: 'a cat', model: 'dev', size: 'square', cfgScale: 11 },
+  ]) {
+    const response = await worker.fetch(
+      jsonRequest('/generate', body),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 400, JSON.stringify(body));
+    assert.equal(data.code, 'bad_request');
   }
 });
 

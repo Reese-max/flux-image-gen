@@ -209,23 +209,21 @@
         <div class="composer-foot">
           <div class="controls">
             <label class="field">
-              <span class="field-label">畫質</span>
-              <div class="select-wrap">
-                <select id="model" aria-label="選擇畫質">
-                  <!-- 快速檔的預設正方形走 Cloudflare FLUX.1 schnell；非正方形與自訂尺寸保留 FLUX.2 klein，避免尺寸設定失效。 -->
-                  <option value="schnell" selected>快速（草稿）</option>
-                  <option value="dev">高品質（較慢）</option>
-                </select>
-                <span class="chevron" aria-hidden="true">▾</span>
-              </div>
-              <div id="devTuning" class="custom-size-fields" hidden>
+              <span class="field-label">生成參數</span>
+              <!-- 兩個畫質檔已合併：生成一律走 NVIDIA FLUX.1-dev。select 保留在
+                   DOM 供歷史再生／分享連結／點子卡回填 model 值，不再顯示。 -->
+              <select id="model" hidden aria-hidden="true">
+                <option value="schnell">快速（草稿）</option>
+                <option value="dev" selected>高品質（較慢）</option>
+              </select>
+              <div id="devTuning" class="custom-size-fields">
                 <label>細緻度 steps
                   <input id="devSteps" class="text-input" type="number" min="1" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
                 </label>
                 <label>貼合提示詞 cfg_scale
                   <input id="devCfgScale" class="text-input" type="number" min="1" max="10" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
                 </label>
-                <p class="seed-advanced-hint">只對「高品質」有效。steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
+                <p class="seed-advanced-hint">steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
               </div>
               <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
             </label>
@@ -822,11 +820,12 @@
             <textarea id="ideaNegativePrompt" rows="2" maxlength="1200" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, watermark）"></textarea>
           </label>
           <div class="form-grid">
-            <label class="form-field">
+            <!-- 畫質檔已合併為單一模型；select 保留供舊卡片的 model 值回填。 -->
+            <label class="form-field" hidden>
               <span>畫質</span>
               <select id="ideaModel">
                 <option value="schnell">快速（草稿）</option>
-                <option value="dev">高品質（較慢）</option>
+                <option value="dev" selected>高品質（較慢）</option>
               </select>
             </label>
             <label class="form-field">

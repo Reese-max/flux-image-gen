@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- 畫質選單合併為單一模型：快速／高品質兩檔實際上都走 NVIDIA FLUX.1-dev，前端移除下拉選單、調參欄位（steps／cfg_scale）永遠顯示。隱藏的 `#model` select 保留在 DOM，歷史再生、分享連結與舊點子卡的 model 值仍可回填，後端也持續接受 `schnell` 值。
+- Cloudflare Worker 補上 `steps`／`cfgScale` 參數支援：先前只有 FastAPI 版接收調參，Worker 一律寫死 30／5；現在 `/generate` 與 `/generate/batch` 會驗證（steps 1–50、cfg_scale 1–10）並傳給 NVIDIA，超界回 400。
+
 ### Fixed
 
 - 快速檔改為優先走 NVIDIA（schnell 映射到 FLUX.1-dev）：Workers AI 的模型端內容過濾較嚴、易誤殺一般描述，現在只有未設定 NVIDIA 金鑰時才退回 Workers AI。Cloudflare Worker 與 FastAPI REST twin 行為一致。

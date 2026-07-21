@@ -581,16 +581,14 @@ function updateCustomSizeVisibility(){
   if(box && size){ box.hidden = size.value !== 'custom'; }
 }
 function updateDevTuningVisibility(){
+  // 畫質檔已合併為單一模型，調參欄位永遠顯示。
   var box = el('devTuning');
-  var model = el('model');
-  if(box && model){ box.hidden = model.value !== 'dev'; }
+  if(box){ box.hidden = false; }
 }
 function readDevTuning(){
-  var model = el('model');
   var steps = el('devSteps');
   var cfg = el('devCfgScale');
   var tuning = { steps: null, cfgScale: null };
-  if(!model || model.value !== 'dev'){ return tuning; }
   if(steps && steps.value !== ''){ tuning.steps = parseInt(steps.value, 10); }
   if(cfg && cfg.value !== ''){ tuning.cfgScale = parseFloat(cfg.value); }
   return tuning;

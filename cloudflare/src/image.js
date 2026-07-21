@@ -254,6 +254,23 @@ export function validatePrompt(prompt) {
   return cleaned;
 }
 
+// Mirrors the FastAPI twin's dev-tier tuning bounds (steps 1-50, cfg 1-10).
+export function validateSteps(steps) {
+  if (steps === undefined || steps === null || steps === "") return null;
+  if (typeof steps !== "number" || !Number.isInteger(steps) || steps < 1 || steps > 50) {
+    throw new HttpError("steps 必須是 1 到 50 之間的整數", 400, "bad_request");
+  }
+  return steps;
+}
+
+export function validateCfgScale(cfgScale) {
+  if (cfgScale === undefined || cfgScale === null || cfgScale === "") return null;
+  if (typeof cfgScale !== "number" || !Number.isFinite(cfgScale) || cfgScale < 1 || cfgScale > 10) {
+    throw new HttpError("cfg_scale 必須介於 1 到 10", 400, "bad_request");
+  }
+  return cfgScale;
+}
+
 export function validateSeed(seed) {
   if (seed === undefined || seed === null || seed === "") return 0;
   if (!Number.isInteger(seed) || seed < 0 || seed > MAX_SEED) {
@@ -362,14 +379,14 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
   };
 }
 
-async function generateWithNvidia(env, { prompt, model, width, height, seed }, { provider = "nvidia" } = {}) {
+async function generateWithNvidia(env, { prompt, model, width, height, seed, steps, cfgScale }, { provider = "nvidia" } = {}) {
   const key = getNvidiaApiKey(env);
   const base = (env.NVIDIA_BASE_URL || "https://ai.api.nvidia.com/v1/genai").replace(/\/+$/, "");
   const endpoint = `${base}/${MODEL_ENDPOINTS[model]}`;
   const body = { prompt, width, height, seed };
   if (model === "dev") {
-    body.cfg_scale = 5;
-    body.steps = 30;
+    body.cfg_scale = cfgScale ?? 5;
+    body.steps = steps ?? 30;
   }
 
   let resp = null;
@@ -467,7 +484,7 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed }, {
 
 // Generate ONE image. Returns a plain result object, or throws HttpError on a
 // provider/validation failure. Shared by /generate and /generate/batch.
-export async function generateOneImage(env, { prompt, model, size, width, height, seed }) {
+export async function generateOneImage(env, { prompt, model, size, width, height, seed, steps, cfgScale }) {
   if (size === "custom") {
     width = validateCustomDimension(width);
     height = validateCustomDimension(height);
@@ -486,9 +503,9 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
   }
   if (model === "schnell") {
-    return generateWithNvidia(env, { prompt, model: "dev", width, height, seed });
+    return generateWithNvidia(env, { prompt, model: "dev", width, height, seed, steps, cfgScale });
   }
-  return generateWithNvidia(env, { prompt, model, width, height, seed });
+  return generateWithNvidia(env, { prompt, model, width, height, seed, steps, cfgScale });
 }
 
 export function validateEditImages(images) {

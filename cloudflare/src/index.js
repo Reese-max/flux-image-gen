@@ -23,8 +23,10 @@ import {
   validateBatchCount,
   validateCustomDimension,
   validateEditImages,
+  validateCfgScale,
   validatePrompt,
   validateSeed,
+  validateSteps,
 } from "./image.js";
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
@@ -228,7 +230,7 @@ async function handleGenerate(request, env) {
     return httpErrorJson(turnstileError);
   }
 
-  let prompt, model, size, seed, width, height;
+  let prompt, model, size, seed, width, height, steps, cfgScale;
   try {
     prompt = validatePrompt(payload.prompt);
     seed = validateSeed(payload.seed);
@@ -238,6 +240,8 @@ async function handleGenerate(request, env) {
     if (size !== "custom" && !SIZE_MAP[size]) throw new HttpError("不支援的尺寸", 400, "bad_request");
     width = size === "custom" ? validateCustomDimension(payload.width) : payload.width;
     height = size === "custom" ? validateCustomDimension(payload.height) : payload.height;
+    steps = validateSteps(payload.steps);
+    cfgScale = validateCfgScale(payload.cfgScale);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordUsageEvent(env, request, {
@@ -254,7 +258,7 @@ async function handleGenerate(request, env) {
   }
 
   try {
-    const result = await generateOneImage(env, { prompt, model, size, width, height, seed });
+    const result = await generateOneImage(env, { prompt, model, size, width, height, seed, steps, cfgScale });
     // Persist the billable image immediately. Optional QA must never hide a
     // completed provider call or make the client retry the generation.
     await recordUsageEvent(env, request, {
@@ -358,7 +362,7 @@ async function handleGenerateBatch(request, env) {
     return httpErrorJson(turnstileError);
   }
 
-  let prompt, model, size, seed, count, hasExplicitSeed, width, height;
+  let prompt, model, size, seed, count, hasExplicitSeed, width, height, steps, cfgScale;
   try {
     prompt = validatePrompt(payload.prompt);
     seed = validateSeed(payload.seed);
@@ -370,6 +374,8 @@ async function handleGenerateBatch(request, env) {
     width = size === "custom" ? validateCustomDimension(payload.width) : payload.width;
     height = size === "custom" ? validateCustomDimension(payload.height) : payload.height;
     count = validateBatchCount(payload.count);
+    steps = validateSteps(payload.steps);
+    cfgScale = validateCfgScale(payload.cfgScale);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordUsageEvent(env, request, {
@@ -391,7 +397,7 @@ async function handleGenerateBatch(request, env) {
     const tasks = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
-      tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed }));
+      tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
     }
     const settled = await Promise.allSettled(tasks);
     const images = [];
