@@ -2488,6 +2488,17 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
     gap: 12px; padding-bottom: 10px; -webkit-overflow-scrolling: touch;
   }
   .example-grid .example-card { flex: 0 0 76%; scroll-snap-align: start; min-width: 0; }
+
+  /* 生成前的空畫布是死空間：待命且未生成中時整段收起；
+     生成開始（aria-busy）或已有結果時恢復。不支援 :has 的舊瀏覽器維持原樣。 */
+  #generationPreview:has(.canvas-empty):not(:has(#stage[aria-busy="true"])) { display: none; }
+
+  /* 靈感卡改單列橫滑，風格卡說明文收起。 */
+  .idea-grid { display: flex; overflow-x: auto; gap: 10px; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
+  .idea-grid .idea { flex: 0 0 30%; min-width: 104px; scroll-snap-align: start; }
+  .idea-grid .custom-empty { flex: 1 0 100%; }
+  .custom-ideas-copy { display: none; }
+  .custom-ideas { margin-top: 14px; padding-top: 14px; }
 }
 /* 極窄螢幕仍維持四等分，只再縮小圖示與短標籤。 */
 @media (max-width: 380px) {
