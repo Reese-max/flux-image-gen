@@ -204,7 +204,6 @@ async function main() {
       const moreActions = document.querySelector('#resultMoreActions');
       const clearHistory = document.querySelector('#clearHistory');
       const historyFilters = document.querySelector('#historyFilters');
-      const deleteProject = document.querySelector('#deleteProject');
       return {
         quickIdeaCount: document.querySelectorAll('#ideasSection > .idea-grid > .idea').length,
         promptPackCardCount: document.querySelectorAll('.prompt-pack .idea').length,
@@ -218,16 +217,14 @@ async function main() {
           : [],
         emptyHistoryControlsHidden: Boolean(clearHistory && clearHistory.hidden && historyFilters && historyFilters.hidden),
         emptyHistoryCtaVisible: Boolean(document.querySelector('.history-empty .history-empty-cta')),
-        emptyProjectDeleteUnavailable: Boolean(deleteProject && deleteProject.hidden && deleteProject.disabled),
       };
     });
     ok('首頁只保留六個快速靈感', reducedEntryState.quickIdeaCount === 6, JSON.stringify(reducedEntryState));
     ok('完整提示詞初始不建立卡片 DOM', reducedEntryState.promptPackCardCount === 0 && reducedEntryState.promptPackClosed, JSON.stringify(reducedEntryState));
     ok('結果操作只直接顯示下載、再生與構圖變化', reducedEntryState.primaryActionIds.join(',') === 'dl,regenerate,useComposition'
       && reducedEntryState.downloadIsPrimary
-      && reducedEntryState.moreActionIds.join(',') === 'copySettings,copyPrompt,saveStyleCard', JSON.stringify(reducedEntryState));
+      && reducedEntryState.moreActionIds.join(',') === 'copySettings,copyPrompt', JSON.stringify(reducedEntryState));
     ok('空歷史隱藏無效控制並提供生成入口', reducedEntryState.emptyHistoryControlsHidden && reducedEntryState.emptyHistoryCtaVisible, JSON.stringify(reducedEntryState));
-    ok('無專案時刪除操作不可用', reducedEntryState.emptyProjectDeleteUnavailable, JSON.stringify(reducedEntryState));
 
     await page.locator('.prompt-pack-browser > summary').click();
     await page.waitForFunction(() => document.querySelectorAll('.prompt-pack .pack-cat').length > 0, null, { timeout: 10000 });
@@ -236,7 +233,7 @@ async function main() {
     await page.waitForFunction(() => document.querySelectorAll('.prompt-pack .idea').length === 6, null, { timeout: 10000 });
     ok('首次展開分類時才建立該分類卡片', await page.locator('.prompt-pack .idea').count() === 6);
     const mobileTargets = await page.evaluate(() => {
-      const selectors = ['#openTutorialTopbar', '#tab-generate', '#tab-edit', '#tab-projects', '#tab-history', '#promptStyle', '#useCase', '.prompt-pack-browser > summary', '.prompt-pack .pack-cat > summary', '#openPrivacyPolicy', '#openLicensePolicy', '#openUsagePanel'];
+      const selectors = ['#openTutorialTopbar', '#tab-generate', '#tab-edit', '#tab-history', '#promptStyle', '#useCase', '.prompt-pack-browser > summary', '.prompt-pack .pack-cat > summary', '#openPrivacyPolicy', '#openLicensePolicy', '#openUsagePanel'];
       return selectors.map((selector) => {
         const rect = document.querySelector(selector).getBoundingClientRect();
         return { selector, width: rect.width, height: rect.height };
@@ -295,7 +292,7 @@ async function main() {
     });
     ok('手機底部生成列固定可用', !barBefore.hidden && barBefore.position === 'fixed' && barBefore.height > 0, JSON.stringify(barBefore));
     ok('手機生成表單維持緊湊高度', compactLayout.composerHeight <= 460, JSON.stringify(compactLayout));
-    ok('手機四個分頁完整顯示且歷史未被截斷', compactLayout.tabsDisplay === 'grid'
+    ok('手機三個分頁完整顯示且歷史未被截斷', compactLayout.tabsDisplay === 'grid'
       && compactLayout.tabsScrollWidth <= compactLayout.tabsClientWidth + 1
       && compactLayout.historyLeft >= compactLayout.tabsLeft
       && compactLayout.historyRight <= compactLayout.tabsRight + 1

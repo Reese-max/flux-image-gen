@@ -231,21 +231,8 @@ async function main() {
     const initialFeatureScripts = await page.evaluate(() => performance.getEntriesByType('resource')
       .filter((entry) => entry.initiatorType === 'script')
       .map((entry) => new URL(entry.name).pathname.split('/').pop()));
-    ok('非首屏功能初始不下載', ['image-edit.js', 'project-store.js', 'project-board.js', 'usage-dashboard.js']
+    ok('非首屏功能初始不下載', ['image-edit.js', 'usage-dashboard.js']
       .every((name) => initialFeatureScripts.indexOf(name) === -1), JSON.stringify(initialFeatureScripts));
-
-    const lazyProjectDataCleared = await page.evaluate(async () => {
-      localStorage.setItem('aiImageProjects.v1', '{"projects":[{"id":"stale"}]}');
-      const originalConfirm = window.confirm;
-      const originalSetTimeout = window.setTimeout;
-      window.confirm = () => true;
-      window.setTimeout = () => 0;
-      document.querySelector('#clearLocalData').click();
-      window.confirm = originalConfirm;
-      window.setTimeout = originalSetTimeout;
-      return localStorage.getItem('aiImageProjects.v1') === null;
-    });
-    ok('未載入專案模組時仍會清除專案資料', lazyProjectDataCleared);
 
     const workspaceLayout = await page.evaluate(() => {
       const controls = document.querySelector('#generationControls').getBoundingClientRect();
@@ -341,9 +328,6 @@ async function main() {
     ok('AI 改圖執行時會即時顯示秒數', /秒/.test(await page.locator('#editStatus').innerText()));
     await page.waitForFunction(() => /完成 ✓ · 耗時 \d+\.\d 秒/.test((document.querySelector('#editStatus') || {}).textContent || ''), null, { timeout: 10000 });
     ok('AI 改圖完成後保留總耗時', counters.edit === 1, JSON.stringify(counters));
-    await page.click('#tab-projects');
-    await page.waitForFunction(() => window.ProjectBoard && window.ImageProjectStore, null, { timeout: 10000 });
-    ok('專案功能切換時才載入', await page.locator('#projectBoard').count() === 1);
     await page.evaluate(() => window.showTab('usage'));
     await page.waitForFunction(() => window.UsageDashboard, null, { timeout: 10000 });
     ok('站長工具切換時才載入', await page.locator('#usageDashboard').count() === 1);
