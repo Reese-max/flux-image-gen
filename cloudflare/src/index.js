@@ -130,7 +130,6 @@ function buildHealthResponse(env) {
     providers: {
       nvidia: hasNvidia,
       workersAI: hasWorkersAI,
-      modal: false,
     },
     providerList: [
       ...(hasNvidia ? ["nvidia"] : []),

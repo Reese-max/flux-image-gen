@@ -80,7 +80,7 @@ function startServer() {
       sendJson(response, 200, {
         providerStatus: 'demo',
         mode: 'demo',
-        providers: { nvidia: false, workersAI: false, modal: false },
+        providers: { nvidia: false, workersAI: false },
         hasApiKey: false,
         storageAvailable: true,
         message: 'Demo 模式，不會真實出圖',

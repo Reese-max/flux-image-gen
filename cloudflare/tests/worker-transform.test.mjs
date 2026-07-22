@@ -517,7 +517,7 @@ test('POST /generate returns demo image when NVIDIA key is missing', async () =>
     assert.equal(healthData.provider, 'demo');
     assert.equal(healthData.providerStatus, 'demo');
     assert.equal(healthData.mode, 'demo');
-    assert.deepEqual(healthData.providers, { nvidia: false, workersAI: false, modal: false });
+    assert.deepEqual(healthData.providers, { nvidia: false, workersAI: false });
     assert.deepEqual(healthData.providerList, []);
     assert.equal(healthData.hasApiKey, false);
     assert.equal(response.status, 200);
@@ -818,7 +818,7 @@ test('GET /health reports workers-ai when only the AI binding is present', async
   assert.equal(data.provider, 'workers-ai');
   assert.equal(data.providerStatus, 'degraded');
   assert.equal(data.mode, 'live');
-  assert.deepEqual(data.providers, { nvidia: false, workersAI: true, modal: false });
+  assert.deepEqual(data.providers, { nvidia: false, workersAI: true });
   assert.deepEqual(data.providerList, ['workers-ai']);
   assert.equal(data.versionId, 'version-123');
   assert.equal(data.versionTag, 'commit-abc');
@@ -836,7 +836,7 @@ test('GET /health lists both providers when NVIDIA key and AI binding are presen
   assert.equal(data.provider, 'nvidia');
   assert.equal(data.providerStatus, 'ready');
   assert.equal(data.mode, 'live');
-  assert.deepEqual(data.providers, { nvidia: true, workersAI: true, modal: false });
+  assert.deepEqual(data.providers, { nvidia: true, workersAI: true });
   assert.deepEqual(data.providerList, ['nvidia', 'workers-ai']);
 });
 

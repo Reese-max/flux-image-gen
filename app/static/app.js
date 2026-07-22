@@ -1635,7 +1635,6 @@ function providerListFromHealth(data){
   if(data && data.providers && typeof data.providers === 'object'){
     if(data.providers.nvidia){ list.push('nvidia'); }
     if(data.providers.workersAI){ list.push('workers-ai'); }
-    if(data.providers.modal){ list.push('modal'); }
     return list;
   }
   if(data && data.provider && data.provider !== 'demo'){ return [data.provider]; }

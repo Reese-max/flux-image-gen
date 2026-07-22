@@ -13,6 +13,7 @@
 - NVIDIA 422 錯誤訊息不再顯示「[object Object]」：FastAPI 式 detail 陣列攤平成「欄位＋原因」，錯誤 body 讀取上限 300→600 字避免截斷。
 - 「生成後 AI 檢查」勾選框只在後端真的啟用 Vision QA 時顯示：`/api/health` 新增 `visionQa` 欄位（Worker 與 FastAPI 同步），未啟用時整列收起，不再讓使用者勾了沒效果。
 - 「不想出現的東西」加誠實提示：FLUX 沒有真正的負面提示詞，該欄位只是把 avoid 文字併進描述，不保證排除。
+- 移除 `/api/health` 的 `providers.modal` 遺跡欄位：本站早已改跑 Cloudflare Workers，該旗標恆為 `false`、前端對應分支永不觸發，屬純遺跡。Worker、FastAPI 與 app.js 同步清除。
 
 ### Fixed
 

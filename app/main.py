@@ -196,7 +196,6 @@ def api_health() -> dict[str, object]:
     providers = {
         "nvidia": has_nvidia_key,
         "workersAI": has_workers_ai_key,
-        "modal": False,
     }
     provider_status = "demo"
     mode = "demo"
