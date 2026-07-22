@@ -218,13 +218,22 @@
                 <option value="dev" selected>高品質（較慢）</option>
               </select>
               <div id="devTuning" class="custom-size-fields">
-                <label>細緻度 steps（5–50）
-                  <input id="devSteps" class="text-input" type="number" min="5" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
-                </label>
-                <label>貼合提示詞 cfg_scale（1.5–9）
-                  <input id="devCfgScale" class="text-input" type="number" min="1.5" max="9" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
-                </label>
-                <p class="seed-advanced-hint">steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
+                <div class="seed-mode" role="group" aria-label="畫質檔">
+                  <button id="qualityDraft" class="seed-mode-btn quality-preset-btn" type="button" data-preset="draft" aria-pressed="false">🚀 草稿</button>
+                  <button id="qualityBalanced" class="seed-mode-btn quality-preset-btn is-active" type="button" data-preset="balanced" aria-pressed="true">⚖️ 平衡</button>
+                  <button id="qualityFine" class="seed-mode-btn quality-preset-btn" type="button" data-preset="fine" aria-pressed="false">✨ 精緻</button>
+                </div>
+                <p id="qualityPresetHint" class="seed-mode-hint">站方推薦：速度與品質平衡，多數情況直接用這個。</p>
+                <details class="seed-advanced">
+                  <summary>自訂數值（steps / cfg_scale）</summary>
+                  <label>細緻度 steps（5–50）
+                    <input id="devSteps" class="text-input" type="number" min="5" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
+                  </label>
+                  <label>貼合提示詞 cfg_scale（1.5–9）
+                    <input id="devCfgScale" class="text-input" type="number" min="1.5" max="9" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
+                  </label>
+                  <p class="seed-advanced-hint">steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
+                </details>
               </div>
               <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
             </label>

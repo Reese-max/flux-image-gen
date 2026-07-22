@@ -593,6 +593,44 @@ function readDevTuning(){
   if(cfg && cfg.value !== ''){ tuning.cfgScale = parseFloat(cfg.value); }
   return tuning;
 }
+// 畫質檔：只是往 devSteps/devCfgScale 寫值的便利層。「平衡」＝清空＝站方預設（steps 30 / cfg 5），
+// 送出行為完全走 readDevTuning，故後端／驗證不受影響。
+var QUALITY_PRESETS = {
+  draft: { steps: '10', cfg: '3', hint: '快、省額度，先抓構圖草稿用。' },
+  balanced: { steps: '', cfg: '', hint: '站方推薦：速度與品質平衡，多數情況直接用這個。' },
+  fine: { steps: '45', cfg: '4', hint: '步數拉高，細節更足，但較慢、較耗額度。' }
+};
+function currentQualityPreset(){
+  var stepsEl = el('devSteps');
+  var cfgEl = el('devCfgScale');
+  var s = stepsEl ? stepsEl.value.trim() : '';
+  var c = cfgEl ? cfgEl.value.trim() : '';
+  var names = Object.keys(QUALITY_PRESETS);
+  for(var i = 0; i < names.length; i++){
+    if(s === QUALITY_PRESETS[names[i]].steps && c === QUALITY_PRESETS[names[i]].cfg){ return names[i]; }
+  }
+  return null;
+}
+function updateQualityPresetUi(){
+  var active = currentQualityPreset();
+  Array.prototype.forEach.call(document.querySelectorAll('.quality-preset-btn'), function(btn){
+    var on = btn.getAttribute('data-preset') === active;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  var hint = el('qualityPresetHint');
+  if(hint){
+    hint.textContent = active ? QUALITY_PRESETS[active].hint
+      : '自訂數值：steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。';
+  }
+}
+function applyQualityPreset(name){
+  var preset = QUALITY_PRESETS[name];
+  if(!preset){ return; }
+  if(el('devSteps')){ el('devSteps').value = preset.steps; }
+  if(el('devCfgScale')){ el('devCfgScale').value = preset.cfg; }
+  updateQualityPresetUi();
+}
 function clampWorkspaceWidth(value){
   var width = Number(value);
   if(!isFinite(width)){ width = WORKSPACE_DEFAULT_WIDTH; }
@@ -1807,6 +1845,12 @@ document.addEventListener('DOMContentLoaded', function(){
   if(el('size')){ el('size').addEventListener('change', function(){ updateCustomSizeVisibility(); if(!generationInFlight){ setGenerationState('idle'); } }); }
   if(el('model')){ el('model').addEventListener('change', function(){ updateDevTuningVisibility(); }); }
   updateDevTuningVisibility();
+  Array.prototype.forEach.call(document.querySelectorAll('.quality-preset-btn'), function(btn){
+    btn.addEventListener('click', function(){ applyQualityPreset(btn.getAttribute('data-preset')); });
+  });
+  if(el('devSteps')){ el('devSteps').addEventListener('input', updateQualityPresetUi); }
+  if(el('devCfgScale')){ el('devCfgScale').addEventListener('input', updateQualityPresetUi); }
+  updateQualityPresetUi();
   if(el('customWidth')){ el('customWidth').addEventListener('input', function(){ if(!generationInFlight){ setGenerationState('idle'); } }); }
   if(el('customHeight')){ el('customHeight').addEventListener('input', function(){ if(!generationInFlight){ setGenerationState('idle'); } }); }
   updateCustomSizeVisibility();

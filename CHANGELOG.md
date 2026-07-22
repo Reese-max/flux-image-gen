@@ -14,6 +14,7 @@
 - 「生成後 AI 檢查」勾選框只在後端真的啟用 Vision QA 時顯示：`/api/health` 新增 `visionQa` 欄位（Worker 與 FastAPI 同步），未啟用時整列收起，不再讓使用者勾了沒效果。
 - 「不想出現的東西」加誠實提示：FLUX 沒有真正的負面提示詞，該欄位只是把 avoid 文字併進描述，不保證排除。
 - 移除 `/api/health` 的 `providers.modal` 遺跡欄位：本站早已改跑 Cloudflare Workers，該旗標恆為 `false`、前端對應分支永不觸發，屬純遺跡。Worker、FastAPI 與 app.js 同步清除。
+- 進階設定的畫質調參改為友善預設檔：steps／cfg_scale 兩個原始數字框上方加「🚀 草稿／⚖️ 平衡／✨ 精緻」三檔一鍵切換（草稿 steps10·cfg3、平衡＝站方預設清空、精緻 steps45·cfg4），原數字框收進「自訂數值」摺疊區供進階微調。純前端便利層——送出仍走 `readDevTuning`，後端／驗證／預設行為完全不變。
 
 ### Fixed
 
