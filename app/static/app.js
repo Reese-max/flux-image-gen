@@ -1087,9 +1087,6 @@ function clearLocalData(){
   var i;
   if(!window.confirm || window.confirm('確定要清除這台瀏覽器中的歷史、風格卡、作品集與教學偏好嗎？雲端作品不會被刪除。')){
     if(window.ImageHistoryStore && window.ImageHistoryStore.STORAGE_KEY){ keys.push(window.ImageHistoryStore.STORAGE_KEY); }
-    if(window.IdeaStore && window.IdeaStore.STORAGE_KEY){ keys.push(window.IdeaStore.STORAGE_KEY); }
-    if(window.IdeaStore && window.IdeaStore.LEGACY_STORAGE_KEY){ keys.push(window.IdeaStore.LEGACY_STORAGE_KEY); }
-    keys.push(window.ImageProjectStore && window.ImageProjectStore.STORAGE_KEY ? window.ImageProjectStore.STORAGE_KEY : 'aiImageProjects.v1');
     keys.push('aiImageTutorialSeen.v1');
     keys.push(WORKSPACE_STORAGE_KEY);
     try {

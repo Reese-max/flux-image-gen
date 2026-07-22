@@ -733,33 +733,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .idea .lbl { line-height: 1.2; }
 .idea .idea-meta { color: var(--faint); font-size: 11px; font-weight: 500; line-height: 1.2; }
 
-.custom-ideas { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }
-.custom-ideas-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 14px;
-}
 .custom-ideas-copy { margin: -6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
-.mini-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.import-label { cursor: pointer; }
-.custom-grid { margin-top: 10px; }
-.custom-card { position: relative; min-width: 0; }
-.custom-card .custom-idea { width: 100%; min-height: 112px; padding-top: 18px; border: 1.5px dashed var(--line-2); }
-.custom-card .card-edit {
-  position: absolute; top: 8px; right: 8px; z-index: 1;
-  border: 1px solid var(--line-2); border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92); color: var(--muted);
-  font-family: var(--font); font-size: 11px; font-weight: 700; line-height: 1;
-  padding: 5px 8px; cursor: pointer;
-  transition: color .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease);
-}
-.custom-card .card-edit:hover, .custom-card .card-edit:focus-visible {
-  color: var(--text); border-color: var(--accent-line); background: var(--surface);
-}
-.custom-card .card-project { right: auto; left: 8px; }
-.custom-empty {
-  grid-column: 1 / -1; padding: 18px; border-radius: var(--radius-sm);
-  border: 1.5px dashed var(--line-2); color: var(--muted);
-  background: var(--surface-2); text-align: center; font-size: 14px;
-}
 
 /* 精選提示詞：使用較大的圖像卡片牆，讓範例圖成為主要入口。 */
 .prompt-pack { margin-top: 28px; }
@@ -1499,111 +1473,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   justify-content: flex-end;
 }
 .history-detail .modal-actions .btn { flex: 0 1 auto; }
-.project-board {
-  padding: clamp(16px, 3.5vw, 22px);
-  margin-bottom: 28px;
-}
-.project-create {
-  display: grid;
-  grid-template-columns: minmax(160px, 0.45fr) minmax(220px, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.project-list {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 10px 0 16px;
-}
-.project-chip {
-  min-height: 44px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
-  padding: 9px 12px;
-  font: 700 13px/1.2 var(--font);
-  cursor: pointer;
-}
-.project-chip:hover, .project-chip:focus-visible, .project-chip.is-active {
-  color: var(--accent-2);
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  outline: none;
-}
-.project-detail {
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-  padding: 14px;
-}
-.project-detail-head h2 { margin: 0 0 4px; }
-.project-detail-head p { margin: 0 0 14px; color: var(--muted); line-height: 1.5; }
-.project-columns {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-.project-columns h3 { margin: 0 0 10px; color: var(--muted); font-size: 13px; }
-.project-item-list { display: grid; gap: 10px; }
-.project-item {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.project-item img {
-  width: 72px;
-  height: 72px;
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  background: var(--bg-2);
-}
-.project-card-icon {
-  width: 72px;
-  height: 72px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--line);
-  background: var(--bg-2);
-  font-size: 28px;
-}
-.project-item strong {
-  display: block;
-  color: var(--text);
-  margin-bottom: 4px;
-  line-height: 1.35;
-}
-.project-item span { color: var(--muted); font-size: 12px; }
-.project-item-actions {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-  margin-top: 9px;
-}
-.project-empty {
-  padding: 14px;
-  border: 1.5px dashed var(--line-2);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  background: var(--surface-2);
-}
-.project-add-row {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto;
-  gap: 10px;
-  align-items: end;
-  margin: 10px 0;
-}
 .policy-modal { width: min(760px, 100%); }
 .policy-copy { display: grid; gap: 12px; }
 .policy-copy section {
@@ -1933,8 +1802,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .idea-grid { grid-template-columns: repeat(4, 1fr); }
   .prompt-pack .idea-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .example-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .custom-ideas-head { flex-direction: column; }
-  .mini-actions { justify-content: flex-start; }
   .modal-actions { align-items: stretch; flex-direction: column-reverse; }
   .modal-actions-main { width: 100%; }
   .history-filters { grid-template-columns: 1fr; }
@@ -1947,9 +1814,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .history-batch-actions .btn { flex: 1 1 auto; }
   .history-detail-grid { grid-template-columns: 1fr; }
   .history-detail .modal-actions .btn { flex: 1 1 auto; }
-  .project-create { grid-template-columns: 1fr; }
-  .project-columns { grid-template-columns: 1fr; }
-  .project-add-row { grid-template-columns: 1fr; }
   .usage-query-controls { grid-template-columns: minmax(0, 1fr); }
   .usage-query-controls .btn { width: 100%; }
   .usage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2054,8 +1918,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .controls { flex-direction: column; }
   .idea-grid { grid-template-columns: repeat(3, 1fr); }
   .prompt-pack .idea-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .custom-card .custom-idea { min-height: 148px; padding-bottom: 42px; }
-  .custom-card .card-project { top: auto; bottom: 8px; }
   .example-grid { grid-template-columns: 1fr; }
   .idea { padding: 13px 6px; font-size: 12px; }
   .stage { min-height: 260px; }
@@ -2496,9 +2358,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   /* 靈感卡改單列橫滑，風格卡說明文收起。 */
   .idea-grid { display: flex; overflow-x: auto; gap: 10px; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity; }
   .idea-grid .idea { flex: 0 0 30%; min-width: 104px; scroll-snap-align: start; }
-  .idea-grid .custom-empty { flex: 1 0 100%; }
   .custom-ideas-copy { display: none; }
-  .custom-ideas { margin-top: 14px; padding-top: 14px; }
 
   /* 精選提示詞：標題與可點的 summary 列重複，手機只留 summary。 */
   .prompt-pack .ideas-title { display: none; }

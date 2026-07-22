@@ -87,9 +87,6 @@
       <button class="tab" id="tab-edit" role="tab" type="button" aria-label="AI 改圖" aria-selected="false" aria-controls="panel-edit" tabindex="-1" data-tab="edit">
         <span class="tab-ico" aria-hidden="true">◫</span><span class="tab-label">AI 改圖</span><span class="tab-mobile-label" aria-hidden="true">改圖</span>
       </button>
-      <button class="tab" id="tab-projects" role="tab" type="button" aria-label="作品集" aria-selected="false" aria-controls="panel-projects" tabindex="-1" data-tab="projects">
-        <span class="tab-ico" aria-hidden="true">▣</span><span class="tab-label">作品集</span><span class="tab-mobile-label" aria-hidden="true">作品集</span>
-      </button>
       <button class="tab" id="tab-history" role="tab" type="button" aria-label="歷史作品" aria-selected="false" aria-controls="panel-history" tabindex="-1" data-tab="history">
         <span class="tab-ico" aria-hidden="true">◷</span><span class="tab-label">歷史作品</span><span class="tab-mobile-label" aria-hidden="true">歷史</span><span class="tab-badge" id="historyTabBadge" hidden></span>
       </button>
@@ -189,11 +186,8 @@
               <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
             </div>
             <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
-            <details class="seed-advanced">
-              <summary>自訂畫面編號（進階）</summary>
-              <input id="seed" class="text-input" type="number" min="0" max="2147483647" step="1" inputmode="numeric" aria-label="自訂畫面編號" aria-describedby="seedModeHint" placeholder="留空＝每次都不一樣">
-              <p class="seed-advanced-hint">同一個數字會畫出構圖相同的圖，想重現或微調時很好用。</p>
-            </details>
+            <input id="seed" type="hidden">
+
           </div>
           <label class="field field-wide">
             <span class="field-label">生成後 AI 檢查</span>
@@ -244,18 +238,8 @@
                   <option value="poster_3_4">海報 3:4（960×1280）</option>
                   <option value="a4_illustration">A4 插圖（896×1280）</option>
                   <option value="hero_21_9">網頁 Hero 21:9（1792×768）</option>
-                  <option value="custom">自訂尺寸</option>
                 </select>
                 <span class="chevron" aria-hidden="true">▾</span>
-              </div>
-              <div id="customSizeFields" class="custom-size-fields" hidden>
-                <label>寬度 px
-                  <input id="customWidth" class="text-input" type="number" min="256" max="1920" step="64" inputmode="numeric" value="1024">
-                </label>
-                <label>高度 px
-                  <input id="customHeight" class="text-input" type="number" min="256" max="1920" step="64" inputmode="numeric" value="1024">
-                </label>
-                <p class="seed-advanced-hint">自訂尺寸必須介於 256～1920，且為 64 的倍數；不合法會在送出前阻擋。</p>
               </div>
             </label>
             <label class="field">
@@ -332,7 +316,6 @@
             <div class="result-more-actions-body">
               <button id="copySettings" class="btn secondary" type="button" aria-label="複製目前生成設定">📋 複製這組設定</button>
               <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
-              <button id="saveStyleCard" class="btn secondary" type="button">💾 儲存成風格卡</button>
             </div>
           </details>
         </div>
@@ -350,23 +333,6 @@
         <button class="idea" type="button" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-manga.webp" alt="" loading="lazy" decoding="async"><span class="lbl">動漫漫畫</span></button>
         <button class="idea" type="button" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cutaway.webp" alt="" loading="lazy" decoding="async"><span class="lbl">剖面圖</span></button>
         <button id="random" class="idea" type="button"><img class="random-thumb idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-vaporwave.webp" alt="" loading="lazy" decoding="async"><span class="lbl">隨機驚喜</span></button>
-      </div>
-
-      <div class="custom-ideas">
-        <div class="custom-ideas-head">
-          <div>
-            <div class="ideas-title">✦ 我的風格卡<span class="hint">（提示詞卡，儲存在這台瀏覽器）</span></div>
-            <p class="custom-ideas-copy">保存常用描述、畫質、尺寸與預覽圖，點卡片即可重新套用。</p>
-            <p class="custom-ideas-copy">匯出備份檔會包含完整描述、畫質與尺寸；公開分享前請先檢查內容。</p>
-          </div>
-          <div class="mini-actions" role="group" aria-label="風格卡操作">
-            <button id="addIdea" class="btn mini" type="button">＋ 新增風格卡</button>
-            <button id="exportIdeas" class="btn mini secondary" type="button">匯出 JSON</button>
-            <label class="btn mini secondary import-label" for="importIdeas">匯入 JSON</label>
-            <input id="importIdeas" class="visually-hidden" type="file" accept="application/json,.json">
-          </div>
-        </div>
-        <div id="customIdeaGrid" class="idea-grid custom-grid" aria-live="polite"></div>
       </div>
     </section>
 
@@ -545,43 +511,6 @@
       </section>
     </div>
     </div><!-- /panel-edit -->
-
-    <div class="tabpanel" id="panel-projects" role="tabpanel" aria-labelledby="tab-projects" hidden>
-    <section id="projectBoard" class="project-board glass" aria-label="作品集管理">
-      <div class="history-head">
-        <div>
-          <div class="ideas-title">▣ 作品集<span class="hint">（整理同一主題的作品與風格卡）</span></div>
-          <p class="custom-ideas-copy">建立作品集後，可把歷史作品與風格卡收進同一主題，之後從作品集繼續生成。</p>
-        </div>
-        <button id="deleteProject" class="btn mini secondary" type="button" hidden disabled>刪除目前作品集</button>
-      </div>
-      <div class="project-create">
-        <input id="projectName" class="text-input" type="text" maxlength="48" aria-label="作品集名稱" placeholder="作品集名稱，例如：品牌主視覺">
-        <input id="projectDescription" class="text-input" type="text" maxlength="280" aria-label="作品集描述" placeholder="描述，例如：官網 Hero、社群貼文與產品圖方向">
-        <button id="createProject" class="btn primary" type="button">建立作品集</button>
-      </div>
-      <div id="projectStatus" class="form-status" aria-live="polite"></div>
-      <div id="projectList" class="project-list" aria-label="作品集清單"></div>
-      <div id="projectDetail" class="project-detail" hidden>
-        <div class="project-detail-head">
-          <div>
-            <h2 id="projectDetailTitle">尚未選取作品集</h2>
-            <p id="projectDetailMeta">建立作品集後，可以把作品與風格卡整理在一起。</p>
-          </div>
-        </div>
-        <div class="project-columns">
-          <section>
-            <h3>收錄作品</h3>
-            <div id="projectRecordList" class="project-item-list"></div>
-          </section>
-          <section>
-            <h3>收錄風格卡</h3>
-            <div id="projectCardList" class="project-item-list"></div>
-          </section>
-        </div>
-      </div>
-    </section>
-    </div><!-- /panel-projects -->
 
     <div class="tabpanel" id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden>
     <section id="historyWall" class="history-wall glass" aria-label="歷史記錄牆">
@@ -770,13 +699,6 @@
           <input id="historyTagEditor" class="text-input" type="text" placeholder="用逗號分隔，例如：角色, 產品, 靈感">
         </label>
         <button id="saveHistoryTags" class="btn secondary" type="button">儲存標籤</button>
-        <div class="project-add-row">
-          <label class="form-field" for="historyProjectSelect">
-            <span>加入作品集</span>
-            <select id="historyProjectSelect" class="text-input"></select>
-          </label>
-          <button id="addHistoryToProject" class="btn secondary" type="button">加入目前作品集</button>
-        </div>
         <label class="tutorial-check" for="hidePromptInShare">
           <input id="hidePromptInShare" type="checkbox">
           <span>分享時隱藏提示詞</span>
@@ -786,83 +708,10 @@
           <button id="downloadHistoryDetail" class="btn secondary" type="button">下載圖片</button>
           <button id="copyHistoryPrompt" class="btn secondary" type="button">複製提示詞</button>
           <button id="copyHistoryShareText" class="btn secondary" type="button">複製分享文案</button>
-          <button id="saveHistoryAsStyleCard" class="btn secondary" type="button">儲存成風格卡</button>
           <button id="exportHistoryJson" class="btn secondary" type="button">匯出作品 JSON</button>
           <button id="useCompositionDetail" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
           <button id="regenerateHistoryDetail" class="btn primary" type="button">以此版本再生</button>
         </div>
-      </div>
-    </div>
-
-    <div id="ideaEditor" class="modal-backdrop" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ideaEditorTitle">
-        <div class="modal-head">
-          <h2 id="ideaEditorTitle">新增風格卡</h2>
-          <button id="closeIdeaEditor" class="icon-btn" type="button" aria-label="關閉">×</button>
-        </div>
-        <form id="ideaForm" class="idea-form">
-          <input id="ideaId" type="hidden">
-          <div class="form-grid">
-            <label class="form-field form-field-emoji">
-              <span>Emoji</span>
-              <input id="ideaEmoji" type="text" maxlength="8" placeholder="✨" autocomplete="off">
-            </label>
-            <label class="form-field">
-              <span>卡片名稱</span>
-              <input id="ideaTitle" type="text" maxlength="24" placeholder="例如：月光貓咪" required>
-            </label>
-          </div>
-          <label class="form-field">
-            <span>中文描述</span>
-            <textarea id="ideaPromptZh" rows="3" maxlength="1200" placeholder="白話中文描述；沒有英文提示詞時會自動整理。"></textarea>
-          </label>
-          <label class="form-field">
-            <span>英文提示詞（選填）</span>
-            <textarea id="ideaPromptEn" rows="4" maxlength="2400" placeholder="可保存最終英文提示詞；有填寫時會直接使用。"></textarea>
-          </label>
-          <label class="form-field">
-            <span>不想出現的東西</span>
-            <textarea id="ideaNegativePrompt" rows="2" maxlength="1200" placeholder="例如：模糊、多餘手指、低畫質（也可填英文 blurry, watermark）"></textarea>
-          </label>
-          <div class="form-grid">
-            <!-- 畫質檔已合併為單一模型；select 保留供舊卡片的 model 值回填。 -->
-            <label class="form-field" hidden>
-              <span>畫質</span>
-              <select id="ideaModel">
-                <option value="schnell">快速（草稿）</option>
-                <option value="dev" selected>高品質（較慢）</option>
-              </select>
-            </label>
-            <label class="form-field">
-              <span>尺寸</span>
-              <select id="ideaSize">
-                <option value="square">IG 貼文 1:1 · 1024×1024</option>
-                <option value="landscape">PPT / YouTube 16:9 · 1344×768</option>
-                <option value="portrait">IG 限動 / 海報 · 768×1344</option>
-              </select>
-            </label>
-          </div>
-          <div class="form-grid">
-            <label class="form-field">
-              <span>畫面編號</span>
-              <input id="ideaSeed" type="number" min="0" step="1" placeholder="留空代表隨機">
-            </label>
-            <label class="form-field">
-              <span>標籤</span>
-              <input id="ideaTags" type="text" maxlength="240" placeholder="用逗號分隔，例如：產品, PPT, 角色">
-            </label>
-          </div>
-          <input id="ideaPreviewImageUrl" type="hidden">
-          <input id="ideaCreatedAt" type="hidden">
-          <div id="ideaEditorStatus" class="form-status" aria-live="polite"></div>
-          <div class="modal-actions">
-            <button id="deleteIdea" class="btn danger" type="button">刪除卡片</button>
-            <div class="modal-actions-main">
-              <button class="btn secondary" type="button" data-close-idea-editor>取消</button>
-              <button class="btn primary" type="submit">儲存卡片</button>
-            </div>
-          </div>
-        </form>
       </div>
     </div>
 
@@ -979,8 +828,6 @@
   <script src="/static/app.js"></script>
   <script src="/static/canvas-viewport.js"></script>
   <script src="/static/prompt-transform.js"></script>
-  <script src="/static/idea-store.js"></script>
-  <script src="/static/idea-cards.js"></script>
   <script src="/static/history-store.js"></script>
   <script src="/static/history-wall.js"></script>
   <script src="/static/tutorial.js"></script>

@@ -1115,8 +1115,6 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
     '/static/app.js',
     '/static/canvas-viewport.js',
     '/static/prompt-transform.js',
-    '/static/idea-store.js',
-    '/static/idea-cards.js',
     '/static/history-store.js',
     '/static/history-wall.js',
     '/static/tutorial.js',
@@ -1127,7 +1125,6 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="plainPrompt"/);
   assert.match(html, /id="seed"/);
   assert.doesNotMatch(html, /id="avoid"/);
-  assert.match(html, /id="customIdeaGrid"/);
   assert.match(html, /id="historyGrid"/);
   assert.match(html, /id="resultActions"/);
   assert.match(html, /id="editPanel"/);
@@ -1143,9 +1140,8 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="ideasSection"/);
   assert.match(html, /id="tab-edit"[\s\S]*?data-tab="edit"/);
   assert.match(html, /id="panel-edit"/);
-  assert.match(html, /id="tab-projects"[\s\S]*?data-tab="projects"/);
-  assert.match(html, /id="panel-projects"/);
-  assert.match(html, /id="projectBoard"/);
+  assert.doesNotMatch(html, /id="tab-projects"/);
+  assert.doesNotMatch(html, /id="panel-projects"/);
   assert.match(html, /id="panel-history"/);
   // 用量移出主導覽：無 tab-usage 按鈕，panel-usage 保留、由 footer 站長工具連結直達。
   assert.doesNotMatch(html, /id="tab-usage"/);
@@ -1157,7 +1153,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="usageDashboard"/);
   assert.match(html, /<link rel="stylesheet" href="\/static\/styles\.css">/);
   assert.deepEqual(new Set(scriptSrcs), new Set(expectedScripts));
-  for (const lazyScript of ['/static/image-edit.js', '/static/project-store.js', '/static/project-board.js', '/static/usage-dashboard.js']) {
+  for (const lazyScript of ['/static/image-edit.js', '/static/usage-dashboard.js']) {
     assert.match(tabsJs, new RegExp(lazyScript.replaceAll('.', '\\.')));
   }
   assert.ok(scriptSrcs.indexOf('/static/generation-settings.js') < scriptSrcs.indexOf('/static/app.js'));

@@ -16,6 +16,8 @@
 - 移除 `/api/health` 的 `providers.modal` 遺跡欄位：本站早已改跑 Cloudflare Workers，該旗標恆為 `false`、前端對應分支永不觸發，屬純遺跡。Worker、FastAPI 與 app.js 同步清除。
 - 進階設定的畫質調參改為友善預設檔：steps／cfg_scale 兩個原始數字框上方加「🚀 草稿／⚖️ 平衡／✨ 精緻」三檔一鍵切換（草稿 steps10·cfg3、平衡＝站方預設清空、精緻 steps45·cfg4），原數字框收進「自訂數值」摺疊區供進階微調。純前端便利層——送出仍走 `readDevTuning`，後端／驗證／預設行為完全不變。
 - 移除主編輯區的「不想出現的東西」（avoid）輸入框：FLUX 沒有真正的負面提示詞，該欄位效果本就有限，直接拿掉讓進階設定更精簡。共用的 avoid／negativePrompt 資料層保留（歷史再生、點子卡負面提示仍運作），app.js 讀取處本就有 `el('avoid')` 防呆、無欄位時自動 no-op。
+- 精簡進階設定：移除「自訂尺寸」入口（下拉選項與寬高欄位，保留 8 個用途尺寸預設）與「自訂畫面編號」手動輸入框。`#seed` 改為隱藏欄保留，🔒 鎖定構圖仍照常運作；後端與共用的自訂尺寸驗證模組不動（僅前端拿掉入口）。舊的 `?size=custom&width=..&height=..` 分享連結會靜默退回預設尺寸。
+- 移除「風格卡／自訂點子」與「作品集（project board）」整套整理子系統：對 casual 生圖使用者投報比過低。刪除 idea-store／idea-cards／project-store／project-board 四個前端模組與對應面板、tab、編輯 modal、歷史「存成風格卡／加入作品集」入口與 5 個測試檔。保留無關的「隨機驚喜」（hf-ideas）與內建建議提示詞。Service Worker 快取清單同步移除已刪檔並 bump 版本（v23→v24）避免 PWA 安裝失敗。
 
 ### Fixed
 

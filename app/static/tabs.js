@@ -22,8 +22,6 @@
   var ideasSection = document.getElementById('ideasSection');
   var FEATURE_SCRIPTS = {
     edit: ['/static/image-edit.js'],
-    projects: ['/static/project-store.js', '/static/project-board.js'],
-    history: ['/static/project-store.js', '/static/project-board.js'],
     usage: ['/static/usage-dashboard.js']
   };
   var scriptLoads = {};

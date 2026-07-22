@@ -713,51 +713,6 @@
     setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
   }
 
-  function saveHistoryAsStyleCard() {
-    var record = getSelectedRecord();
-    if (!record) {
-      setAppStatus('尚無可保存的作品', 'warn');
-      return;
-    }
-    if (!root.PromptCards || typeof root.PromptCards.openFromRecord !== 'function') {
-      setAppStatus('風格卡功能尚未就緒', 'fail');
-      return;
-    }
-    closeHistoryDetail();
-    root.PromptCards.openFromRecord(record);
-  }
-
-  function addHistoryToProject() {
-    var record = getSelectedRecord();
-    var select = el('historyProjectSelect');
-    var projectId = select ? toText(select.value) : '';
-    function addRecord() {
-      var added;
-      if (!root.ProjectBoard || typeof root.ProjectBoard.addRecordToProject !== 'function') {
-        setAppStatus('作品集功能尚未就緒', 'fail');
-        return;
-      }
-      added = root.ProjectBoard.addRecordToProject(record.id, projectId);
-      setAppStatus(added ? '已加入作品集' : '請先建立或選取作品集', added ? 'done' : 'warn');
-    }
-    if (!record) {
-      setAppStatus('尚無可加入作品集的作品', 'warn');
-      return;
-    }
-    if (root.ProjectBoard && typeof root.ProjectBoard.addRecordToProject === 'function') {
-      addRecord();
-      return;
-    }
-    if (!root.ImageFeatureLoader || typeof root.ImageFeatureLoader.load !== 'function') {
-      setAppStatus('作品集功能尚未就緒', 'fail');
-      return;
-    }
-    setAppStatus('正在載入作品集功能…', 'busy');
-    root.ImageFeatureLoader.load('history').then(addRecord).catch(function () {
-      setAppStatus('作品集功能載入失敗，請重新整理後再試', 'fail');
-    });
-  }
-
   function switchToGenerateTab() {
     if (typeof root.showTab !== 'function' || !root.showTab('generate')) {
       setAppStatus('生成分頁尚未就緒', 'fail');
@@ -1092,8 +1047,6 @@
     var copyPrompt = el('copyHistoryPrompt');
     var copyShare = el('copyHistoryShareText');
     var exportJson = el('exportHistoryJson');
-    var saveAsStyleCard = el('saveHistoryAsStyleCard');
-    var addToProject = el('addHistoryToProject');
     var regenerateDetail = el('regenerateHistoryDetail');
     var useCompositionDetail = el('useCompositionDetail');
     var historySearch = el('historySearch');
@@ -1132,12 +1085,6 @@
     }
     if (exportJson) {
       exportJson.addEventListener('click', exportHistoryJson);
-    }
-    if (saveAsStyleCard) {
-      saveAsStyleCard.addEventListener('click', saveHistoryAsStyleCard);
-    }
-    if (addToProject) {
-      addToProject.addEventListener('click', addHistoryToProject);
     }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
@@ -1206,8 +1153,6 @@
     buildShareText: buildShareText,
     copyHistoryShareText: copyHistoryShareText,
     exportHistoryJson: exportHistoryJson,
-    saveHistoryAsStyleCard: saveHistoryAsStyleCard,
-    addHistoryToProject: addHistoryToProject,
     regenerateHistoryDetail: regenerateHistoryDetail,
     recordMatchesFilters: recordMatchesFilters,
     applyHistoryFilters: applyHistoryFilters,

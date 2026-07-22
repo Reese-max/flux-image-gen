@@ -188,7 +188,7 @@
       "title": "localStorage 滿",
       "expected": [
         "不白屏",
-        "歷史、風格卡與專案資料會保留較新的項目並丟棄最舊資料"
+        "歷史資料會保留較新的項目並丟棄最舊資料"
       ],
       "evidence": [
         {
@@ -198,33 +198,9 @@
           ]
         },
         {
-          "path": "tests/frontend/idea-store.test.cjs",
-          "patterns": [
-            "saveCards drops oldest cards on quota failure and keeps newer cards"
-          ]
-        },
-        {
-          "path": "tests/frontend/project-store.test.cjs",
-          "patterns": [
-            "saveProjects drops oldest projects on quota failure and keeps newer projects"
-          ]
-        },
-        {
           "path": "app/static/history-store.js",
           "patterns": [
             "nextRecords.pop()"
-          ]
-        },
-        {
-          "path": "app/static/idea-store.js",
-          "patterns": [
-            "dropOldestCard"
-          ]
-        },
-        {
-          "path": "app/static/project-store.js",
-          "patterns": [
-            "dropOldestProject"
           ]
         }
       ]
@@ -238,16 +214,16 @@
       ],
       "evidence": [
         {
-          "path": "tests/frontend/idea-store.test.cjs",
+          "path": "tests/frontend/history-store.test.cjs",
           "patterns": [
-            "匯入資料不是有效 JSON",
-            "不支援的 PromptCard schema version"
+            "parseRecords migrates legacy arrays and versioned collections",
+            "loadRecords returns [] when storage is missing, unavailable, or invalid"
           ]
         },
         {
-          "path": "tests/frontend/project-store.test.cjs",
+          "path": "app/static/history-store.js",
           "patterns": [
-            "parseProjects accepts legacy arrays and versioned collections"
+            "return normalizeRecordCollection(parsed);"
           ]
         }
       ]

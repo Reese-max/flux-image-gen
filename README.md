@@ -2,7 +2,7 @@
 
 這是依照參考站 `https://tonny-0955--flux-image-gen-web.modal.run` 製作的本機 FastAPI 版圖片生成網站。
 
-- 前端：單頁深色 UI、prompt、模型選擇、尺寸選擇、Seed、排除描述輔助、點子卡、隨機提示詞、下載、複製與再生。
+- 前端：單頁深色 UI、prompt、模型選擇、尺寸選擇、Seed、排除描述輔助、隨機提示詞、下載、複製與再生。
 - 後端：`POST /generate`，接收 `prompt / model / size / seed`，回傳 `{ image, provider, model, width, height, seed }`。
 - 無金鑰：自動使用本機 Demo PNG fallback，方便先驗證網站流程。
 - 有金鑰：設定 `NVIDIA_API_KEY` 後，會改走 NVIDIA FLUX API。
@@ -13,7 +13,6 @@
 - 白話中文轉專業英文提示詞：`POST /prompt/transform` 可把中文想法轉成更適合圖片模型的英文 prompt，並可搭配風格參數調整語氣。
 - 中文描述補全：按「幫我補完整」會優先呼叫 Gemma（預設 `GEMINI_COMPLETE_MODEL=gemma-4-31b-it`）把短中文描述補成更完整的繁中畫面描述；未設定金鑰或服務暫時失敗時會改用離線規則補全，`Tab` 保留標準鍵盤導覽行為。
 - 效果強化：輸入「更夢幻、加霓虹、背景虛化、黃昏光、高級精品感」等要求時優先由 Gemini 重寫提示詞；沒有金鑰或服務暫時失敗時會改用離線視覺規則，按鈕不會直接失效。
-- 客製梗卡：前端使用 `localStorage` 儲存使用者自己的點子卡，支援新增、編輯、刪除、匯出與匯入，重新整理頁面後仍會保留。
 - 使用者教學：第一次進站會自動顯示教學，也可以隨時按右上角「？教學」重新開啟。
 
 ## 迭代體驗功能
@@ -58,7 +57,7 @@ D:\Users\Administrator\Desktop\圖片生成
 
 ## 部署狀態
 
-目前完成且已驗證的主要路徑包含 **FastAPI 版**（`app/`、`tests/`）與 **Cloudflare Workers 版**（`cloudflare/`）。兩個版本同步支援白話中文轉專業英文提示詞、客製梗卡、使用者教學與迭代體驗功能。
+目前完成且已驗證的主要路徑包含 **FastAPI 版**（`app/`、`tests/`）與 **Cloudflare Workers 版**（`cloudflare/`）。兩個版本同步支援白話中文轉專業英文提示詞、使用者教學與迭代體驗功能。
 
 公開上線前請先跑完 `docs/deployment-checklist.md` 與 `docs/release-acceptance-checklist.md`：前者集中確認 Wrangler secrets、Turnstile、R2、Workers AI binding、rate limit、雲端圖庫、用量 Dashboard 與 smoke test；後者追蹤正式網域、真機、Vision QA、雲端保存、隱私與法務 sign-off 等 Release blocker。
 
@@ -276,7 +275,7 @@ Response：
 ```powershell
 cd "D:\Users\Administrator\Desktop\圖片生成"
 python -m pytest -q
-node --test tests\frontend\idea-store.test.cjs tests\frontend\generation-settings.test.cjs tests\frontend\history-store.test.cjs
+node --test tests\frontend\generation-settings.test.cjs tests\frontend\history-store.test.cjs
 ```
 
 ### 產品化測試 Prompt 集
@@ -310,8 +309,6 @@ app/
     app.js
     prompt-transform.js  # 提示詞轉換前端互動
     generation-settings.js  # Seed、排除描述與設定序列化
-    idea-store.js        # 客製點子卡 localStorage 儲存
-    idea-cards.js        # 點子卡 UI 操作
     history-store.js     # 圖片歷史記錄 localStorage 儲存
     history-wall.js      # 歷史記錄牆 UI、下載、複製與再生
     tutorial.js          # 使用者教學彈窗
@@ -324,7 +321,6 @@ tests/
   frontend/
     generation-settings.test.cjs
     history-store.test.cjs
-    idea-store.test.cjs
 cloudflare/
   README.md              # Cloudflare Workers 版部署與同步功能說明
 ```

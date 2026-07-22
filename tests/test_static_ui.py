@@ -75,8 +75,6 @@ def test_use_case_size_presets_are_productized():
         "海報 3:4（960×1280）",
         "A4 插圖（896×1280）",
         "網頁 Hero 21:9（1792×768）",
-        "自訂尺寸",
-        "自訂尺寸必須介於 256～1920，且為 64 的倍數",
     ]:
         assert label in html
     for value in [
@@ -88,12 +86,8 @@ def test_use_case_size_presets_are_productized():
         'value="poster_3_4"',
         'value="a4_illustration"',
         'value="hero_21_9"',
-        'value="custom"',
     ]:
         assert value in html
-    assert 'id="customSizeFields"' in html
-    assert 'id="customWidth"' in html
-    assert 'id="customHeight"' in html
     assert "if(useCase === 'ppt'){ return 'ppt_16_9'; }" in app_js
     assert "if(useCase === 'thumbnail'){ return 'youtube_thumb'; }" in app_js
     assert "if(useCase === 'story'){ return 'ig_story'; }" in app_js
@@ -453,7 +447,6 @@ def test_task_050_frontend_error_scenarios_are_wired():
     failure_advice_js = read_static("failure-advice.js")
     history_wall_js = read_static("history-wall.js")
     history_store_js = read_static("history-store.js")
-    idea_store_js = read_static("idea-store.js")
     network_e2e = read_repo("tests/e2e/network-interrupted-qa.mjs")
 
     assert "if(generationInFlight || retrySecondsRemaining())" in app_js
@@ -474,8 +467,6 @@ def test_task_050_frontend_error_scenarios_are_wired():
     assert "確定要刪除已選取的 " in history_wall_js
     assert "while (true)" in history_store_js
     assert "nextRecords.pop()" in history_store_js
-    assert "匯入資料不是有效 JSON" in idea_store_js
-    assert "不支援的 PromptCard schema version" in idea_store_js
 
 
 def test_pwa_and_mobile_ui_are_wired():
@@ -535,7 +526,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v23" in service_worker_js
+    assert "ai-image-generator-pwa-v24" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -546,8 +537,6 @@ def test_service_worker_static_cache_is_safe():
     assert "type === 'SKIP_WAITING'" in service_worker_js
     for lazy_script in [
         "image-edit.js",
-        "project-store.js",
-        "project-board.js",
         "usage-dashboard.js",
     ]:
         assert f"'/static/{lazy_script}'" not in service_worker_js
@@ -598,7 +587,6 @@ def test_performance_avoids_external_font_payloads():
 def test_modal_accessibility_and_clipboard_fallback_are_wired():
     app_js = read_static("app.js")
     history_wall_js = read_static("history-wall.js")
-    idea_cards_js = read_static("idea-cards.js")
     tutorial_js = read_static("tutorial.js")
 
     assert "window.ModalA11y" in app_js
@@ -611,8 +599,6 @@ def test_modal_accessibility_and_clipboard_fallback_are_wired():
     assert "document.execCommand('copy')" in app_js
     assert "root.ModalA11y.open(modal" in history_wall_js
     assert "root.ModalA11y.close(modal" in history_wall_js
-    assert "root.ModalA11y.open(backdrop" in idea_cards_js
-    assert "root.ModalA11y.close(backdrop" in idea_cards_js
     assert "window.ModalA11y.open(tutorialModal" in tutorial_js
     assert "window.ModalA11y.close(tutorialModal" in tutorial_js
 
@@ -648,31 +634,6 @@ def test_prompt_transform_ui_is_wired():
     assert "event.key === 'Tab'" not in transform_js
     assert "event.preventDefault()" in transform_js
     assert ".prompt-shortcut-hint" in styles
-
-
-def test_custom_idea_card_ui_is_wired():
-    html = read_static("index.html")
-    idea_cards_js = read_static("idea-cards.js")
-
-    assert 'id="customIdeaGrid"' in html
-    assert 'id="addIdea"' in html
-    assert 'id="ideaEditor"' in html
-    assert 'id="saveStyleCard"' in html
-    assert 'id="ideaNegativePrompt"' in html
-    assert 'id="ideaSeed"' in html
-    assert 'id="ideaTags"' in html
-    assert "匯出備份檔會包含完整描述、畫質與尺寸" in html
-    assert 'src="/static/idea-store.js"' in html
-    assert 'src="/static/idea-cards.js"' in html
-    assert "IdeaStore.loadCards" in idea_cards_js
-    assert "customIdeaGrid" in idea_cards_js
-    assert "ImageGenApp.setGenerationSettings" in idea_cards_js
-    assert "createCardFromGeneration" in idea_cards_js
-    assert "PromptCards" in idea_cards_js
-    assert "fetch('/prompt/transform'" in idea_cards_js
-    assert "匯出的風格卡備份會包含完整描述、畫質、尺寸與畫面編號" in idea_cards_js
-    assert "已取消匯出風格卡備份" in idea_cards_js
-    assert "檔案包含描述與生成設定" in idea_cards_js
 
 
 def test_tutorial_ui_is_wired():
@@ -889,15 +850,10 @@ def test_workspace_canvas_viewport_is_wired_without_duplicate_library():
 def test_secondary_feature_scripts_are_loaded_on_demand():
     html = read_static("index.html")
     app_js = read_static("app.js")
-    history_wall_js = read_static("history-wall.js")
-    idea_cards_js = read_static("idea-cards.js")
     tabs_js = read_static("tabs.js")
-    project_board_js = read_static("project-board.js")
 
     for script in [
         "image-edit.js",
-        "project-store.js",
-        "project-board.js",
         "usage-dashboard.js",
     ]:
         assert f'src="/static/{script}"' not in html
@@ -905,10 +861,6 @@ def test_secondary_feature_scripts_are_loaded_on_demand():
     assert "function loadFeatureScripts" in tabs_js
     assert "getProviderHealth" in tabs_js
     assert "lastProviderHealth" in app_js
-    assert "root.ImageFeatureLoader.load('projects')" in idea_cards_js
-    assert "root.ImageFeatureLoader.load('history')" in history_wall_js
-    assert "'aiImageProjects.v1'" in app_js
-    assert "document.readyState === 'loading'" in project_board_js
 
 
 def test_usage_dashboard_ui_is_wired():
@@ -1053,12 +1005,10 @@ def test_ideas_hash_redirects_into_generate_tab():
     for element_id in [
         "ideasSection",
         "random",
-        "addIdea",
-        "exportIdeas",
-        "importIdeas",
-        "customIdeaGrid",
     ]:
         assert f'id="{element_id}"' in panel_generate
+    assert 'class="idea"' in panel_generate
+    assert "data-prompt=" in panel_generate
     # 靈感 section 要在範例 Gallery 之前。
     assert panel_generate.index('id="ideasSection"') < panel_generate.index('id="exampleGallery"')
 
@@ -1090,8 +1040,6 @@ def test_privacy_and_license_policy_modals_are_wired():
     assert "closePolicyModal" in app_js
     assert "function clearLocalData" in app_js
     assert "ImageHistoryStore.STORAGE_KEY" in app_js
-    assert "IdeaStore.STORAGE_KEY" in app_js
-    assert "ImageProjectStore.STORAGE_KEY" in app_js
     assert "aiImageTutorialSeen.v1" in app_js
     assert "window.localStorage.removeItem" in app_js
     assert "本機歷史、風格卡、作品集與教學偏好" in html
@@ -1145,7 +1093,6 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'id="openHistoryCloudShare"' in html
     assert 'id="openHistoryCloudDelete"' in html
     assert 'id="copyHistoryShareText"' in html
-    assert 'id="saveHistoryAsStyleCard"' in html
     assert 'id="exportHistoryJson"' in html
     assert 'id="hidePromptInShare"' in html
     assert "匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定" in html
@@ -1164,7 +1111,6 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'visionQa = report.visionQa' in history_wall_js
     assert '視覺 QA：' in history_wall_js
     assert '圖片檢查：' in history_wall_js
-    assert 'saveHistoryAsStyleCard' in history_wall_js
     assert 'copyHistoryShareText' in history_wall_js
     assert 'exportHistoryJson' in history_wall_js
     assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
@@ -1306,11 +1252,7 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "hf-ideas.js",
         "history-store.js",
         "history-wall.js",
-        "idea-cards.js",
-        "idea-store.js",
         "image-edit.js",
-            "project-board.js",
-            "project-store.js",
             "prompt-enhancer.js",
             "prompt-pack.js",
             "prompt-transform.js",
@@ -1361,54 +1303,6 @@ def test_frontend_error_monitoring_is_wired():
     assert "navigator.sendBeacon" in app_js
     assert "fetch('/client-error'" in app_js
     assert "requestId" in app_js
-
-
-def test_project_board_ui_and_scripts_are_wired():
-    html = read_static("index.html")
-    project_store_js = read_static("project-store.js")
-    project_board_js = read_static("project-board.js")
-    history_wall_js = read_static("history-wall.js")
-    idea_cards_js = read_static("idea-cards.js")
-    styles = read_static("styles.css")
-
-    assert 'id="tab-projects"' in html
-    assert 'id="panel-projects"' in html
-    assert 'id="projectBoard"' in html
-    assert 'id="projectName"' in html
-    assert 'aria-label="作品集"' in html
-    assert 'aria-label="作品集名稱"' in html
-    assert "建立作品集後" in html
-    assert 'id="projectDescription"' in html
-    assert 'id="createProject"' in html
-    assert 'id="deleteProject"' in html
-    assert 'id="projectList"' in html
-    assert 'id="projectRecordList"' in html
-    assert 'id="projectCardList"' in html
-    assert 'id="historyProjectSelect"' in html
-    assert 'id="addHistoryToProject"' in html
-    assert "'/static/project-store.js'" in read_static("tabs.js")
-    assert "'/static/project-board.js'" in read_static("tabs.js")
-    assert "ImageProjectCollection" in project_store_js
-    assert "normalizeProject" in project_store_js
-    assert "addRecordToProject" in project_store_js
-    assert "addPromptCardToProject" in project_store_js
-    assert "removeRecordFromProject" in project_store_js
-    assert "removePromptCardFromProject" in project_store_js
-    assert "ImageProjectStore.loadProjects" in project_board_js
-    assert "ProjectBoard" in project_board_js
-    assert "continueFromRecord" in project_board_js
-    assert "continueFromCard" in project_board_js
-    assert "ImageGenApp.setGenerationSettings" in project_board_js
-    assert "PromptCards.generateFromCard" in project_board_js
-    assert "addHistoryToProject" in history_wall_js
-    assert "ProjectBoard.addRecordToProject" in history_wall_js
-    assert "card-project" in idea_cards_js
-    assert "ProjectBoard.addPromptCardToProject" in idea_cards_js
-    assert ".project-board" in styles
-    assert ".project-create" in styles
-    assert ".project-chip" in styles
-    assert ".project-item" in styles
-    assert ".project-add-row" in styles
 
 
 def test_optional_generation_controls_are_wired_to_the_backend():
