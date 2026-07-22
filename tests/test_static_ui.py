@@ -698,7 +698,7 @@ def test_iteration_ux_ui_is_wired():
     styles = read_static("styles.css")
 
     assert 'id="seed"' in html
-    assert 'id="avoid"' in html
+    assert 'id="avoid"' not in html
     assert 'id="resultActions"' in html
     assert 'id="regenerate"' in html
     assert 'id="copySettings"' in html

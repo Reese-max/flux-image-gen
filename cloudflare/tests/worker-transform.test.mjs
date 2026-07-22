@@ -1126,7 +1126,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
 
   assert.match(html, /id="plainPrompt"/);
   assert.match(html, /id="seed"/);
-  assert.match(html, /id="avoid"/);
+  assert.doesNotMatch(html, /id="avoid"/);
   assert.match(html, /id="customIdeaGrid"/);
   assert.match(html, /id="historyGrid"/);
   assert.match(html, /id="resultActions"/);
