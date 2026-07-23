@@ -1085,7 +1085,7 @@ function closePolicyModal(id){
 function clearLocalData(){
   var keys = [];
   var i;
-  if(!window.confirm || window.confirm('確定要清除這台瀏覽器中的歷史、風格卡、作品集與教學偏好嗎？雲端作品不會被刪除。')){
+  if(!window.confirm || window.confirm('確定要清除這台瀏覽器中的歷史與教學偏好嗎？雲端作品不會被刪除。')){
     if(window.ImageHistoryStore && window.ImageHistoryStore.STORAGE_KEY){ keys.push(window.ImageHistoryStore.STORAGE_KEY); }
     keys.push('aiImageTutorialSeen.v1');
     keys.push(WORKSPACE_STORAGE_KEY);

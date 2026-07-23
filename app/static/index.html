@@ -201,7 +201,7 @@
             <label class="field">
               <span class="field-label">生成參數</span>
               <!-- 兩個畫質檔已合併：生成一律走 NVIDIA FLUX.1-dev。select 保留在
-                   DOM 供歷史再生／分享連結／點子卡回填 model 值，不再顯示。 -->
+                   DOM 供歷史再生／分享連結回填 model 值，不再顯示。 -->
               <select id="model" hidden aria-hidden="true">
                 <option value="schnell">快速（草稿）</option>
                 <option value="dev" selected>高品質（較慢）</option>
@@ -728,14 +728,14 @@
           </section>
           <section>
             <h3>本機資料如何保存</h3>
-            <p>本機歷史、風格卡、作品集與教學偏好只會存在這台瀏覽器的 localStorage；本站介面不提供作品雲端保存功能。</p>
+            <p>本機歷史與教學偏好只會存在這台瀏覽器的 localStorage；本站介面不提供作品雲端保存功能。</p>
           </section>
           <section>
             <h3>Cookies、localStorage 與刪除資料</h3>
-            <p>本站目前主要使用 localStorage 保存教學狀態、本機歷史、風格卡與作品集；不需要登入 cookie。你可以在這裡清除本機資料。</p>
+            <p>本站目前主要使用 localStorage 保存教學狀態與本機歷史；不需要登入 cookie。你可以在這裡清除本機資料。</p>
             <div class="local-data-row">
               <button id="clearLocalData" class="btn danger" type="button">清除本機資料</button>
-              <span>會清除這台瀏覽器中的本機歷史、風格卡、作品集與教學偏好。</span>
+              <span>會清除這台瀏覽器中的本機歷史與教學偏好。</span>
             </div>
           </section>
           <section>
@@ -793,8 +793,8 @@
             <span>依照速度、品質與用途，選擇畫質和方形、橫向或直向尺寸。</span>
           </li>
           <li data-tutorial-step="4">
-            <strong>生成、下載、收藏風格卡</strong>
-            <span>按下生成後可下載圖片，也能把常用題材存成風格卡；靈感按鈕與我的風格卡都在生成分頁下方的「靈感」區，點一下即可套用。</span>
+            <strong>生成與下載</strong>
+            <span>按下生成後可下載圖片；靈感按鈕在生成分頁下方的「靈感」區，點一下即可套用。</span>
           </li>
         </ol>
         <div class="modal-actions">

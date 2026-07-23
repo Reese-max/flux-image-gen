@@ -1042,7 +1042,7 @@ def test_privacy_and_license_policy_modals_are_wired():
     assert "ImageHistoryStore.STORAGE_KEY" in app_js
     assert "aiImageTutorialSeen.v1" in app_js
     assert "window.localStorage.removeItem" in app_js
-    assert "本機歷史、風格卡、作品集與教學偏好" in html
+    assert "本機歷史與教學偏好" in html
     assert ".footer-link" in styles
     assert ".policy-modal" in styles
     assert ".policy-copy" in styles
