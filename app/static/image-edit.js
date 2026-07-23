@@ -228,13 +228,13 @@
       wrap.className = 'edit-thumb';
       var im = document.createElement('img');
       im.src = item.url;
-      im.alt = 'image ' + index;
+      im.alt = '第 ' + (index + 1) + ' 張';
       var tag = document.createElement('span');
       tag.className = 'edit-thumb-tag';
-      tag.textContent = 'image ' + index;
+      tag.textContent = '第 ' + (index + 1) + ' 張';
       var role = document.createElement('select');
       role.className = 'edit-thumb-role';
-      role.setAttribute('aria-label', '設定 image ' + index + ' 的參考用途');
+      role.setAttribute('aria-label', '設定第 ' + (index + 1) + ' 張的參考用途');
       Object.keys(REFERENCE_ROLES).forEach(function (key) {
         var option = document.createElement('option');
         option.value = key;
