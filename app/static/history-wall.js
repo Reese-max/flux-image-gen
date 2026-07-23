@@ -910,7 +910,9 @@
     });
     remove.addEventListener('click', function (event) {
       event.stopPropagation();
-      deleteHistoryRecord(record.id);
+      if (confirmAction('確定要刪除這張作品嗎？此動作無法復原（雲端作品不受影響）。')) {
+        deleteHistoryRecord(record.id);
+      }
     });
 
     actions.appendChild(detail);
