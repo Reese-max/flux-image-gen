@@ -1237,6 +1237,8 @@ function renderBatchResults(stage, images, base){
       avoid: base.avoid,
       model: typeof item.model === 'string' ? item.model : 'schnell',
       size: base.size,
+      steps: base.steps,
+      cfgScale: base.cfgScale,
       seed: typeof item.seed === 'number' ? item.seed : 0,
       width: typeof item.width === 'number' ? item.width : fallback.width,
       height: typeof item.height === 'number' ? item.height : fallback.height,
@@ -1467,7 +1469,7 @@ function generate(options){
           return;
         }
         batchSummary = '已生成 ' + images.length + ' 張' + (batchErrors.length ? '，' + batchErrors.length + ' 張失敗' : '');
-        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size });
+        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size, steps: devTuning.steps, cfgScale: devTuning.cfgScale });
         revealResultStage(true);
         setResultActionsVisible(false);
         pendingSourceRecordId = '';
@@ -1540,6 +1542,8 @@ function generate(options){
         avoid: settings.avoid,
         model: typeof data.model === 'string' ? data.model : model,
         size: size,
+        steps: devTuning.steps,
+        cfgScale: devTuning.cfgScale,
         seed: typeof data.seed === 'number' ? data.seed : 0,
         width: typeof data.width === 'number' ? data.width : fallbackDimensions.width,
         height: typeof data.height === 'number' ? data.height : fallbackDimensions.height,

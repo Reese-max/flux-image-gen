@@ -107,6 +107,8 @@ async function main() {
         model: 'dev',
         size: 'portrait',
         seed: 222,
+        steps: 10,
+        cfgScale: 3,
         provider: 'qa-demo',
         createdAt: '2026-06-25T19:00:00.000Z',
         favorite: false,
@@ -149,9 +151,9 @@ async function main() {
   await page.waitForTimeout(250);
   ok('歷史搜尋 prompt/tag', await page.locator('.history-card').count() === 1);
   await page.fill('#historySearch', '');
-  await page.selectOption('#historyModelFilter', 'dev');
+  await page.selectOption('#historyModelFilter', '草稿');
   await page.waitForTimeout(250);
-  ok('模型篩選 dev', await page.locator('.history-card').count() === 1);
+  ok('畫質篩選 草稿', await page.locator('.history-card').count() === 1);
   await page.selectOption('#historyModelFilter', '');
 
   await page.locator('.history-card').first().click();

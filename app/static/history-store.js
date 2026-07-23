@@ -245,6 +245,8 @@
       avoid: negativePrompt,
       model: toText(source.model) || DEFAULT_MODEL,
       size: toText(source.size) || DEFAULT_SIZE,
+      steps: typeof source.steps === 'number' && isFinite(source.steps) ? source.steps : null,
+      cfgScale: typeof source.cfgScale === 'number' && isFinite(source.cfgScale) ? source.cfgScale : null,
       seed: normalizeSeed(source.seed),
       width: normalizeDimension(source.width),
       height: normalizeDimension(source.height),
