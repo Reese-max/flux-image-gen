@@ -84,14 +84,12 @@
     var app = window.ImageGenApp;
     setSelect('model', card.model);
     setSelect('size', card.size);
-    if (app && typeof app.setPromptForReview === 'function') {
-      app.setPromptForReview(card.en, '精選提示詞');
-    } else if (app && typeof app.setPromptAndGenerate === 'function') {
-      app.setPromptAndGenerate(card.en);
+    if (app && typeof app.applyInspiration === 'function') {
+      app.applyInspiration(card.zh, card.en, '精選提示詞');
     } else {
-      // Fallback: fill the prompt box if the app API isn't ready yet.
-      var field = document.getElementById('prompt');
-      if (field) field.value = card.en;
+      // Fallback: fill the 中文 description box if the app API isn't ready yet.
+      var field = document.getElementById('plainPrompt') || document.getElementById('prompt');
+      if (field) field.value = card.zh || card.en;
     }
   }
 

@@ -273,15 +273,24 @@ def test_example_gallery_applies_prompts_without_auto_generation():
     assert "setStatus('已套用範例到輸入框；確認後再按「生成圖片」，不會自動消耗額度。'" in example_function
     assert "generate()" not in example_function
     assert "function setPromptForReview" in app_js
-    assert "setPromptForReview(randomPrompt(), '隨機靈感')" in app_js
-    assert "setPromptForReview(button.getAttribute('data-prompt'), '靈感 prompt')" in app_js
+    # 靈感卡改走 applyInspiration：中文進主框、不彈開進階、絕不觸發生成。
+    assert "function applyInspiration" in app_js
+    inspiration_function = re.search(
+        r"function applyInspiration\(zh, en, label\)\{([\s\S]*?)\n\}",
+        app_js,
+    ).group(1)
+    assert "el('plainPrompt').value = zh" in inspiration_function
+    assert "advanced.open = true" not in inspiration_function
+    assert "generate()" not in inspiration_function
+    assert "applyInspiration(card.getAttribute('data-plain'), card.getAttribute('data-prompt'), '隨機驚喜')" in app_js
+    assert "applyInspiration(button.getAttribute('data-plain'), button.getAttribute('data-prompt'), '靈感')" in app_js
     idea_handlers = re.search(
         r"el\('random'\)\.addEventListener\('click'([\s\S]*?)el\('prompt'\)\.addEventListener",
         app_js,
     ).group(1)
     assert "generate()" not in idea_handlers
-    assert "setPromptForReview(prompt, 'HF 靈感 prompt')" in hf_ideas_js
-    assert "setPromptForReview(card.en, '精選提示詞')" in prompt_pack_js
+    assert "app.applyInspiration(item.zh, item.en, 'HF 靈感')" in hf_ideas_js
+    assert "app.applyInspiration(card.zh, card.en, '精選提示詞')" in prompt_pack_js
     assert ".example-gallery" in styles
     assert ".example-grid" in styles
     assert ".example-card" in styles
@@ -310,7 +319,9 @@ def test_showcase_images_are_wired_and_present():
     assert "img.getAttribute('data-src')" in prompt_pack_js
     assert "TRANSPARENT_PLACEHOLDER" in prompt_pack_js
     assert "rootMargin: '100px 0px'" in prompt_pack_js
-    assert html.count('<button class="idea" type="button" data-prompt=') == 5
+    # 內建靈感卡帶 data-plain（中文）＋ data-prompt（英文 provider）：中文進主框、免學提示詞。
+    assert html.count('<button class="idea" type="button" data-plain=') == 5
+    assert html.count(' data-prompt=') == 5
     assert html.count("v1.4.0") == 2
     assert ".example-thumb img" in styles
     assert ".idea .idea-thumb" in styles

@@ -36,7 +36,7 @@
       .then(function (pack) {
         ((pack && pack.categories) || []).forEach(function (category) {
           ((category && category.cards) || []).forEach(function (card) {
-            if (card && card.en) prompts.push(card.en);
+            if (card && (card.zh || card.en)) prompts.push({ zh: card.zh, en: card.en });
           });
         });
         if (!prompts.length) throw new Error('prompt pack is empty');
@@ -45,28 +45,29 @@
     return pending;
   }
 
-  function usePrompt(prompt) {
+  function usePrompt(item) {
     var app = window.ImageGenApp;
-    if (app && typeof app.setPromptForReview === 'function') {
-      app.setPromptForReview(prompt, 'HF 靈感 prompt');
+    if (app && typeof app.applyInspiration === 'function') {
+      app.applyInspiration(item.zh, item.en, 'HF 靈感');
     } else {
-      var field = document.getElementById('prompt');
-      if (field) field.value = prompt;
+      var field = document.getElementById('plainPrompt') || document.getElementById('prompt');
+      if (field) field.value = item.zh || item.en;
     }
   }
 
-  function buildCard(prompt) {
+  function buildCard(item) {
+    var label = item.zh || item.en || '';
     var card = el('button', 'idea-prompt');
     card.type = 'button';
     card.title = '使用這個提示詞';
     card.style.cssText = 'text-align:left;display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px solid rgba(255,255,255,0.1);border-radius:12px;background:rgba(255,255,255,0.03);cursor:pointer;color:inherit;font:inherit;line-height:1.4;';
-    var text = el('span', null, prompt.length > 160 ? prompt.slice(0, 160) + '…' : prompt);
+    var text = el('span', null, label.length > 160 ? label.slice(0, 160) + '…' : label);
     text.style.cssText = 'font-size:0.86rem;opacity:0.92;';
     card.appendChild(text);
     var action = el('span', null, '用這個 →');
     action.style.cssText = 'font-size:0.74rem;opacity:0.6;align-self:flex-end;';
     card.appendChild(action);
-    card.addEventListener('click', function () { usePrompt(prompt); });
+    card.addEventListener('click', function () { usePrompt(item); });
     return card;
   }
 

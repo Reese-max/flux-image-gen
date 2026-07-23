@@ -327,11 +327,11 @@
     <section class="ideas" id="ideasSection" aria-label="提示詞靈感">
       <div class="ideas-title">✦ 幫我想梗<span class="hint">（點一下只帶入描述，不會自動消耗額度）</span></div>
       <div class="idea-grid">
-        <button class="idea" type="button" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-ink.webp" alt="" loading="lazy" decoding="async"><span class="lbl">水墨山水</span></button>
-        <button class="idea" type="button" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cyber-market.webp" alt="" loading="lazy" decoding="async"><span class="lbl">賽博夜市</span></button>
-        <button class="idea" type="button" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-diamond-dino.webp" alt="" loading="lazy" decoding="async"><span class="lbl">鑽石恐龍</span></button>
-        <button class="idea" type="button" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-manga.webp" alt="" loading="lazy" decoding="async"><span class="lbl">動漫漫畫</span></button>
-        <button class="idea" type="button" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cutaway.webp" alt="" loading="lazy" decoding="async"><span class="lbl">剖面圖</span></button>
+        <button class="idea" type="button" data-plain="一幅寧靜的中國水墨山水畫，雲霧繚繞的山巒，留白極簡，優雅淡雅" data-prompt="a serene traditional Chinese ink painting of misty mountains, minimalist, elegant"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-ink.webp" alt="" loading="lazy" decoding="async"><span class="lbl">水墨山水</span></button>
+        <button class="idea" type="button" data-plain="未來感的台北夜市，霓虹燈光，賽博龐克風格，雨後地面倒影，電影感" data-prompt="a futuristic Taipei night market, neon lights, cyberpunk, rain reflections, cinematic"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cyber-market.webp" alt="" loading="lazy" decoding="async"><span class="lbl">賽博夜市</span></button>
+        <button class="idea" type="button" data-plain="一隻可愛的玩具恐龍模型，全身覆滿閃亮水晶，光澤感，深色背景棚拍產品照" data-prompt="a cute toy dinosaur figurine covered in sparkling crystals, glossy, studio product photo, dark background"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-diamond-dino.webp" alt="" loading="lazy" decoding="async"><span class="lbl">鑽石恐龍</span></button>
+        <button class="idea" type="button" data-plain="黑白漫畫分格，一個年輕人和他的貓，表情生動，線條細膩" data-prompt="a black and white manga comic panel, a young man and his cat, expressive, detailed linework"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-manga.webp" alt="" loading="lazy" decoding="async"><span class="lbl">動漫漫畫</span></button>
+        <button class="idea" type="button" data-plain="無線耳機的技術剖面圖，標註清楚，藍圖風格，乾淨簡潔" data-prompt="a detailed technical cutaway diagram of wireless earbuds, labeled, blueprint style, clean"><img class="idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-cutaway.webp" alt="" loading="lazy" decoding="async"><span class="lbl">剖面圖</span></button>
         <button id="random" class="idea" type="button"><img class="random-thumb idea-thumb" width="1024" height="1024" data-src="/static/examples/idea-vaporwave.webp" alt="" loading="lazy" decoding="async"><span class="lbl">隨機驚喜</span></button>
       </div>
     </section>
@@ -524,9 +524,11 @@
       <div id="historyFilters" class="history-filters" role="group" aria-label="歷史篩選" hidden>
         <input id="historySearch" class="text-input" type="search" aria-label="搜尋歷史作品" placeholder="搜尋描述或標籤">
         <select id="historyModelFilter" class="text-input" aria-label="依畫質篩選">
-          <option value="">所有模型</option>
-          <option value="schnell">schnell</option>
-          <option value="dev">dev</option>
+          <option value="">所有畫質</option>
+          <option value="草稿">草稿</option>
+          <option value="平衡">平衡</option>
+          <option value="精緻">精緻</option>
+          <option value="自訂">自訂</option>
         </select>
         <select id="historySizeFilter" class="text-input" aria-label="依尺寸篩選">
           <option value="">所有尺寸</option>

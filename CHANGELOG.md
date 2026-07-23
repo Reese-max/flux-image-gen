@@ -19,6 +19,9 @@
 - 精簡進階設定：移除「自訂尺寸」入口（下拉選項與寬高欄位，保留 8 個用途尺寸預設）與「自訂畫面編號」手動輸入框。`#seed` 改為隱藏欄保留，🔒 鎖定構圖仍照常運作；後端與共用的自訂尺寸驗證模組不動（僅前端拿掉入口）。舊的 `?size=custom&width=..&height=..` 分享連結會靜默退回預設尺寸。
 - 移除「風格卡／自訂點子」與「作品集（project board）」整套整理子系統：對 casual 生圖使用者投報比過低。刪除 idea-store／idea-cards／project-store／project-board 四個前端模組與對應面板、tab、編輯 modal、歷史「存成風格卡／加入作品集」入口與 5 個測試檔。保留無關的「隨機驚喜」（hf-ideas）與內建建議提示詞。Service Worker 快取清單同步移除已刪檔並 bump 版本（v23→v24）避免 PWA 安裝失敗。
 - 清理已移除功能的過時文案：隱私政策說明、「清除本機資料」確認與按鈕說明、教學步驟與分頁註解不再提及已刪的「風格卡／作品集」，改為只描述現存的本機歷史與教學偏好。
+- 靈感系統改中文優先：精選提示詞、隨機靈感、「幫我想梗」內建卡與隨機驚喜點擊後改把中文描述填進主輸入框（英文 prompt 轉為內部 provider prompt、標 `data-auto-source` 供編輯時重編譯），不再彈開進階英文欄——對齊「免學提示詞」定位。新增 `applyInspiration()` 供靈感卡使用；「轉成英文提示詞」按鈕的 `setPromptForReview` 行為不變。仍維持「套用只填輸入框、絕不自動花額度」契約。
+- 修正歷史尺寸篩選必定落空：篩選器選項值（square／landscape／portrait）與紀錄實際儲存的 size preset（ig_post 等）對不上，選任何尺寸都清空清單。新增 `sizeOrientation()` 歸類後比對。
+- 歷史術語統一為畫質三檔：歷史卡、版本 chip、分享文字不再顯示 `schnell`／`dev` 內部值，改依 steps／cfg_scale 顯示「草稿／平衡／精緻／自訂」；`#historyModelFilter` 改為依畫質篩選；`applyExampleGalleryPrompt` 不再把隱藏 model 設回 `schnell`（一律 dev）。
 
 ### Fixed
 

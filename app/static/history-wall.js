@@ -212,6 +212,38 @@
     return tags;
   }
 
+  // size preset → 方形/橫向/直向 三向分類，對齊 index.html 的 historySizeFilter 選項值。
+  function sizeOrientation(size) {
+    switch (toText(size)) {
+      case 'square': case 'landscape': case 'portrait':
+        return toText(size);
+      case 'ig_post':
+        return 'square';
+      case 'ppt_16_9': case 'youtube_thumb': case 'hero_21_9':
+        return 'landscape';
+      case 'ig_story': case 'mobile_wallpaper': case 'poster_3_4': case 'a4_illustration':
+        return 'portrait';
+      default:
+        return 'square';
+    }
+  }
+
+  // steps/cfgScale → 草稿/平衡/精緻/自訂 中文畫質檔（對齊 app.js QUALITY_PRESETS）。
+  // 對一般使用者隱藏 schnell/dev 這種內部模型代號。
+  function qualityLabel(record) {
+    if (!record) { return '平衡'; }
+    var steps = record.steps;
+    var cfg = record.cfgScale;
+    var hasSteps = steps !== null && steps !== undefined && steps !== '';
+    var hasCfg = cfg !== null && cfg !== undefined && cfg !== '';
+    if (!hasSteps && !hasCfg) { return '平衡'; }
+    var s = Number(steps);
+    var c = Number(cfg);
+    if (s === 10 && c === 3) { return '草稿'; }
+    if (s === 45 && c === 4) { return '精緻'; }
+    return '自訂';
+  }
+
   function recordMatchesFilters(record) {
     var sourceRecord = normalizeRecordForUi(record) || record;
     var query = toText(filters.query).toLowerCase();
@@ -220,8 +252,8 @@
     var searchable;
     var i;
     if (!sourceRecord) { return false; }
-    if (filters.model && toText(sourceRecord.model) !== filters.model) { return false; }
-    if (filters.size && toText(sourceRecord.size) !== filters.size) { return false; }
+    if (filters.model && qualityLabel(sourceRecord) !== filters.model) { return false; }
+    if (filters.size && sizeOrientation(toText(sourceRecord.size)) !== filters.size) { return false; }
     if (filters.dateFrom && (!recordDateKey(sourceRecord) || recordDateKey(sourceRecord) < filters.dateFrom)) { return false; }
     if (filters.dateTo && (!recordDateKey(sourceRecord) || recordDateKey(sourceRecord) > filters.dateTo)) { return false; }
     if (filters.favoritesOnly && sourceRecord.favorite !== true) { return false; }
@@ -339,7 +371,7 @@
   function formatHistoryMeta(record) {
     var parts = [];
     if (!record) { return ''; }
-    parts.push('模型：' + (toText(record.model) || 'schnell'));
+    parts.push('畫質：' + qualityLabel(record));
     parts.push('尺寸：' + (toText(record.size) || 'square'));
     parts.push('Seed：' + String(record.seed || 0));
     if (record.width && record.height) { parts.push('解析度：' + record.width + '×' + record.height); }
@@ -627,7 +659,7 @@
       var label = 'v' + String(version.versionNumber || 1);
       chip.type = 'button';
       chip.className = 'version-chip' + (toText(version.id) === toText(record && record.id) ? ' is-active' : '');
-      chip.textContent = label + ' · ' + (toText(version.model) || 'schnell') + ' · ' + (toText(version.size) || 'square');
+      chip.textContent = label + ' · ' + qualityLabel(version) + ' · ' + (toText(version.size) || 'square');
       chip.addEventListener('click', function () {
         openHistoryDetail(version);
       });
@@ -641,7 +673,7 @@
     var cloudShareUrl;
     if (!sourceRecord) { return ''; }
     lines.push('AI 圖片作品');
-    lines.push('模型：' + (toText(sourceRecord.model) || 'schnell'));
+    lines.push('畫質：' + qualityLabel(sourceRecord));
     lines.push('尺寸：' + (toText(sourceRecord.size) || 'square'));
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
@@ -855,7 +887,7 @@
     prompt.className = 'history-prompt';
     prompt.textContent = toText(record.providerPrompt || record.prompt);
     meta.className = 'history-meta';
-    appendMeta(meta, toText(record.model) || 'schnell');
+    appendMeta(meta, qualityLabel(record));
     appendMeta(meta, toText(record.size) || 'square');
     appendMeta(meta, 'seed ' + String(record.seed || 0));
     if (record.provider) { appendMeta(meta, toText(record.provider)); }

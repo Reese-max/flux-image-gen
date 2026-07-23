@@ -1585,6 +1585,24 @@ function setPromptAndGenerate(prompt){
   setPromptForReview(prompt, '提示詞');
 }
 
+// 靈感卡專用：中文進主框、英文當內部 provider prompt（標記 auto-source，編輯中文時會被清掉重編譯）。
+// 刻意不彈開進階設定，維持「免學提示詞」定位。絕不觸發生成。
+function applyInspiration(zh, en, label){
+  if(el('plainPrompt')){ el('plainPrompt').value = zh || ''; }
+  var p = el('prompt');
+  if(p){
+    if(en){
+      p.value = en;
+      p.setAttribute('data-auto-source', 'inspiration');
+    }else{
+      clearAutoProviderPrompt();
+    }
+  }
+  setGenerationState('idle');
+  setStatus('已套用' + (label || '靈感') + '；確認後再按「生成圖片」，不會自動消耗額度。', 'done');
+  scrollToComposerAndFocus();
+}
+
 function findExampleCard(node){
   var current = node;
   while(current && current !== document){
@@ -1617,7 +1635,7 @@ function applyExampleGalleryPrompt(card){
   if(style){ style.value = styleValue; }
   if(useCase){ useCase.value = useCaseValue; }
   if(size){ size.value = sizeValue; }
-  if(model){ model.value = 'schnell'; }
+  if(model){ model.value = 'dev'; }
   updateMobileGenerateSummary();
   setGenerationState('idle');
   setStatus('已套用範例到輸入框；確認後再按「生成圖片」，不會自動消耗額度。', 'done');
@@ -1636,6 +1654,7 @@ window.ImageGenApp = {
   generate: generate,
   setPromptAndGenerate: setPromptAndGenerate,
   setPromptForReview: setPromptForReview,
+  applyInspiration: applyInspiration,
   setGenerationSettings: setGenerationSettings,
   applyExampleGalleryPrompt: applyExampleGalleryPrompt,
   getLastGeneration: getLastGeneration,
@@ -1859,11 +1878,14 @@ document.addEventListener('DOMContentLoaded', function(){
   });
   applyTemplateFromUrl();
   el('random').addEventListener('click', function(){
-    setPromptForReview(randomPrompt(), '隨機靈感');
+    var cards = document.querySelectorAll('.idea[data-prompt]');
+    if(!cards.length){ return; }
+    var card = cards[Math.floor(Math.random() * cards.length)];
+    applyInspiration(card.getAttribute('data-plain'), card.getAttribute('data-prompt'), '隨機驚喜');
   });
   Array.prototype.forEach.call(document.querySelectorAll('.idea[data-prompt]'), function(button){
     button.addEventListener('click', function(){
-      setPromptForReview(button.getAttribute('data-prompt'), '靈感 prompt');
+      applyInspiration(button.getAttribute('data-plain'), button.getAttribute('data-prompt'), '靈感');
     });
   });
   el('prompt').addEventListener('keydown', function(event){
