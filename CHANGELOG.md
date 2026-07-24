@@ -4,6 +4,7 @@
 
 ### Changed
 
+- 生成新增第三層 Pollinations 退回:Workers AI 也因基礎設施失敗（5xx/逾時）出不了圖時，若旗標 `POLLINATIONS_FALLBACK_ENABLED` 開啟就改用免金鑰的 Pollinations（`image.pollinations.ai`，回傳圖片 bytes 轉 base64，provider 標記 `pollinations`）。內容過濾（422）與限流（429）一律不退到 Pollinations（它無內容過濾，尊重站上審核）。退回鏈為 NVIDIA → Workers AI → Pollinations，三家都掛才真的沒圖。Worker 預設開啟、FastAPI 依 env 旗標；單張與批次、雙 twin 一致。Pollinations 免費層有限流（約每 15 秒一張）與尺寸不保證，僅作最後保險。
 - 生成新增 NVIDIA→Workers AI 自動退回:NVIDIA 逾時/網路/5xx 等基礎設施失敗時，若有 Workers AI binding 就自動改用 Workers AI 出圖（`flux-1-schnell`／`flux-2-klein-4b`），結果標記 provider 為 `workers-ai`。內容過濾（422）與限流（429）不退回（Workers AI 內容過濾更嚴、退回也會失敗）。有退回可用時 NVIDIA 只嘗試一次，讓「服務暗掉」（接受連線但永不回應）從等 ~120 秒縮為 ~60 秒就切換。單張與批次、Worker 與 FastAPI twin 皆一致。此前 Workers AI 只在「完全沒設 NVIDIA 金鑰」時才會走，NVIDIA 掛掉時整站無法生圖。
 
 - 手機版首屏直達輸入框：≤620px 隱藏 hero 副標語與教學按鈕（教學入口改為頂欄 44px「?」鈕）、主標題縮為單行，描述輸入框在 iPhone 13 首屏即完整可見（promptTop 598→412px）。範例 Gallery 改為橫向滑動卡片，生成分頁總長 5552→2747px。

@@ -10,6 +10,8 @@ import {
   MAX_EDIT_IMAGE_BYTES,
   MAX_SEED,
   MODEL_ENDPOINTS,
+  POLLINATIONS_BASE_URL,
+  POLLINATIONS_FETCH_TIMEOUT_MS,
   RETRYABLE_IMAGE_STATUS,
   SIZE_MAP,
   WORKERS_AI_EDIT_MODEL,
@@ -380,6 +382,51 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
   };
 }
 
+// Encode a (possibly large) image buffer to base64 without spreading the whole
+// byte array into a single call (that overflows the call stack). Chunk it.
+function bytesToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+// Third tier: keyless Pollinations flux endpoint returns raw image bytes. Only
+// reached after NVIDIA and Workers AI both fail on infrastructure — see
+// generateOneImage. Never carries a content filter, so callers must gate it on
+// shouldFallbackToWorkersAi (5xx/timeout) exactly like the Workers AI hop.
+async function generateWithPollinations({ prompt, width, height, seed }) {
+  const effectiveSeed = seed === 0 ? randomImageSeed() : seed;
+  const url =
+    `${POLLINATIONS_BASE_URL}/${encodeURIComponent(prompt)}` +
+    `?width=${width}&height=${height}&seed=${effectiveSeed}&model=flux&nologo=true`;
+  let resp;
+  try {
+    resp = await fetch(url, { signal: AbortSignal.timeout(POLLINATIONS_FETCH_TIMEOUT_MS) });
+  } catch (e) {
+    throw e && (e.name === "TimeoutError" || e.name === "AbortError")
+      ? new HttpError("Pollinations 產圖逾時，請稍後再試", 504, "timeout")
+      : new HttpError("Pollinations 連線失敗，請稍後再試", 502, "pollinations_error");
+  }
+  if (!resp.ok) {
+    throw new HttpError("Pollinations HTTP " + resp.status, resp.status, "pollinations_error");
+  }
+  const contentType = resp.headers.get("content-type") || "image/jpeg";
+  const image = `data:${contentType};base64,` + bytesToBase64(await resp.arrayBuffer());
+  return {
+    image,
+    provider: "pollinations",
+    model: "flux",
+    width,
+    height,
+    seed: effectiveSeed,
+    imageQuality: inspectGeneratedImage(image, width, height),
+  };
+}
+
 async function generateWithNvidia(env, { prompt, model, width, height, seed, steps, cfgScale }, { provider = "nvidia", maxAttempts = IMAGE_MAX_ATTEMPTS } = {}) {
   const key = getNvidiaApiKey(env);
   const base = (env.NVIDIA_BASE_URL || "https://ai.api.nvidia.com/v1/genai").replace(/\/+$/, "");
@@ -518,19 +565,35 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     const image = makeDemoImageDataUrl();
     return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
   }
+  // Third-tier Pollinations fallback (keyless). Gated by env flag; when on, a
+  // dark NVIDIA/Workers AI provider fails over here on infrastructure errors only.
+  const pollinationsEnabled =
+    String((env && env.POLLINATIONS_FALLBACK_ENABLED) || "").trim().toLowerCase() === "true";
   const nvidiaModel = model === "schnell" ? "dev" : model;
   try {
-    // When a Workers AI fallback exists, one NVIDIA attempt is enough: a dark
-    // provider (accepts the connection but never responds) then costs ~60s
-    // instead of 120s before the fallback takes over.
+    // When any fallback exists (Workers AI or Pollinations), one NVIDIA attempt is
+    // enough: a dark provider (accepts the connection but never responds) then
+    // costs ~60s instead of 120s before the fallback takes over.
     return await generateWithNvidia(
       env,
       { prompt, model: nvidiaModel, width, height, seed, steps, cfgScale },
-      { maxAttempts: hasWorkersAi ? 1 : IMAGE_MAX_ATTEMPTS }
+      { maxAttempts: hasWorkersAi || pollinationsEnabled ? 1 : IMAGE_MAX_ATTEMPTS }
     );
   } catch (error) {
-    if (hasWorkersAi && shouldFallbackToWorkersAi(error)) {
-      return generateWithWorkersAi(env, { prompt, model, width, height, seed });
+    // content_filtered (422) / rate_limited (429) propagate untouched — never Pollinations.
+    if (!shouldFallbackToWorkersAi(error)) throw error;
+    if (hasWorkersAi) {
+      try {
+        return await generateWithWorkersAi(env, { prompt, model, width, height, seed });
+      } catch (waErr) {
+        if (pollinationsEnabled && shouldFallbackToWorkersAi(waErr)) {
+          return await generateWithPollinations({ prompt, width, height, seed });
+        }
+        throw waErr;
+      }
+    }
+    if (pollinationsEnabled) {
+      return await generateWithPollinations({ prompt, width, height, seed });
     }
     throw error;
   }

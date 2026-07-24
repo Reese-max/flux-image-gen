@@ -1045,6 +1045,76 @@ test('POST /generate does NOT fall back to Workers AI on a NVIDIA 4xx (content f
   }
 });
 
+test('POST /generate falls back to Pollinations when NVIDIA and Workers AI both fail', async () => {
+  const originalFetch = globalThis.fetch;
+  // Workers AI throws a generic infra error -> generateWithWorkersAi maps it to a
+  // 502 workers_ai_error, which is >=500 so Pollinations takes over.
+  const ai = fakeAi(new Error('model overloaded'));
+  let pollinationsCalls = 0;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'pollinations');
+    assert.equal(data.model, 'flux');
+    assert.ok(data.image.startsWith('data:image/jpeg;base64,'));
+    assert.equal(ai.calls.length, 1);
+    assert.equal(pollinationsCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate does NOT fall back to Pollinations on a Workers AI content filter', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi(new Error('InferenceUpstreamError: NSFW content detected in prompt'));
+  let pollinationsCalls = 0;
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      return new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 422);
+    assert.equal(data.code, 'content_filtered');
+    // Content filtering is request-level; Pollinations (no filter) is never tried.
+    assert.equal(pollinationsCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate defaults missing null and empty seed to 0', async () => {
   const originalFetch = globalThis.fetch;
   const cases = [

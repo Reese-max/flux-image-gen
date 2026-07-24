@@ -485,6 +485,67 @@ class WorkersAiProvider:
         )
 
 
+POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt"
+
+
+class PollinationsProvider:
+    """Third-tier fallback on the keyless Pollinations flux endpoint, which returns
+    raw image bytes. Reached only when NVIDIA and Workers AI both fail on
+    infrastructure (5xx/timeout) — never on content_filtered/rate_limited, since
+    Pollinations has no content filter (see _generate_one_with_fallback)."""
+
+    provider_name = "pollinations"
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    async def generate(self, request: GenerationRequest) -> GenerationResult:
+        from urllib.parse import quote
+
+        prompt = validate_prompt(request.prompt)
+        model = validate_model(request.model)
+        width, height = map_size(request.size, request.width, request.height)
+        seed = resolve_seed(request.seed, model, self.settings)
+        # UI contract: seed 0 means "random variation"; substitute a real seed and
+        # return it for reproducibility (mirrors the Worker / Workers AI path).
+        effective_seed = _random_seed() if seed == 0 else seed
+
+        url = f"{POLLINATIONS_BASE_URL}/{quote(prompt, safe='')}"
+        params = {
+            "width": width,
+            "height": height,
+            "seed": effective_seed,
+            "model": "flux",
+            "nologo": "true",
+        }
+        async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
+            try:
+                response = await client.get(url, params=params)
+            except httpx.TimeoutException as exc:
+                raise ProviderError("Pollinations 產圖逾時，請稍後再試", status_code=504, code="timeout") from exc
+            except httpx.HTTPError as exc:
+                raise ProviderError(f"Pollinations 連線失敗：{exc}", status_code=502, code="pollinations_error") from exc
+
+        if response.status_code >= 400:
+            raise ProviderError(
+                _response_error_message(response, "Pollinations"),
+                status_code=response.status_code,
+                code="pollinations_error",
+            )
+
+        content_type = (response.headers.get("content-type") or "image/jpeg").split(";")[0].strip() or "image/jpeg"
+        image = f"data:{content_type};base64," + base64.b64encode(response.content).decode("ascii")
+        return GenerationResult(
+            image=image,
+            provider=self.provider_name,
+            model="flux",
+            width=width,
+            height=height,
+            seed=effective_seed,
+            image_quality=inspect_generated_image(image, width, height),
+        )
+
+
 def _workers_ai_configured(settings: Settings) -> bool:
     return bool(settings.cf_account_id.strip() and settings.cf_api_token.strip())
 
@@ -526,19 +587,26 @@ def _resolve_provider_and_request(
 async def _generate_one_with_fallback(
     provider: Any, request: GenerationRequest, settings: Settings
 ) -> GenerationResult:
-    """Run a single generation, falling back from NVIDIA to Workers AI on a
-    provider-infrastructure failure (timeout / network / 5xx). Content filtering
-    (422) and rate limits (429) propagate unchanged: retrying on Workers AI
-    would just fail again (its content filter is stricter)."""
+    """Run a single generation, falling back NVIDIA -> Workers AI -> Pollinations
+    on provider-infrastructure failures (timeout / network / 5xx). Content
+    filtering (422) and rate limits (429) propagate unchanged: retrying downstream
+    would just fail again (Workers AI's filter is stricter) or bypass moderation
+    (Pollinations has none), so those never fall through."""
     try:
         return await provider.generate(request)
     except ProviderError as error:
-        if (
-            isinstance(provider, NvidiaProvider)
-            and _workers_ai_configured(settings)
-            and (error.status_code or 0) >= 500
-        ):
-            return await WorkersAiProvider(settings).generate(request)
+        if not (isinstance(provider, NvidiaProvider) and (error.status_code or 0) >= 500):
+            raise
+        pollinations_enabled = settings.pollinations_fallback_enabled
+        if _workers_ai_configured(settings):
+            try:
+                return await WorkersAiProvider(settings).generate(request)
+            except ProviderError as wa_error:
+                if pollinations_enabled and (wa_error.status_code or 0) >= 500:
+                    return await PollinationsProvider(settings).generate(request)
+                raise
+        if pollinations_enabled:
+            return await PollinationsProvider(settings).generate(request)
         raise
 
 

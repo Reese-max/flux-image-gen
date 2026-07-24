@@ -164,6 +164,12 @@ export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
 // old 2 × 60s retry path turns a transient model stall into a two-minute wait.
 export const WORKERS_AI_FETCH_TIMEOUT_MS = 45_000;
 
+// Third-tier fallback: keyless Pollinations flux endpoint. Reached only when both
+// NVIDIA and Workers AI fail on infrastructure (5xx/timeout), never on a content
+// filter or rate limit. Returns raw image bytes (~4s observed).
+export const POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt";
+export const POLLINATIONS_FETCH_TIMEOUT_MS = 45_000;
+
 // Default square fast generations use the cheaper Cloudflare-hosted FLUX.1
 // schnell JSON API. Its public schema does not guarantee custom dimensions.
 export const WORKERS_AI_FAST_MODEL = "@cf/black-forest-labs/flux-1-schnell";

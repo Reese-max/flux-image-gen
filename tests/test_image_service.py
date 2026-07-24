@@ -501,6 +501,82 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 422)
         workers_ai_cls.return_value.generate.assert_not_awaited()
 
+    async def test_generate_image_falls_back_to_pollinations_when_workers_ai_also_fails(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            generate_image,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+            pollinations_fallback_enabled=True,
+        )
+        pollinated = GenerationResult(
+            image="data:image/jpeg;base64,AAAA",
+            provider="pollinations",
+            model="flux",
+            width=1024,
+            height=1024,
+            seed=1,
+        )
+        with patch.object(
+            NvidiaProvider,
+            "generate",
+            new=AsyncMock(side_effect=ProviderError("NVIDIA 產圖逾時", status_code=504, code="timeout")),
+        ), patch("app.image_service.WorkersAiProvider") as workers_ai_cls, patch(
+            "app.image_service.PollinationsProvider"
+        ) as pollinations_cls:
+            workers_ai_cls.return_value.generate = AsyncMock(
+                side_effect=ProviderError("Workers AI 5xx", status_code=503, code="workers_ai_error")
+            )
+            pollinations_cls.return_value.generate = AsyncMock(return_value=pollinated)
+            result = await generate_image(
+                GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                settings,
+            )
+
+        self.assertEqual(result.provider, "pollinations")
+        pollinations_cls.return_value.generate.assert_awaited_once()
+
+    async def test_generate_image_does_not_fall_back_to_pollinations_on_workers_ai_content_filter(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import NvidiaProvider, ProviderError, generate_image
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+            pollinations_fallback_enabled=True,
+        )
+        with patch.object(
+            NvidiaProvider,
+            "generate",
+            new=AsyncMock(side_effect=ProviderError("NVIDIA 產圖逾時", status_code=504, code="timeout")),
+        ), patch("app.image_service.WorkersAiProvider") as workers_ai_cls, patch(
+            "app.image_service.PollinationsProvider"
+        ) as pollinations_cls:
+            workers_ai_cls.return_value.generate = AsyncMock(
+                side_effect=ProviderError("內容過濾", status_code=422, code="content_filtered")
+            )
+            pollinations_cls.return_value.generate = AsyncMock()
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_image(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    settings,
+                )
+
+        self.assertEqual(ctx.exception.status_code, 422)
+        pollinations_cls.return_value.generate.assert_not_awaited()
+
     async def test_generate_batch_returns_count_variations_with_demo_provider(self):
         from app.image_service import generate_batch
 

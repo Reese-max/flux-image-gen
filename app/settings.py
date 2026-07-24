@@ -75,6 +75,10 @@ class Settings:
         "GEMINI_COMPLETE_TIMEOUT_SECONDS", 5.0
     )
     vision_qa_enabled: bool = _bool_env("VISION_QA_ENABLED", False)
+    # Third-tier keyless Pollinations fallback, reached only when NVIDIA and
+    # Workers AI both fail on infrastructure (5xx/timeout). Off by default; set
+    # POLLINATIONS_FALLBACK_ENABLED=true to enable (mirrors the Worker flag).
+    pollinations_fallback_enabled: bool = _bool_env("POLLINATIONS_FALLBACK_ENABLED", False)
     # Secondary LLM fallback via the local Codex proxy (OpenAI-compatible). Used only
     # when Gemini fails, before dropping to the offline rule engine. Empty key = off.
     codex_api_key: str = os.getenv("CODEX_PROXY_KEY", "")

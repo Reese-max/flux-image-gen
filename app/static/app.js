@@ -1682,6 +1682,7 @@ function showDemoNotice(on){
 }
 function providerDisplayName(provider){
   if(provider === 'workers-ai'){ return 'Workers AI'; }
+  if(provider === 'pollinations'){ return 'Pollinations'; }
   if(provider === 'nvidia-fallback'){ return 'NVIDIA FLUX 備援'; }
   if(provider === 'nvidia'){ return 'NVIDIA FLUX'; }
   return provider;
