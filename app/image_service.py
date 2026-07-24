@@ -4,6 +4,7 @@ import asyncio
 import base64
 import random
 import re
+import time
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -584,6 +585,52 @@ def _resolve_provider_and_request(
     return provider, request
 
 
+# NVIDIA circuit breaker: once an infra failure (5xx/timeout) is seen, mark the
+# provider "down" for a cooldown so subsequent requests skip the ~60s dark-provider
+# wait and go straight to the fallback chain. Cheap in-process state (monotonic
+# deadline); good enough for one worker, and a batch's concurrent tasks all benefit
+# once the first trips it. Half-open is implicit: past the deadline the next request
+# re-probes NVIDIA and re-trips only if it's still down.
+NVIDIA_CIRCUIT_COOLDOWN_S = 180
+_nvidia_circuit_open_until: float = 0.0
+
+
+def _nvidia_circuit_open() -> bool:
+    return time.monotonic() < _nvidia_circuit_open_until
+
+
+def _trip_nvidia_circuit() -> None:
+    global _nvidia_circuit_open_until
+    _nvidia_circuit_open_until = time.monotonic() + NVIDIA_CIRCUIT_COOLDOWN_S
+
+
+def _reset_nvidia_circuit() -> None:
+    """Test hook: clear circuit state so it never leaks across tests."""
+    global _nvidia_circuit_open_until
+    _nvidia_circuit_open_until = 0.0
+
+
+def _has_fallback(settings: Settings) -> bool:
+    return _workers_ai_configured(settings) or settings.pollinations_fallback_enabled
+
+
+async def _run_fallback_chain(request: GenerationRequest, settings: Settings) -> GenerationResult:
+    """Workers AI -> Pollinations tail, shared by the circuit-open skip path and the
+    NVIDIA-infra-failure path. A Workers AI content filter (422) / rate limit (429)
+    does NOT fall through to Pollinations (which has no moderation)."""
+    pollinations_enabled = settings.pollinations_fallback_enabled
+    if _workers_ai_configured(settings):
+        try:
+            return await WorkersAiProvider(settings).generate(request)
+        except ProviderError as wa_error:
+            if pollinations_enabled and (wa_error.status_code or 0) >= 500:
+                return await PollinationsProvider(settings).generate(request)
+            raise
+    if pollinations_enabled:
+        return await PollinationsProvider(settings).generate(request)
+    raise ProviderError("目前沒有可用的生圖服務，請稍後再試", status_code=503, code="no_provider")
+
+
 async def _generate_one_with_fallback(
     provider: Any, request: GenerationRequest, settings: Settings
 ) -> GenerationResult:
@@ -591,23 +638,22 @@ async def _generate_one_with_fallback(
     on provider-infrastructure failures (timeout / network / 5xx). Content
     filtering (422) and rate limits (429) propagate unchanged: retrying downstream
     would just fail again (Workers AI's filter is stricter) or bypass moderation
-    (Pollinations has none), so those never fall through."""
+    (Pollinations has none), so those never fall through.
+
+    A circuit breaker skips NVIDIA outright during a cooldown after an infra
+    failure, so requests don't each eat the ~60s dark-provider timeout — but only
+    when a fallback is actually available."""
+    if isinstance(provider, NvidiaProvider) and _has_fallback(settings) and _nvidia_circuit_open():
+        return await _run_fallback_chain(request, settings)
     try:
         return await provider.generate(request)
     except ProviderError as error:
         if not (isinstance(provider, NvidiaProvider) and (error.status_code or 0) >= 500):
             raise
-        pollinations_enabled = settings.pollinations_fallback_enabled
-        if _workers_ai_configured(settings):
-            try:
-                return await WorkersAiProvider(settings).generate(request)
-            except ProviderError as wa_error:
-                if pollinations_enabled and (wa_error.status_code or 0) >= 500:
-                    return await PollinationsProvider(settings).generate(request)
-                raise
-        if pollinations_enabled:
-            return await PollinationsProvider(settings).generate(request)
-        raise
+        if not _has_fallback(settings):
+            raise
+        _trip_nvidia_circuit()
+        return await _run_fallback_chain(request, settings)
 
 
 async def generate_image(request: GenerationRequest, settings: Settings | None = None) -> GenerationResult:

@@ -5,6 +5,13 @@ from app.settings import Settings
 
 
 class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # The NVIDIA circuit breaker is module-level state; clear it before every
+        # test so a trip in one test can never leak into another (order-independent).
+        from app.image_service import _reset_nvidia_circuit
+
+        _reset_nvidia_circuit()
+
     def test_map_size_supports_reference_ui_sizes(self):
         self.assertEqual(map_size("square"), (1024, 1024))
         self.assertEqual(map_size("landscape"), (1344, 768))
@@ -577,6 +584,96 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ctx.exception.status_code, 422)
         pollinations_cls.return_value.generate.assert_not_awaited()
 
+    async def test_circuit_opens_after_nvidia_5xx_and_skips_nvidia_next_request(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            _reset_nvidia_circuit,
+            generate_image,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+        )
+        fallback = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="workers-ai",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=1,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=ProviderError("NVIDIA 產圖逾時", status_code=504, code="timeout")
+        )
+        try:
+            with patch.object(NvidiaProvider, "generate", new=nvidia_mock), patch(
+                "app.image_service.WorkersAiProvider"
+            ) as workers_ai_cls:
+                workers_ai_cls.return_value.generate = AsyncMock(return_value=fallback)
+                # First request: NVIDIA 504 -> trips the circuit, serves Workers AI.
+                first = await generate_image(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"), settings
+                )
+                self.assertEqual(first.provider, "workers-ai")
+                self.assertEqual(nvidia_mock.call_count, 1)
+
+                # Second request: circuit open -> NVIDIA is skipped entirely (not
+                # called again), Workers AI serves it directly.
+                second = await generate_image(
+                    GenerationRequest(prompt="a dog", model="schnell", size="square"), settings
+                )
+                self.assertEqual(second.provider, "workers-ai")
+                self.assertEqual(nvidia_mock.call_count, 1)
+                self.assertEqual(workers_ai_cls.return_value.generate.await_count, 2)
+        finally:
+            _reset_nvidia_circuit()
+
+    async def test_nvidia_4xx_does_not_open_circuit(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            NvidiaProvider,
+            ProviderError,
+            _reset_nvidia_circuit,
+            generate_image,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=ProviderError("內容過濾", status_code=422, code="content_filtered")
+        )
+        try:
+            with patch.object(NvidiaProvider, "generate", new=nvidia_mock), patch(
+                "app.image_service.WorkersAiProvider"
+            ) as workers_ai_cls:
+                workers_ai_cls.return_value.generate = AsyncMock()
+                # 422 propagates and must NOT trip the circuit.
+                with self.assertRaises(ProviderError):
+                    await generate_image(
+                        GenerationRequest(prompt="x", model="schnell", size="square"), settings
+                    )
+                # Next request still probes NVIDIA (circuit stayed closed).
+                with self.assertRaises(ProviderError):
+                    await generate_image(
+                        GenerationRequest(prompt="y", model="schnell", size="square"), settings
+                    )
+                self.assertEqual(nvidia_mock.call_count, 2)
+                workers_ai_cls.return_value.generate.assert_not_awaited()
+        finally:
+            _reset_nvidia_circuit()
+
     async def test_generate_batch_returns_count_variations_with_demo_provider(self):
         from app.image_service import generate_batch
 
@@ -615,6 +712,11 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
 class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
     """The fast tier ("schnell") runs on flux.2-klein-4b via NVIDIA (flux.1-schnell
     went dark 2026-07), or Workers AI when configured. Demo mode is untouched."""
+
+    def setUp(self):
+        from app.image_service import _reset_nvidia_circuit
+
+        _reset_nvidia_circuit()
 
     def test_schnell_endpoint_maps_to_flux2_klein(self):
         from app.image_service import MODEL_ENDPOINTS

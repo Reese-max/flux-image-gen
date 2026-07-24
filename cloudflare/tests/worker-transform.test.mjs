@@ -1081,6 +1081,67 @@ test('POST /generate falls back to Pollinations when NVIDIA and Workers AI both 
   }
 });
 
+// Minimal Map-backed Workers Cache API stub so the circuit breaker can persist
+// its "NVIDIA down" marker across two requests in the test runtime (Node has no
+// global `caches`). Keys by request URL, mirroring caches.default.match/put.
+function fakeCaches() {
+  const store = new Map();
+  return {
+    default: {
+      async match(req) {
+        return store.get(typeof req === 'string' ? req : req.url);
+      },
+      async put(req, resp) {
+        store.set(typeof req === 'string' ? req : req.url, resp);
+      },
+    },
+  };
+}
+
+test('POST /generate opens the NVIDIA circuit on a 5xx, then skips NVIDIA on the next request', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.caches = fakeCaches();
+  const ai = fakeAi([{ image: 'iVBORw0KGgo=' }, { image: 'iVBORw0KGgo=' }]);
+  let nvidiaCalls = 0;
+  globalThis.fetch = async function () {
+    nvidiaCalls += 1;
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    // First request: NVIDIA returns 500 -> one attempt, trips the circuit, serves Workers AI.
+    const first = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai })
+    );
+    const firstData = await first.json();
+    assert.equal(first.status, 200);
+    assert.equal(firstData.provider, 'workers-ai');
+    assert.equal(nvidiaCalls, 1);
+    assert.equal(ai.calls.length, 1);
+
+    // Second request: circuit open -> NVIDIA is skipped entirely (no new fetch),
+    // Workers AI serves it directly.
+    const second = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a dog', model: 'schnell', size: 'square', seed: 8 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai })
+    );
+    const secondData = await second.json();
+    assert.equal(second.status, 200);
+    assert.equal(secondData.provider, 'workers-ai');
+    assert.equal(nvidiaCalls, 1, 'circuit open -> NVIDIA must not be called again');
+    assert.equal(ai.calls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
 test('POST /generate does NOT fall back to Pollinations on a Workers AI content filter', async () => {
   const originalFetch = globalThis.fetch;
   const ai = fakeAi(new Error('InferenceUpstreamError: NSFW content detected in prompt'));

@@ -544,6 +544,58 @@ function shouldFallbackToWorkersAi(error) {
   return status >= 500;
 }
 
+// NVIDIA circuit breaker: once an infra failure (5xx/timeout) is seen, mark the
+// provider "down" for a cooldown so subsequent requests skip the ~60s dark-provider
+// timeout and go straight to the fallback chain. Backed by the Workers Cache API,
+// which auto-expires the entry per max-age (cooldown over = match returns
+// undefined = half-open: the next request re-probes NVIDIA). Best-effort: any
+// cache error (and the test runtime where `caches` is undefined) degrades to the
+// circuit being closed, so behaviour and existing tests are unaffected.
+const NVIDIA_CIRCUIT_COOLDOWN_S = 180;
+const nvidiaCircuitKey = new Request("https://circuit.internal/nvidia-down");
+
+async function isNvidiaCircuitOpen() {
+  if (typeof caches === "undefined" || !caches.default) return false;
+  try {
+    const hit = await caches.default.match(nvidiaCircuitKey);
+    return !!hit;
+  } catch {
+    return false;
+  }
+}
+
+async function tripNvidiaCircuit() {
+  if (typeof caches === "undefined" || !caches.default) return;
+  try {
+    await caches.default.put(
+      nvidiaCircuitKey,
+      new Response("down", { headers: { "Cache-Control": "max-age=" + NVIDIA_CIRCUIT_COOLDOWN_S } })
+    );
+  } catch {
+    // best-effort: a failed trip just means the next request re-probes NVIDIA
+  }
+}
+
+// The Workers AI -> Pollinations tail of the fallback chain, shared by the normal
+// NVIDIA-failed path and the circuit-open skip path. Mirrors the inline logic that
+// generateOneImage used to carry.
+async function generateWithFallbackChain(env, { prompt, model, width, height, seed }, { hasWorkersAi, pollinationsEnabled }) {
+  if (hasWorkersAi) {
+    try {
+      return await generateWithWorkersAi(env, { prompt, model, width, height, seed });
+    } catch (waErr) {
+      if (pollinationsEnabled && shouldFallbackToWorkersAi(waErr)) {
+        return await generateWithPollinations({ prompt, width, height, seed });
+      }
+      throw waErr;
+    }
+  }
+  if (pollinationsEnabled) {
+    return await generateWithPollinations({ prompt, width, height, seed });
+  }
+  throw new HttpError("目前沒有可用的生圖服務，請稍後再試", 503, "no_provider");
+}
+
 // Generate ONE image. Returns a plain result object, or throws HttpError on a
 // provider/validation failure. Shared by /generate and /generate/batch.
 export async function generateOneImage(env, { prompt, model, size, width, height, seed, steps, cfgScale }) {
@@ -569,6 +621,14 @@ export async function generateOneImage(env, { prompt, model, size, width, height
   // dark NVIDIA/Workers AI provider fails over here on infrastructure errors only.
   const pollinationsEnabled =
     String((env && env.POLLINATIONS_FALLBACK_ENABLED) || "").trim().toLowerCase() === "true";
+  const hasFallback = hasWorkersAi || pollinationsEnabled;
+  // Circuit open + a fallback available: skip NVIDIA entirely (no ~60s dark-provider
+  // timeout) and serve straight from the fallback chain. Without a fallback, skipping
+  // would just fail, so keep hitting NVIDIA. Only infra failures (5xx/timeout) ever
+  // trip the circuit — content_filtered (422) / rate_limited (429) never do.
+  if (hasFallback && (await isNvidiaCircuitOpen())) {
+    return await generateWithFallbackChain(env, { prompt, model, width, height, seed }, { hasWorkersAi, pollinationsEnabled });
+  }
   const nvidiaModel = model === "schnell" ? "dev" : model;
   try {
     // When any fallback exists (Workers AI or Pollinations), one NVIDIA attempt is
@@ -577,23 +637,17 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     return await generateWithNvidia(
       env,
       { prompt, model: nvidiaModel, width, height, seed, steps, cfgScale },
-      { maxAttempts: hasWorkersAi || pollinationsEnabled ? 1 : IMAGE_MAX_ATTEMPTS }
+      { maxAttempts: hasFallback ? 1 : IMAGE_MAX_ATTEMPTS }
     );
   } catch (error) {
-    // content_filtered (422) / rate_limited (429) propagate untouched — never Pollinations.
+    // content_filtered (422) / rate_limited (429) propagate untouched — never
+    // fall back, never trip the circuit.
     if (!shouldFallbackToWorkersAi(error)) throw error;
-    if (hasWorkersAi) {
-      try {
-        return await generateWithWorkersAi(env, { prompt, model, width, height, seed });
-      } catch (waErr) {
-        if (pollinationsEnabled && shouldFallbackToWorkersAi(waErr)) {
-          return await generateWithPollinations({ prompt, width, height, seed });
-        }
-        throw waErr;
-      }
-    }
-    if (pollinationsEnabled) {
-      return await generateWithPollinations({ prompt, width, height, seed });
+    if (hasFallback) {
+      // Infra failure with a fallback available: open the circuit so the next
+      // requests skip NVIDIA during the cooldown, then serve this one via fallback.
+      await tripNvidiaCircuit();
+      return await generateWithFallbackChain(env, { prompt, model, width, height, seed }, { hasWorkersAi, pollinationsEnabled });
     }
     throw error;
   }
