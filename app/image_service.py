@@ -523,10 +523,29 @@ def _resolve_provider_and_request(
     return provider, request
 
 
+async def _generate_one_with_fallback(
+    provider: Any, request: GenerationRequest, settings: Settings
+) -> GenerationResult:
+    """Run a single generation, falling back from NVIDIA to Workers AI on a
+    provider-infrastructure failure (timeout / network / 5xx). Content filtering
+    (422) and rate limits (429) propagate unchanged: retrying on Workers AI
+    would just fail again (its content filter is stricter)."""
+    try:
+        return await provider.generate(request)
+    except ProviderError as error:
+        if (
+            isinstance(provider, NvidiaProvider)
+            and _workers_ai_configured(settings)
+            and (error.status_code or 0) >= 500
+        ):
+            return await WorkersAiProvider(settings).generate(request)
+        raise
+
+
 async def generate_image(request: GenerationRequest, settings: Settings | None = None) -> GenerationResult:
     settings = settings or get_settings()
     provider, effective_request = _resolve_provider_and_request(request, settings)
-    return await provider.generate(effective_request)
+    return await _generate_one_with_fallback(provider, effective_request, settings)
 
 
 def validate_batch_count(count: Any) -> int:
@@ -560,7 +579,11 @@ async def generate_batch(
         for index in range(count)
     ]
     tasks = [replace(effective_request, seed=seed) for seed in seeds]
-    return list(await asyncio.gather(*(provider.generate(task) for task in tasks)))
+    return list(
+        await asyncio.gather(
+            *(_generate_one_with_fallback(provider, task, settings) for task in tasks)
+        )
+    )
 
 
 def validate_edit_images(images: tuple[bytes, ...]) -> tuple[bytes, ...]:

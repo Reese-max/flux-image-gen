@@ -380,7 +380,7 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
   };
 }
 
-async function generateWithNvidia(env, { prompt, model, width, height, seed, steps, cfgScale }, { provider = "nvidia" } = {}) {
+async function generateWithNvidia(env, { prompt, model, width, height, seed, steps, cfgScale }, { provider = "nvidia", maxAttempts = IMAGE_MAX_ATTEMPTS } = {}) {
   const key = getNvidiaApiKey(env);
   const base = (env.NVIDIA_BASE_URL || "https://ai.api.nvidia.com/v1/genai").replace(/\/+$/, "");
   const endpoint = `${base}/${MODEL_ENDPOINTS[model]}`;
@@ -393,7 +393,7 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed, ste
   let resp = null;
   let lastError = null;
   let providerAttempts = 0;
-  for (let attempt = 0; attempt < IMAGE_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       providerAttempts += 1;
       resp = await fetch(endpoint, {
@@ -426,7 +426,7 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed, ste
       }
       lastError = new HttpError(msg, resp.status, "nvidia_error");
     }
-    if (attempt + 1 >= IMAGE_MAX_ATTEMPTS) {
+    if (attempt + 1 >= maxAttempts) {
       throw withProviderAttempts(lastError, providerAttempts);
     }
     await sleep(IMAGE_RETRY_BACKOFF_MS * (attempt + 1));
@@ -488,6 +488,15 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed, ste
   );
 }
 
+// Only provider-infrastructure failures (timeout / network / 5xx) are worth
+// retrying on a different provider. Content filtering (422) and rate limits
+// (429) are request-level: falling back would just fail again (Workers AI's
+// filter is stricter), so those errors propagate unchanged.
+function shouldFallbackToWorkersAi(error) {
+  const status = error && typeof error.status === "number" ? error.status : 0;
+  return status >= 500;
+}
+
 // Generate ONE image. Returns a plain result object, or throws HttpError on a
 // provider/validation failure. Shared by /generate and /generate/batch.
 export async function generateOneImage(env, { prompt, model, size, width, height, seed, steps, cfgScale }) {
@@ -497,10 +506,11 @@ export async function generateOneImage(env, { prompt, model, size, width, height
   } else {
     [width, height] = SIZE_MAP[size];
   }
+  const hasWorkersAi = !!(env && env.AI && typeof env.AI.run === "function");
   // Fast tier prefers NVIDIA (schnell maps to flux.1-dev below) because the
-  // Workers AI models apply a stricter content filter; Workers AI is only the
-  // fallback for key-less deploys.
-  if (model === "schnell" && !getNvidiaApiKey(env) && env && env.AI && typeof env.AI.run === "function") {
+  // Workers AI models apply a stricter content filter; Workers AI is the
+  // fallback for key-less deploys AND when NVIDIA is unavailable (see below).
+  if (model === "schnell" && !getNvidiaApiKey(env) && hasWorkersAi) {
     return generateWithWorkersAi(env, { prompt, model, width, height, seed });
   }
   const key = getNvidiaApiKey(env);
@@ -508,10 +518,22 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     const image = makeDemoImageDataUrl();
     return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
   }
-  if (model === "schnell") {
-    return generateWithNvidia(env, { prompt, model: "dev", width, height, seed, steps, cfgScale });
+  const nvidiaModel = model === "schnell" ? "dev" : model;
+  try {
+    // When a Workers AI fallback exists, one NVIDIA attempt is enough: a dark
+    // provider (accepts the connection but never responds) then costs ~60s
+    // instead of 120s before the fallback takes over.
+    return await generateWithNvidia(
+      env,
+      { prompt, model: nvidiaModel, width, height, seed, steps, cfgScale },
+      { maxAttempts: hasWorkersAi ? 1 : IMAGE_MAX_ATTEMPTS }
+    );
+  } catch (error) {
+    if (hasWorkersAi && shouldFallbackToWorkersAi(error)) {
+      return generateWithWorkersAi(env, { prompt, model, width, height, seed });
+    }
+    throw error;
   }
-  return generateWithNvidia(env, { prompt, model, width, height, seed, steps, cfgScale });
 }
 
 export function validateEditImages(images) {

@@ -4,6 +4,8 @@
 
 ### Changed
 
+- 生成新增 NVIDIA→Workers AI 自動退回:NVIDIA 逾時/網路/5xx 等基礎設施失敗時，若有 Workers AI binding 就自動改用 Workers AI 出圖（`flux-1-schnell`／`flux-2-klein-4b`），結果標記 provider 為 `workers-ai`。內容過濾（422）與限流（429）不退回（Workers AI 內容過濾更嚴、退回也會失敗）。有退回可用時 NVIDIA 只嘗試一次，讓「服務暗掉」（接受連線但永不回應）從等 ~120 秒縮為 ~60 秒就切換。單張與批次、Worker 與 FastAPI twin 皆一致。此前 Workers AI 只在「完全沒設 NVIDIA 金鑰」時才會走，NVIDIA 掛掉時整站無法生圖。
+
 - 手機版首屏直達輸入框：≤620px 隱藏 hero 副標語與教學按鈕（教學入口改為頂欄 44px「?」鈕）、主標題縮為單行，描述輸入框在 iPhone 13 首屏即完整可見（promptTop 598→412px）。範例 Gallery 改為橫向滑動卡片，生成分頁總長 5552→2747px。
 - 手機版再瘦身：生成前的空預覽畫布整段收起（生成開始或已有結果即恢復；不支援 `:has()` 的舊瀏覽器維持原樣）、「幫我想梗」與自訂風格卡改單列橫滑、風格卡說明文收起。生成分頁總長 2747→2005px。
 

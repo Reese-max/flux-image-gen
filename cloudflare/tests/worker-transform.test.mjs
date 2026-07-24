@@ -993,6 +993,58 @@ test('POST /generate routes AI-less schnell to NVIDIA dev and keeps the seed', a
   }
 });
 
+test('POST /generate falls back to Workers AI when NVIDIA fails with a 5xx', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  let nvidiaCalls = 0;
+  globalThis.fetch = async function () {
+    nvidiaCalls += 1;
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'workers-ai');
+    // A dark provider must not be retried before falling back: one NVIDIA
+    // attempt, then exactly one Workers AI run.
+    assert.equal(nvidiaCalls, 1);
+    assert.equal(ai.calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate does NOT fall back to Workers AI on a NVIDIA 4xx (content filter)', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  globalThis.fetch = async function () {
+    return new Response(JSON.stringify({ detail: '此描述觸發內容安全過濾' }), {
+      status: 422,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai })
+    );
+    assert.equal(response.status, 422);
+    // 4xx is a request-level error; Workers AI (stricter filter) is never tried.
+    assert.equal(ai.calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate defaults missing null and empty seed to 0', async () => {
   const originalFetch = globalThis.fetch;
   const cases = [
