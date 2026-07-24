@@ -674,6 +674,182 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         finally:
             _reset_nvidia_circuit()
 
+    async def test_circuit_half_opens_and_recovers_to_nvidia_after_cooldown(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app import image_service
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            _reset_nvidia_circuit,
+            generate_image,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+        )
+        fallback = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="workers-ai",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=1,
+        )
+        recovered = GenerationResult(
+            image="data:image/png;base64,BBBB",
+            provider="nvidia",
+            model="dev",
+            width=1024,
+            height=1024,
+            seed=2,
+        )
+        # First call fails on infra (trips the circuit); after the cooldown the
+        # half-open re-probe succeeds and NVIDIA takes over again.
+        nvidia_mock = AsyncMock(
+            side_effect=[
+                ProviderError("NVIDIA 產圖逾時", status_code=504, code="timeout"),
+                recovered,
+            ]
+        )
+        try:
+            with patch.object(NvidiaProvider, "generate", new=nvidia_mock), patch(
+                "app.image_service.WorkersAiProvider"
+            ) as workers_ai_cls:
+                workers_ai_cls.return_value.generate = AsyncMock(return_value=fallback)
+
+                first = await generate_image(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"), settings
+                )
+                self.assertEqual(first.provider, "workers-ai")
+                self.assertEqual(nvidia_mock.call_count, 1)
+                self.assertTrue(image_service._nvidia_circuit_open())
+
+                # Simulate the cooldown elapsing: push the deadline into the past so
+                # the circuit half-opens and the next request re-probes NVIDIA.
+                image_service._nvidia_circuit_open_until = image_service.time.monotonic() - 1
+                self.assertFalse(image_service._nvidia_circuit_open())
+
+                second = await generate_image(
+                    GenerationRequest(prompt="a dog", model="schnell", size="square"), settings
+                )
+                self.assertEqual(nvidia_mock.call_count, 2, "half-open must re-probe NVIDIA")
+                self.assertEqual(second.provider, "nvidia", "recovered NVIDIA serves the request")
+        finally:
+            _reset_nvidia_circuit()
+
+    async def test_generate_batch_falls_back_every_image_to_workers_ai_on_nvidia_5xx(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            _reset_nvidia_circuit,
+            generate_batch,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+        )
+        fallback = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="workers-ai",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=1,
+        )
+        _reset_nvidia_circuit()
+        try:
+            with patch.object(
+                NvidiaProvider,
+                "generate",
+                new=AsyncMock(side_effect=ProviderError("NVIDIA 產圖逾時", status_code=504, code="timeout")),
+            ), patch("app.image_service.WorkersAiProvider") as workers_ai_cls:
+                workers_ai_cls.return_value.generate = AsyncMock(return_value=fallback)
+                results = await generate_batch(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    count=2,
+                    settings=settings,
+                )
+
+            self.assertEqual(len(results), 2)
+            for result in results:
+                self.assertEqual(result.provider, "workers-ai")
+        finally:
+            _reset_nvidia_circuit()
+
+    async def test_generate_image_raises_when_pollinations_last_tier_fails(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import NvidiaProvider, ProviderError, generate_image
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+            pollinations_fallback_enabled=True,
+        )
+        with patch.object(
+            NvidiaProvider,
+            "generate",
+            new=AsyncMock(side_effect=ProviderError("NVIDIA 產圖逾時", status_code=504, code="timeout")),
+        ), patch("app.image_service.WorkersAiProvider") as workers_ai_cls, patch(
+            "app.image_service.PollinationsProvider"
+        ) as pollinations_cls:
+            workers_ai_cls.return_value.generate = AsyncMock(
+                side_effect=ProviderError("Workers AI 5xx", status_code=503, code="workers_ai_error")
+            )
+            pollinations_cls.return_value.generate = AsyncMock(
+                side_effect=ProviderError("Pollinations HTTP 500", status_code=502, code="pollinations_error")
+            )
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_image(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    settings,
+                )
+
+        # The last-tier failure must surface cleanly, not be swallowed.
+        self.assertEqual(ctx.exception.status_code, 502)
+        self.assertEqual(ctx.exception.code, "pollinations_error")
+
+    async def test_generate_image_surfaces_nvidia_error_without_any_fallback(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import NvidiaProvider, ProviderError, generate_image
+
+        # No Workers AI keys and Pollinations disabled -> _has_fallback is False, so
+        # the NVIDIA infra error must surface untouched (no fallback swallows it).
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia")
+        with patch.object(
+            NvidiaProvider,
+            "generate",
+            new=AsyncMock(side_effect=ProviderError("NVIDIA HTTP 500", status_code=500, code="nvidia_error")),
+        ), patch("app.image_service.WorkersAiProvider") as workers_ai_cls, patch(
+            "app.image_service.PollinationsProvider"
+        ) as pollinations_cls:
+            workers_ai_cls.return_value.generate = AsyncMock()
+            pollinations_cls.return_value.generate = AsyncMock()
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_image(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    settings,
+                )
+
+        self.assertEqual(ctx.exception.status_code, 500)
+        self.assertEqual(ctx.exception.code, "nvidia_error")
+        workers_ai_cls.return_value.generate.assert_not_awaited()
+        pollinations_cls.return_value.generate.assert_not_awaited()
+
     async def test_generate_batch_returns_count_variations_with_demo_provider(self):
         from app.image_service import generate_batch
 

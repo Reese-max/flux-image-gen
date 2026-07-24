@@ -1176,6 +1176,185 @@ test('POST /generate does NOT fall back to Pollinations on a Workers AI content 
   }
 });
 
+test('POST /generate half-opens the NVIDIA circuit after cooldown and recovers to NVIDIA', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  globalThis.caches = fakeCaches();
+  const ai = fakeAi([{ image: 'iVBORw0KGgo=' }]);
+  let nvidiaCalls = 0;
+  let nvidiaHealthy = false;
+  globalThis.fetch = async function () {
+    nvidiaCalls += 1;
+    if (nvidiaHealthy) {
+      return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    // First request: NVIDIA 500 -> one attempt, trips the circuit, serves Workers AI.
+    const first = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai })
+    );
+    const firstData = await first.json();
+    assert.equal(first.status, 200);
+    assert.equal(firstData.provider, 'workers-ai');
+    assert.equal(nvidiaCalls, 1);
+
+    // Cooldown elapses: the Cache entry expires. A fresh empty cache makes
+    // isNvidiaCircuitOpen() return false (half-open) so the next request re-probes
+    // NVIDIA, which has recovered.
+    globalThis.caches = fakeCaches();
+    nvidiaHealthy = true;
+
+    const second = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a dog', model: 'schnell', size: 'square', seed: 8 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai })
+    );
+    const secondData = await second.json();
+    assert.equal(second.status, 200);
+    assert.equal(nvidiaCalls, 2, 'half-open: NVIDIA must be re-probed after cooldown');
+    assert.equal(secondData.provider, 'nvidia', 'recovered NVIDIA serves the request again');
+    assert.notEqual(secondData.provider, 'workers-ai');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalCaches === undefined) delete globalThis.caches;
+    else globalThis.caches = originalCaches;
+  }
+});
+
+test('POST /generate round-trips a large Pollinations image through 0x8000 base64 chunking', async () => {
+  const originalFetch = globalThis.fetch;
+  // Workers AI throws a generic infra error -> mapped to a 502, so Pollinations
+  // (third tier) serves a payload larger than the 0x8000 (32768) chunk size.
+  const ai = fakeAi(new Error('model overloaded'));
+  const big = new Uint8Array(60000);
+  big[0] = 0xff;
+  big[1] = 0xd8;
+  big[2] = 0xff;
+  for (let i = 3; i < big.length; i += 1) big[i] = i % 256;
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      return new Response(big, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'pollinations');
+    assert.ok(data.image.startsWith('data:image/jpeg;base64,'));
+    const b64 = data.image.slice('data:image/jpeg;base64,'.length);
+    const decoded = new Uint8Array(Buffer.from(b64, 'base64'));
+    assert.equal(decoded.length, big.length, 'round-trip length must match the original buffer');
+    assert.deepEqual(decoded, big, 'chunked base64 must reconstruct the original bytes exactly');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch falls back every image to Workers AI when NVIDIA returns a 5xx', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi([{ image: 'iVBORw0KGgo=' }, { image: 'iVBORw0KGgo=' }]);
+  globalThis.fetch = async function () {
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    for (const item of data.images) {
+      assert.equal(item.provider, 'workers-ai');
+    }
+    assert.equal(ai.calls.length, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate surfaces a clean error when Pollinations also fails as the last tier', async () => {
+  const originalFetch = globalThis.fetch;
+  // NVIDIA 5xx -> Workers AI infra error (502) -> Pollinations 500: the whole
+  // chain is exhausted, so the client must get a clean 5xx, not a crash or a 200.
+  const ai = fakeAi(new Error('model overloaded'));
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      return new Response(JSON.stringify({ error: 'pollinations down' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status >= 500, true, 'exhausted chain must surface a 5xx');
+    assert.ok(['pollinations_error', 'timeout'].includes(data.code), `unexpected code ${data.code}`);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate surfaces the NVIDIA error (2 attempts) when no fallback is configured', async () => {
+  const originalFetch = globalThis.fetch;
+  let nvidiaCalls = 0;
+  globalThis.fetch = async function () {
+    nvidiaCalls += 1;
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    // No AI binding and no Pollinations flag -> no fallback -> the raw NVIDIA error
+    // must surface untouched, and maxAttempts stays IMAGE_MAX_ATTEMPTS (2), not 1.
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 500);
+    assert.equal(data.code, 'nvidia_error');
+    assert.equal(nvidiaCalls, 2, 'no fallback -> NVIDIA is retried the full IMAGE_MAX_ATTEMPTS');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate defaults missing null and empty seed to 0', async () => {
   const originalFetch = globalThis.fetch;
   const cases = [
