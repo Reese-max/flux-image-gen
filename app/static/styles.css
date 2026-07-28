@@ -2210,6 +2210,105 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   color: var(--muted);
   font-size: 11px;
 }
+/* 結果操作列現在有下載／對比／再改一次／複製指令，改成靠左換行排列 */
+.edit-preview-actions {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.edit-preview-actions .btn:disabled,
+.edit-preview-actions .btn[disabled] { opacity: .45; cursor: not-allowed; }
+
+/* 快速指令庫：對應生成分頁的「幫我想梗」，點一下只帶入文字、不消耗額度 */
+.edit-preset-block { margin-bottom: 14px; }
+.edit-preset-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.edit-preset-head span { color: var(--accent-2); font-size: 12px; font-weight: 700; }
+.edit-preset-head small { color: var(--muted); font-size: 11px; }
+.edit-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.edit-preset,
+.edit-keep {
+  padding: 6px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: 600 12px/1 var(--font);
+  cursor: pointer;
+  transition: background .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease);
+}
+.edit-preset:hover, .edit-preset:focus-visible,
+.edit-keep:hover, .edit-keep:focus-visible {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-2);
+}
+.edit-strength-group { margin-bottom: 8px; }
+.edit-keep-head { margin: 14px 0 8px; color: var(--text); font-size: 12px; font-weight: 700; }
+.edit-keep-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.edit-keep.is-active {
+  border-color: var(--sage-line);
+  background: var(--sage-soft);
+  color: var(--sage-ink);
+}
+.edit-keep.is-active::before { content: '✓ '; }
+
+/* 前後對比：改後圖用 clip-path 依 --split 裁掉左半，露出下層原圖 */
+.edit-compare {
+  position: relative;
+  max-width: 100%;
+  line-height: 0;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.edit-compare-after {
+  position: relative;
+  z-index: 1;
+  max-height: 62vh;
+  clip-path: inset(0 0 0 var(--split));
+}
+.edit-compare-before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+}
+.edit-compare::after {
+  content: '';
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: var(--split);
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent-ink);
+  box-shadow: 0 0 0 1px var(--accent);
+  pointer-events: none;
+}
+.edit-compare-tag {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(59, 50, 41, .72);
+  color: #fff;
+  font: 700 11px/1.5 var(--font);
+  pointer-events: none;
+}
+.edit-compare-tag.is-before { left: 8px; }
+.edit-compare-tag.is-after { right: 8px; }
+.edit-compare-range {
+  position: absolute;
+  z-index: 4;
+  left: 5%;
+  bottom: 12px;
+  width: 90%;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: ew-resize;
+}
+
 #editStage img,
 .stage-img {
   max-width: 100%;

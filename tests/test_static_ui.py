@@ -828,6 +828,43 @@ def test_reference_image_modes_and_edit_stubs_are_wired():
     )
 
 
+def test_edit_tab_has_the_same_creative_toolkit_as_the_generate_tab():
+    """改圖分頁補齊生成分頁的工具：快速指令、強度/保留、對比、迭代、複製、歷史、失敗建議。"""
+    html = read_static("index.html")
+    image_edit_js = read_static("image-edit.js")
+    styles = read_static("styles.css")
+
+    # 快速指令庫 + 修改幅度 + 保留項目
+    assert 'id="editPresets"' in html
+    assert 'data-edit-strength="subtle"' in html
+    assert 'data-edit-strength="balanced"' in html
+    assert 'data-edit-strength="bold"' in html
+    assert 'id="editStrengthHint"' in html
+    assert 'id="editKeep"' in html
+    # 結果操作列與狀態列
+    assert 'id="editCompare"' in html
+    assert 'id="editReuse"' in html
+    assert 'id="editCopyPrompt"' in html
+    assert 'id="editStatusbar"' in html
+    assert 'id="editStateMeta"' in html
+
+    assert "EDIT_PRESETS" in image_edit_js
+    assert "function presetsForMode" in image_edit_js
+    assert "function normalizeStrength" in image_edit_js
+    assert "function normalizeKeepList" in image_edit_js
+    assert "function buildEditRecord" in image_edit_js
+    assert "function renderCompare" in image_edit_js
+    # 歷史記錄與失敗建議重用生成分頁的既有管線，不另建一套
+    assert "imagegen:generated" in image_edit_js
+    assert "root.FailureAdvice.getAdvice" in image_edit_js
+    assert "navigator.clipboard.writeText" in image_edit_js
+
+    assert ".edit-preset" in styles
+    assert ".edit-keep" in styles
+    assert ".edit-compare" in styles
+    assert "clip-path: inset(0 0 0 var(--split))" in styles
+
+
 def test_workspace_canvas_viewport_is_wired_without_duplicate_library():
     html = read_static("index.html")
     history_wall_js = read_static("history-wall.js")

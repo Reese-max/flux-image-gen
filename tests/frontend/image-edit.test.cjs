@@ -149,3 +149,69 @@ test('editAvailabilityFromHealth supports Worker providerList health responses',
   assert.equal(E.editAvailabilityFromHealth({ providerList: ['workers-ai'] }).available, true);
   assert.equal(E.editAvailabilityFromHealth({ providerList: ['nvidia'] }).available, false);
 });
+
+test('normalizeStrength keeps known levels and falls back to balanced', () => {
+  const E = loadImageEdit();
+  assert.equal(E.normalizeStrength('subtle'), 'subtle');
+  assert.equal(E.normalizeStrength('bold'), 'bold');
+  assert.equal(E.normalizeStrength('nope'), 'balanced');
+  assert.equal(E.normalizeStrength(undefined), 'balanced');
+});
+
+test('normalizeKeepList drops unknown keys, dedupes, and uses a stable declared order', () => {
+  const E = loadImageEdit();
+  const keep = E.normalizeKeepList(['palette', 'ghost', 'face', 'face']);
+  assert.deepEqual(Array.from(keep), ['face', 'palette']);
+  assert.deepEqual(Array.from(E.normalizeKeepList(null)), []);
+});
+
+test('composeEditPrompt appends the strength clause and the keep list', () => {
+  const E = loadImageEdit();
+  const prompt = E.composeEditPrompt('換成雨夜街道', [{ role: 'style' }], {
+    mode: 'general',
+    strength: 'subtle',
+    keep: ['layout', 'face'],
+  });
+  assert.match(prompt, /修改幅度：微調。/);
+  assert.match(prompt, /務必保留：人物臉部特徵與表情、原本的構圖與主體位置。/);
+  assert.match(prompt, /換成雨夜街道/);
+});
+
+test('composeEditPrompt defaults to the balanced strength and omits an empty keep list', () => {
+  const E = loadImageEdit();
+  const prompt = E.composeEditPrompt('換背景', [], {});
+  assert.match(prompt, /修改幅度：適中。/);
+  assert.equal(/務必保留/.test(prompt), false);
+});
+
+test('presetsForMode returns per-mode quick commands and falls back to general', () => {
+  const E = loadImageEdit();
+  assert.ok(E.presetsForMode('product').length > 0);
+  assert.ok(E.presetsForMode('product').every((p) => p.label && p.text));
+  assert.equal(E.presetsForMode('nope').length, E.presetsForMode('general').length);
+});
+
+test('buildEditRecord produces a history record tagged as an AI edit', () => {
+  const E = loadImageEdit();
+  const record = E.buildEditRecord('data:image/png;base64,AAAA', '換背景', 'final prompt', {
+    provider: 'workers-ai',
+    modeLabel: '產品照',
+  });
+  assert.equal(record.image, 'data:image/png;base64,AAAA');
+  assert.equal(record.thumbnail, record.image);
+  assert.equal(record.prompt, '換背景');
+  assert.equal(record.providerPrompt, 'final prompt');
+  assert.equal(record.provider, 'workers-ai');
+  assert.equal(record.model, 'edit');
+  assert.deepEqual(Array.from(record.tags), ['AI 改圖', '產品照']);
+});
+
+test('mapEditResponse surfaces the provider on success and an advice code on failure', () => {
+  const E = loadImageEdit();
+  const ok = E.mapEditResponse(true, 200, { image: 'data:image/png;base64,AAAA', provider: 'workers-ai' });
+  const bad = E.mapEditResponse(false, 429, { error: '太頻繁', code: 'rate_limited' });
+  assert.equal(ok.provider, 'workers-ai');
+  assert.equal(ok.code, '');
+  assert.equal(bad.code, 'rate_limited');
+  assert.equal(E.mapEditResponse(false, 500, {}).code, 'unknown');
+});

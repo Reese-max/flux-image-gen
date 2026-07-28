@@ -474,9 +474,28 @@
                 </select>
               </label>
             </div>
+            <div class="edit-preset-block">
+              <div class="edit-preset-head">
+                <span>✦ 快速指令</span>
+                <small>點一下帶入，可再自行修改</small>
+              </div>
+              <div id="editPresets" class="edit-presets" role="group" aria-label="快速改圖指令"></div>
+            </div>
             <label class="edit-prompt-label" id="editPromptLabel" for="editPrompt">改圖指令</label>
             <textarea id="editPrompt" aria-label="改圖指令" rows="4" maxlength="900"
               placeholder="例如：把背景換成雨夜街道，保留主體構圖與色彩層次。"></textarea>
+          </section>
+
+          <section class="edit-control-section">
+            <div class="edit-section-label"><span>04</span><strong>修改幅度與保留項目</strong></div>
+            <div class="seed-mode edit-strength-group" role="group" aria-label="修改幅度">
+              <button class="seed-mode-btn" type="button" data-edit-strength="subtle" aria-pressed="false">◦ 微調</button>
+              <button class="seed-mode-btn is-active" type="button" data-edit-strength="balanced" aria-pressed="true">◈ 適中</button>
+              <button class="seed-mode-btn" type="button" data-edit-strength="bold" aria-pressed="false">◆ 大改</button>
+            </div>
+            <p id="editStrengthHint" class="seed-mode-hint">依指令調整，同時維持原圖的整體構圖與氛圍。</p>
+            <div class="edit-keep-head">要保留的部分（可複選）</div>
+            <div id="editKeep" class="edit-keep-group" role="group" aria-label="要保留的部分"></div>
           </section>
         </div>
         <div class="edit-panel-footer">
@@ -499,9 +518,20 @@
             <p>左側加入參考圖片並輸入指令後，按下「開始改圖」。</p>
           </div>
         </section>
-        <div class="edit-preview-actions">
-          <span>輸入圖片會在瀏覽器中先縮小後送出</span>
+        <div class="canvas-statusbar edit-statusbar" id="editStatusbar" aria-label="目前改圖設定">
+          <span class="canvas-state"><i aria-hidden="true"></i><b id="editStateMeta">待命</b></span>
+          <span id="editModeMeta">一般改圖</span>
+          <span id="editRefMeta">0 張參考圖</span>
+          <span id="editStrengthMeta">適中</span>
+          <span class="canvas-status-spacer"></span>
+          <span id="editProviderMeta" class="canvas-interaction-hint">輸入圖片會在瀏覽器中先縮小後送出</span>
+        </div>
+
+        <div class="edit-preview-actions" id="editResultActions">
           <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">⬇ 下載結果</a>
+          <button id="editCompare" class="btn secondary" type="button" disabled aria-pressed="false" aria-label="切換原圖與結果對比">⇔ 前後對比</button>
+          <button id="editReuse" class="btn secondary" type="button" disabled aria-label="把結果當成新的參考圖繼續改">🔁 用結果再改一次</button>
+          <button id="editCopyPrompt" class="btn secondary" type="button" aria-label="複製這次送出的完整改圖指令">📋 複製指令</button>
         </div>
       </section>
     </div>
