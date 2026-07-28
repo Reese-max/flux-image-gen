@@ -36,6 +36,8 @@
     }
   };
   var DEFAULT_STRENGTH = 'balanced';
+  // 由弱到強，順序即滑桿由左到右。
+  var STRENGTH_ORDER = ['subtle', 'balanced', 'bold'];
 
   // 風格：值對齊生成分頁的 #promptStyle，同一份選項也餵給 /prompt/complete 與
   // /prompt/transform。auto＝維持原圖風格，不加任何句子。
@@ -120,6 +122,15 @@
 
   function normalizeStyle(value) {
     return STYLE_CLAUSES[value] ? String(value) : 'auto';
+  }
+
+  // 修改幅度是有序的三段，滑桿存 0/1/2；這裡是索引與 key 的單一換算來源。
+  function strengthFromIndex(index) {
+    return STRENGTH_ORDER[Number(index)] || DEFAULT_STRENGTH;
+  }
+
+  function strengthToIndex(value) {
+    return STRENGTH_ORDER.indexOf(normalizeStrength(value));
   }
 
   // 去掉未知 key 與重複值，並固定成 KEEP_OPTIONS 的宣告順序，讓 prompt 可重現。
@@ -259,6 +270,9 @@
     normalizeReferenceRole: normalizeReferenceRole,
     normalizeStrength: normalizeStrength,
     normalizeStyle: normalizeStyle,
+    STRENGTH_ORDER: STRENGTH_ORDER,
+    strengthFromIndex: strengthFromIndex,
+    strengthToIndex: strengthToIndex,
     normalizeKeepList: normalizeKeepList,
     presetsForMode: presetsForMode,
     composeEditPrompt: composeEditPrompt,
@@ -292,7 +306,9 @@
   var presetsEl = byId('editPresets');
   var keepEl = byId('editKeep');
   var strengthHint = byId('editStrengthHint');
-  var strengthSelect = byId('editStrength');
+  var strengthSlider = byId('editStrength');
+  var strengthValue = byId('editStrengthValue');
+  var strengthTrack = strengthSlider ? strengthSlider.closest('.segmented-slider') : null;
   var styleSelect = byId('editPromptStyle');
   var completeBtn = byId('editCompletePrompt');
   var transformBtn = byId('editTransformPrompt');
@@ -616,14 +632,28 @@
   }
 
   function setEditStrength(value) {
+    var index;
     editStrength = normalizeStrength(value);
-    if (strengthSelect && strengthSelect.value !== editStrength) { strengthSelect.value = editStrength; }
+    index = strengthToIndex(editStrength);
+    if (strengthSlider) {
+      if (strengthSlider.value !== String(index)) { strengthSlider.value = String(index); }
+      strengthSlider.setAttribute('aria-valuetext', EDIT_STRENGTHS[editStrength].label);
+    }
+    if (strengthTrack) {
+      // data-seg 給刻度點著色；--seg-index 給填充長度，實際換算在 CSS（見 .segmented-slider）。
+      strengthTrack.setAttribute('data-seg', String(index));
+      strengthTrack.style.setProperty('--seg-index', String(index));
+      strengthTrack.style.setProperty('--seg-max', String(STRENGTH_ORDER.length - 1));
+    }
+    if (strengthValue) { strengthValue.textContent = EDIT_STRENGTHS[editStrength].label; }
     if (strengthHint) { strengthHint.textContent = EDIT_STRENGTHS[editStrength].hint; }
     updateMeta();
   }
 
-  if (strengthSelect) {
-    strengthSelect.addEventListener('change', function () { setEditStrength(strengthSelect.value); });
+  if (strengthSlider) {
+    strengthSlider.addEventListener('input', function () {
+      setEditStrength(strengthFromIndex(strengthSlider.value));
+    });
   }
 
   function setEditMode(mode) {

@@ -888,7 +888,14 @@ def test_edit_panel_matches_the_generate_panel_layout_and_prompt_tools():
     assert 'id="editApplyEffect"' in html
     assert 'id="editTransformStatus"' in html
     assert 'id="editPromptStyle"' in html
-    assert 'id="editStrength"' in html
+    # 修改幅度是有序三段，用原生 range 畫成分段滑桿（拖曳／方向鍵由瀏覽器提供）。
+    assert 'id="editStrength" type="range" min="0" max="2" step="1"' in html
+    assert 'class="segmented-slider"' in html
+    assert 'class="segmented-ticks"' in html
+    assert 'id="editStrengthValue"' in html
+    assert "STRENGTH_ORDER" in image_edit_js
+    assert "function strengthFromIndex" in image_edit_js
+    assert "aria-valuetext" in html
 
     # 補完整／轉英文重用同一份管線，只是換一組 ctx；加效果重用 PromptEnhancer。
     assert "sourceId: 'editPrompt'" in transform_js

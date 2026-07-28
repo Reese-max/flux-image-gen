@@ -477,17 +477,24 @@
                     <span class="chevron" aria-hidden="true">▾</span>
                   </div>
                 </label>
-                <label class="field option-field">
+              </div>
+              <div class="field segmented-field">
+                <div class="segmented-head">
                   <span class="field-label">修改幅度</span>
-                  <div class="select-wrap">
-                    <select id="editStrength" aria-label="選擇修改幅度">
-                      <option value="subtle" data-edit-strength="subtle">微調</option>
-                      <option value="balanced" data-edit-strength="balanced" selected>適中</option>
-                      <option value="bold" data-edit-strength="bold">大改</option>
-                    </select>
-                    <span class="chevron" aria-hidden="true">▾</span>
-                  </div>
-                </label>
+                  <strong id="editStrengthValue">適中</strong>
+                </div>
+                <div class="segmented-slider" data-seg="1">
+                  <span class="segmented-ticks" aria-hidden="true">
+                    <i data-edit-strength="subtle"></i><i data-edit-strength="balanced"></i><i data-edit-strength="bold"></i>
+                  </span>
+                  <input id="editStrength" type="range" min="0" max="2" step="1" value="1"
+                    aria-label="修改幅度" aria-valuetext="適中" list="editStrengthTicks">
+                </div>
+                <datalist id="editStrengthTicks">
+                  <option value="0" label="微調"></option>
+                  <option value="1" label="適中"></option>
+                  <option value="2" label="大改"></option>
+                </datalist>
               </div>
               <p id="editStrengthHint" class="seed-mode-hint">依指令調整，同時維持原圖的整體構圖與氛圍。</p>
 

@@ -477,6 +477,10 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   align-items: center;
   gap: 8px 10px;
 }
+/* 改圖分頁的選項列只有「風格」一項（修改幅度改用下方的分段滑桿），佔滿整行。 */
+#panel-edit .composer-options {
+  grid-template-columns: minmax(0, 1fr);
+}
 .composer-options .option-field {
   flex-direction: row;
   align-items: center;
@@ -631,6 +635,94 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   box-shadow: 0 6px 18px -8px rgba(194, 90, 51, 0.5);
 }
 .seed-mode-hint { font-size: 12px; color: var(--muted); line-height: 1.5; padding-left: 2px; margin: 0; }
+
+/* ---------- 分段滑桿 ---------- */
+/* 有序的「程度」選擇。底層是原生 input[type=range]：拖曳、方向鍵、觸控都由瀏覽器提供，
+   不必手刻手勢。--seg-fill 與 data-seg 由 JS 依目前值更新（見 syncSegmentedSlider）。 */
+.segmented-field { gap: 8px; }
+.segmented-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.segmented-head strong { color: var(--text); font-size: 13px; }
+.segmented-slider {
+  /* thumb 尺寸只定義在這裡；填充長度由 --seg-index 推算，JS 只負責寫入索引。
+     填充延伸到 thumb 的右緣（不是中心），所以起點是一整個 thumb 寬。 */
+  --seg-thumb: 40px;
+  --seg-index: 0;
+  --seg-max: 2;
+  --seg-fill: calc(var(--seg-thumb) + (100% - var(--seg-thumb)) * var(--seg-index) / var(--seg-max));
+  position: relative;
+  padding: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+/* 左右內縮到 thumb 中心可及的範圍，刻度才會落在 thumb 停的位置上。 */
+.segmented-ticks {
+  position: absolute;
+  inset: 6px calc(6px + var(--seg-thumb) / 2 - 5px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.segmented-ticks i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--line-2);
+  transition: background .18s var(--ease);
+}
+.segmented-slider[data-seg="0"] .segmented-ticks i:nth-child(1),
+.segmented-slider[data-seg="1"] .segmented-ticks i:nth-child(-n+2),
+.segmented-slider[data-seg="2"] .segmented-ticks i {
+  background: rgba(255, 255, 255, .7);
+}
+.segmented-slider input[type="range"] {
+  display: block;
+  width: 100%;
+  height: var(--seg-thumb);
+  margin: 0;
+  border-radius: 999px;
+  background: linear-gradient(to right,
+    var(--accent) 0 var(--seg-fill), var(--bg-2) var(--seg-fill) 100%);
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  transition: background .18s var(--ease);
+}
+.segmented-slider input[type="range"]:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+.segmented-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: var(--seg-thumb);
+  height: var(--seg-thumb);
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .22);
+  cursor: grab;
+}
+.segmented-slider input[type="range"]::-moz-range-thumb {
+  width: var(--seg-thumb);
+  height: var(--seg-thumb);
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .22);
+  cursor: grab;
+}
+.segmented-slider input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
+.segmented-slider input[type="range"]:active::-moz-range-thumb { cursor: grabbing; }
+@media (prefers-reduced-motion: reduce) {
+  .segmented-slider input[type="range"],
+  .segmented-ticks i { transition: none; }
+}
 .seed-advanced { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 .seed-advanced summary {
   font-size: 12px; color: var(--muted); cursor: pointer; list-style: none;
