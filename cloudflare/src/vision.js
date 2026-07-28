@@ -25,10 +25,13 @@ function envFlag(value) {
   return String(value || '').trim().toLowerCase() === 'true';
 }
 
+// 5s 是為 Gemini flash 調的。NVIDIA 的 VLM 對 1024x1024 圖片實測中位 23s(90b)~33s(12b)
+// （2026-07-28），所以上限放寬到 45s，讓 VISION_QA_PROVIDER=nvidia 真的跑得完；預設值
+// 不動，Gemini 用不到那麼久。
 function visionTimeoutMs(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 5000;
-  return Math.max(250, Math.min(15000, Math.round(parsed)));
+  return Math.max(250, Math.min(45000, Math.round(parsed)));
 }
 
 function withVisionAttempts(result, attempts) {

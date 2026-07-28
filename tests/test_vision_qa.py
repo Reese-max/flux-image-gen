@@ -25,19 +25,20 @@ def test_maybe_run_vision_qa_is_disabled_by_default():
     assert result is None
 
 
-def test_resolve_vision_provider_prefers_nvidia_and_falls_back_on_missing_keys():
+def test_resolve_vision_provider_defaults_to_gemini_and_falls_back_on_missing_keys():
+    """預設是 gemini：NVIDIA 的 VLM 對 1024x1024 圖片實測 23–33 秒，等待不成比例。"""
     both = Settings(nvidia_api_key="n", gemini_api_key="g", vision_qa_enabled=True)
-    assert resolve_vision_provider(both) == "nvidia"
+    assert resolve_vision_provider(both) == "gemini"
     assert resolve_vision_provider(
-        Settings(nvidia_api_key="n", gemini_api_key="g", vision_qa_provider="gemini", vision_qa_enabled=True)
-    ) == "gemini"
+        Settings(nvidia_api_key="n", gemini_api_key="g", vision_qa_provider="nvidia", vision_qa_enabled=True)
+    ) == "nvidia"
     # 指定的後端沒金鑰就退到另一邊，而不是整個關掉。
     assert resolve_vision_provider(
-        Settings(nvidia_api_key="", gemini_api_key="g", vision_qa_enabled=True)
-    ) == "gemini"
-    assert resolve_vision_provider(
-        Settings(nvidia_api_key="n", gemini_api_key="", vision_qa_provider="gemini", vision_qa_enabled=True)
+        Settings(nvidia_api_key="n", gemini_api_key="", vision_qa_enabled=True)
     ) == "nvidia"
+    assert resolve_vision_provider(
+        Settings(nvidia_api_key="", gemini_api_key="g", vision_qa_provider="nvidia", vision_qa_enabled=True)
+    ) == "gemini"
     # 兩邊都沒金鑰＝沒有可用後端。
     assert resolve_vision_provider(
         Settings(nvidia_api_key="", gemini_api_key="", vision_qa_enabled=True)
@@ -153,7 +154,44 @@ def test_run_nvidia_vision_qa_accepts_content_returned_as_parts(monkeypatch):
     assert result["recommendation"] == "retry"
 
 
-def test_maybe_run_vision_qa_routes_to_nvidia_by_default(monkeypatch):
+def test_maybe_run_vision_qa_routes_to_gemini_by_default(monkeypatch):
+    """兩把金鑰都在時走 Gemini；要 NVIDIA 得明確設 VISION_QA_PROVIDER。"""
+    image = make_demo_png_data_url("demo", 64, 64, "schnell")
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, headers=None, json=None):
+            captured["url"] = url
+            return httpx.Response(
+                200,
+                json={
+                    "candidates": [
+                        {"content": {"parts": [{"text": '{"promptMatchScore":80,"compositionScore":80,"visualQualityScore":80,"detectedIssues":[],"recommendation":"keep","reason":"ok"}'}]}}
+                    ]
+                },
+            )
+
+    monkeypatch.setattr("app.vision_qa.httpx.Client", FakeClient)
+    result = maybe_run_vision_qa(
+        image,
+        "一隻貓",
+        Settings(nvidia_api_key="nv-test", gemini_api_key="gm-test", vision_qa_enabled=True),
+    )
+
+    assert captured["url"].endswith(":generateContent")
+    assert result["provider"] == "gemini"
+
+
+def test_maybe_run_vision_qa_routes_to_nvidia_when_asked(monkeypatch):
     image = make_demo_png_data_url("demo", 64, 64, "schnell")
     captured = {}
 
@@ -182,7 +220,12 @@ def test_maybe_run_vision_qa_routes_to_nvidia_by_default(monkeypatch):
     result = maybe_run_vision_qa(
         image,
         "一隻貓",
-        Settings(nvidia_api_key="nv-test", gemini_api_key="gm-test", vision_qa_enabled=True),
+        Settings(
+            nvidia_api_key="nv-test",
+            gemini_api_key="gm-test",
+            vision_qa_provider="nvidia",
+            vision_qa_enabled=True,
+        ),
     )
 
     assert captured["url"].endswith("/chat/completions")

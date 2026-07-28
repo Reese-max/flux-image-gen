@@ -75,10 +75,11 @@ class Settings:
         "GEMINI_COMPLETE_TIMEOUT_SECONDS", 5.0
     )
     vision_qa_enabled: bool = _bool_env("VISION_QA_ENABLED", False)
-    # 生成後視覺 QA 的後端。預設 nvidia：與生圖共用同一把 NVIDIA_API_KEY，不必再備
-    # 一組 Gemini 金鑰。設 VISION_QA_PROVIDER=gemini 可切回 Gemini（責任鏈相同）。
-    # NVIDIA 走 OpenAI 相容的 chat/completions（與生圖的 genai 端點不同 base URL）。
-    vision_qa_provider: str = os.getenv("VISION_QA_PROVIDER", "nvidia")
+    # 生成後視覺 QA 的後端。預設 gemini：NVIDIA 的 VLM 雖然能共用生圖的金鑰，但實測
+    # 對 1024x1024 圖片的中位延遲是 llama-3.2-90b 約 23 秒、nemotron-nano-12b 約 33 秒
+    # （2026-07-28 量測），生成本身才 7.5 秒，等待不成比例。設 VISION_QA_PROVIDER=nvidia
+    # 可改走 NVIDIA，記得同時放寬 VISION_QA_TIMEOUT_MS。
+    vision_qa_provider: str = os.getenv("VISION_QA_PROVIDER", "gemini")
     nvidia_chat_base_url: str = os.getenv(
         "NVIDIA_CHAT_BASE_URL", "https://integrate.api.nvidia.com/v1"
     )
