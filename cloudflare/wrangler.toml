@@ -48,10 +48,12 @@ VISION_QA_ENABLED = "true"
 # switch to "nvidia" only alongside a much larger VISION_QA_TIMEOUT_MS.
 # A backend without its key steps aside for the other one.
 VISION_QA_PROVIDER = "gemini"
-# The 5000ms default predates VISION_QA_ENABLED ever being true, and it is not
-# enough for a 1024x1024 image: the first run with QA on timed out on Gemini as
-# well as on NVIDIA. Measured value goes here once the real latency is known.
-VISION_QA_TIMEOUT_MS = "20000"
+# The 5000ms default predates VISION_QA_ENABLED ever being true and is not enough
+# for a 1024x1024 image. Measured on Gemini once QA actually worked: median 3.8s
+# added to /generate, slowest observed 5.0s (2026-07-28, 3 runs). 12000 leaves
+# ~2.4x headroom without making a genuinely stuck call block the response for
+# 20 seconds. NVIDIA VLMs need 30000+ - see VISION_QA_PROVIDER above.
+VISION_QA_TIMEOUT_MS = "12000"
 NVIDIA_CHAT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NVIDIA_VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
 # Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
