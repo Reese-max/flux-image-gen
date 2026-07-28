@@ -41,6 +41,12 @@ GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
 GEMINI_VISION_MODEL = "gemini-2.5-flash"
 # Optional paid visual QA for agent mode. Keep false until budget is approved.
 VISION_QA_ENABLED = "false"
+# Vision QA backend. "nvidia" reuses the NVIDIA_API_KEY secret that generation
+# already needs, so turning QA on costs no extra credential; "gemini" switches
+# back. A backend without its key steps aside for the other one.
+VISION_QA_PROVIDER = "nvidia"
+NVIDIA_CHAT_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
 # Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
 # infrastructure (5xx/timeout). Never used on content filter / rate limit.
 POLLINATIONS_FALLBACK_ENABLED = "true"

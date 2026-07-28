@@ -36,22 +36,126 @@ VISION_QA_SCHEMA: dict[str, Any] = {
 }
 
 
+VISION_QA_USER_TEXT = (
+    "請以繁體中文評估這張 AI 生成圖片是否符合提示詞。"
+    "只回 JSON，不要加註解。分數 0-100。"
+    "請特別檢查：主體是否存在、構圖是否平衡、畫質是否清晰、手指/臉部是否異常、"
+    "是否有文字亂碼、浮水印、主體缺失、尺寸用途不適合。"
+)
+
+# Gemini 用 responseSchema 指定欄位，NVIDIA 只有 json_object：不把欄位名寫進提示詞，
+# 模型會回合法但欄位不同的 JSON，_normalize_vision_qa 就全部填兜底值（70/70/70、
+# 空 issues），看起來成功其實什麼都沒評估到。
+VISION_QA_FIELD_HINT = (
+    "\n\n只回下面這個 JSON 物件，欄位一個都不能少："
+    '{"promptMatchScore": 整數 0-100, "compositionScore": 整數 0-100, '
+    '"visualQualityScore": 整數 0-100, "textAccuracyScore": 整數 0-100（畫面沒有文字就給 100）, '
+    '"detectedIssues": 字串陣列（沒發現問題就給 []）, '
+    '"recommendation": "keep" 或 "retry" 或 "edit", "reason": 一句繁體中文說明}'
+)
+
+
+def resolve_vision_provider(settings: Settings) -> str:
+    """挑出實際可用的 QA 後端：設定優先，但金鑰缺了就退到另一邊。"""
+    requested = (settings.vision_qa_provider or "nvidia").strip().lower()
+    has_nvidia = bool(settings.nvidia_api_key.strip())
+    has_gemini = bool(settings.gemini_api_key.strip())
+    if requested == "gemini" and has_gemini:
+        return "gemini"
+    if requested == "nvidia" and has_nvidia:
+        return "nvidia"
+    # 指定的後端沒金鑰：能用哪個就用哪個，兩個都沒有才關掉。
+    if has_nvidia:
+        return "nvidia"
+    if has_gemini:
+        return "gemini"
+    return ""
+
+
 def maybe_run_vision_qa(image: str, prompt: str, settings: Settings | None = None) -> dict[str, Any] | None:
     resolved = settings or get_settings()
     if not resolved.vision_qa_enabled:
         return None
-    if not resolved.gemini_api_key.strip():
+    provider = resolve_vision_provider(resolved)
+    if not provider:
         return None
     try:
+        if provider == "nvidia":
+            return run_nvidia_vision_qa(image, prompt, resolved)
         return run_gemini_vision_qa(image, prompt, resolved)
     except VisionQAError as exc:
         return {
-            "provider": "gemini",
+            "provider": provider,
             "available": False,
             "code": "vision_qa_failed",
             "message": "視覺 QA 暫時不可用，已保留本機 QAReport",
             "detail": str(exc)[:160],
         }
+
+
+def run_nvidia_vision_qa(image: str, prompt: str, settings: Settings | None = None) -> dict[str, Any]:
+    """OpenAI 相容的 chat/completions + data URI 圖片。
+
+    與 Gemini 分支的差別只有請求格式：NVIDIA 沒有 responseSchema，只能用
+    response_format=json_object 要求合法 JSON，欄位齊不齊由 _normalize_vision_qa 兜底。
+    """
+    resolved = settings or get_settings()
+    api_key = resolved.nvidia_api_key.strip()
+    if not api_key:
+        raise VisionQAError("missing NVIDIA_API_KEY")
+    mime, b64 = _extract_inline_image(image)
+    payload = {
+        "model": resolved.nvidia_vision_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _build_vision_user_text(prompt, field_hint=True)},
+                    {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                ],
+            }
+        ],
+        "max_tokens": 700,
+        "temperature": 0.1,
+        "response_format": {"type": "json_object"},
+    }
+    url = f"{resolved.nvidia_chat_base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    try:
+        with httpx.Client(timeout=resolved.prompt_llm_timeout_seconds) as client:
+            response = client.post(url, headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        raise VisionQAError("vision qa request failed") from exc
+    if response.status_code != 200:
+        raise VisionQAError(f"vision qa returned HTTP {response.status_code}")
+    try:
+        raw = _parse_openai_text(response.json())
+    except (ValueError, KeyError, TypeError, IndexError) as exc:
+        raise VisionQAError("vision qa returned invalid response") from exc
+    parsed = _parse_json_object(raw)
+    return _normalize_vision_qa(parsed, provider="nvidia")
+
+
+def _build_vision_user_text(prompt: str, field_hint: bool = False) -> str:
+    text = VISION_QA_USER_TEXT
+    if field_hint:
+        text += VISION_QA_FIELD_HINT
+    return text + "\n\n提示詞：\n" + prompt.strip()[:4000]
+
+
+def _parse_openai_text(data: dict[str, Any]) -> str:
+    choices = data.get("choices") or []
+    if not choices:
+        raise VisionQAError("vision qa returned no choices")
+    content = (choices[0].get("message") or {}).get("content")
+    if isinstance(content, list):
+        # 有些 NIM 模型回 content 陣列而非字串。
+        content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+    return str(content or "").strip()
 
 
 def run_gemini_vision_qa(image: str, prompt: str, settings: Settings | None = None) -> dict[str, Any]:
@@ -60,20 +164,12 @@ def run_gemini_vision_qa(image: str, prompt: str, settings: Settings | None = No
     if not api_key:
         raise VisionQAError("missing GEMINI_API_KEY")
     mime, b64 = _extract_inline_image(image)
-    user_text = (
-        "請以繁體中文評估這張 AI 生成圖片是否符合提示詞。"
-        "只回 JSON，不要加註解。分數 0-100。"
-        "請特別檢查：主體是否存在、構圖是否平衡、畫質是否清晰、手指/臉部是否異常、"
-        "是否有文字亂碼、浮水印、主體缺失、尺寸用途不適合。"
-        "\n\n提示詞：\n"
-        + prompt.strip()[:4000]
-    )
     payload = {
         "contents": [
             {
                 "role": "user",
                 "parts": [
-                    {"text": user_text},
+                    {"text": _build_vision_user_text(prompt)},
                     {"inline_data": {"mime_type": mime, "data": b64}},
                 ],
             }
@@ -99,7 +195,7 @@ def run_gemini_vision_qa(image: str, prompt: str, settings: Settings | None = No
     except (ValueError, KeyError, TypeError) as exc:
         raise VisionQAError("vision qa returned invalid response") from exc
     parsed = _parse_json_object(raw)
-    return _normalize_vision_qa(parsed)
+    return _normalize_vision_qa(parsed, provider="gemini")
 
 
 def _extract_inline_image(image: str) -> tuple[str, str]:
@@ -151,7 +247,7 @@ def _score(value: Any, default: int = 70) -> int:
     return max(0, min(100, number))
 
 
-def _normalize_vision_qa(data: dict[str, Any]) -> dict[str, Any]:
+def _normalize_vision_qa(data: dict[str, Any], provider: str = "gemini") -> dict[str, Any]:
     issues = data.get("detectedIssues")
     if not isinstance(issues, list):
         issues = []
@@ -160,7 +256,7 @@ def _normalize_vision_qa(data: dict[str, Any]) -> dict[str, Any]:
     if recommendation not in {"keep", "retry", "edit"}:
         recommendation = "edit"
     result: dict[str, Any] = {
-        "provider": "gemini",
+        "provider": provider,
         "available": True,
         "promptMatchScore": _score(data.get("promptMatchScore")),
         "compositionScore": _score(data.get("compositionScore")),

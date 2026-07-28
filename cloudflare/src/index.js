@@ -30,7 +30,7 @@ import {
 } from "./image.js";
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
-import { maybeRunVisionQa } from "./vision.js";
+import { maybeRunVisionQa, resolveVisionProvider } from "./vision.js";
 
 function elapsedMs(started) {
   return Math.max(0, Math.round(Date.now() - started));
@@ -138,6 +138,11 @@ function buildHealthResponse(env) {
     hasApiKey: hasNvidia || hasWorkersAI,
     storageAvailable,
     visionQa: String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true",
+    // 實際會被選中的 QA 後端（金鑰缺了會自動退到另一邊，空字串＝兩邊都沒金鑰）。
+    visionQaProvider:
+      String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true"
+        ? resolveVisionProvider(env)
+        : "",
     turnstile: turnstileConfig(env),
     message,
     checkedAt: new Date().toISOString(),

@@ -1,5 +1,11 @@
-// Optional Gemini vision QA for generated images. Fails open: generation must not
-// fail only because quality inspection is unavailable.
+// Optional vision QA for generated images. Fails open: generation must not fail
+// only because quality inspection is unavailable.
+//
+// Two backends. NVIDIA (default) reuses the same NVIDIA_API_KEY as generation, so
+// enabling QA needs no extra credential; Gemini stays available via
+// VISION_QA_PROVIDER=gemini. Only the request shape differs — NVIDIA speaks the
+// OpenAI-compatible chat/completions API and has no responseSchema, so missing
+// fields are absorbed by normalizeVisionQa rather than rejected.
 
 const VISION_QA_SCHEMA = {
   type: 'OBJECT',
@@ -60,12 +66,12 @@ function score(value, fallback = 70) {
   return Math.max(0, Math.min(100, number));
 }
 
-function normalizeVisionQa(data) {
+function normalizeVisionQa(data, provider = 'gemini') {
   const issues = Array.isArray(data.detectedIssues) ? data.detectedIssues : [];
   let recommendation = String(data.recommendation || 'edit').trim().toLowerCase();
   if (!['keep', 'retry', 'edit'].includes(recommendation)) recommendation = 'edit';
   const result = {
-    provider: 'gemini',
+    provider,
     available: true,
     promptMatchScore: score(data.promptMatchScore),
     compositionScore: score(data.compositionScore),
@@ -86,6 +92,81 @@ function extractInlineImage(image) {
   return { mimeType: match[1], data: b64 };
 }
 
+// Gemini pins the fields via responseSchema; NVIDIA only has json_object, so the
+// field names must be spelled out in the prompt. Without them the model returns
+// valid-but-different JSON and normalizeVisionQa silently fills in its fallbacks
+// (70/70/70, no issues) — a success that inspected nothing.
+const VISION_QA_FIELD_HINT =
+  '\n\n只回下面這個 JSON 物件，欄位一個都不能少：' +
+  '{"promptMatchScore": 整數 0-100, "compositionScore": 整數 0-100, ' +
+  '"visualQualityScore": 整數 0-100, "textAccuracyScore": 整數 0-100（畫面沒有文字就給 100）, ' +
+  '"detectedIssues": 字串陣列（沒發現問題就給 []）, ' +
+  '"recommendation": "keep" 或 "retry" 或 "edit", "reason": 一句繁體中文說明}';
+
+function buildVisionUserText(prompt, fieldHint = false) {
+  const base = '請以繁體中文評估這張 AI 生成圖片是否符合提示詞。只回 JSON，不要加註解。分數 0-100。請特別檢查：主體是否存在、構圖是否平衡、畫質是否清晰、手指/臉部是否異常、是否有文字亂碼、浮水印、主體缺失、尺寸用途不適合。';
+  return `${base}${fieldHint ? VISION_QA_FIELD_HINT : ''}\n\n提示詞：\n${String(prompt || '').slice(0, 4000)}`;
+}
+
+// Config wins, but a backend without its key steps aside for the other one.
+// '' means neither is usable.
+export function resolveVisionProvider(env) {
+  const requested = String((env && env.VISION_QA_PROVIDER) || 'nvidia').trim().toLowerCase();
+  const hasNvidia = !!String((env && env.NVIDIA_API_KEY) || '').trim();
+  const hasGemini = !!String((env && env.GEMINI_API_KEY) || '').trim();
+  if (requested === 'gemini' && hasGemini) return 'gemini';
+  if (requested === 'nvidia' && hasNvidia) return 'nvidia';
+  if (hasNvidia) return 'nvidia';
+  if (hasGemini) return 'gemini';
+  return '';
+}
+
+function parseOpenAiText(data) {
+  const choices = (data && data.choices) || [];
+  if (!choices.length) throw new Error('vision qa returned no choices');
+  const content = ((choices[0] || {}).message || {}).content;
+  // Some NIM models return content as an array of parts instead of a string.
+  if (Array.isArray(content)) {
+    return content.map((part) => (part && part.text) || '').join('').trim();
+  }
+  return String(content || '').trim();
+}
+
+async function runNvidiaVisionQa(image, prompt, env, telemetry) {
+  const apiKey = String((env && env.NVIDIA_API_KEY) || '').trim();
+  if (!apiKey) throw new Error('missing NVIDIA_API_KEY');
+  const inline = extractInlineImage(image);
+  const model = String((env && env.NVIDIA_VISION_MODEL) || 'meta/llama-3.2-90b-vision-instruct').trim();
+  const base = String((env && env.NVIDIA_CHAT_BASE_URL) || 'https://integrate.api.nvidia.com/v1').replace(/\/+$/, '');
+  const payload = {
+    model,
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: buildVisionUserText(prompt, true) },
+        { type: 'image_url', image_url: { url: `data:${inline.mimeType};base64,${inline.data}` } },
+      ],
+    }],
+    max_tokens: 700,
+    temperature: 0.1,
+    response_format: { type: 'json_object' },
+  };
+  telemetry.attempts = 1;
+  const response = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(visionTimeoutMs(env && env.VISION_QA_TIMEOUT_MS)),
+  });
+  if (response.status !== 200) throw new Error(`vision qa returned HTTP ${response.status}`);
+  const text = parseOpenAiText(await response.json());
+  return normalizeVisionQa(parseJsonObject(text), 'nvidia');
+}
+
 async function runGeminiVisionQa(image, prompt, env, telemetry) {
   const apiKey = String((env && env.GEMINI_API_KEY) || '').trim();
   if (!apiKey) throw new Error('missing GEMINI_API_KEY');
@@ -93,9 +174,8 @@ async function runGeminiVisionQa(image, prompt, env, telemetry) {
   const model = String((env && env.GEMINI_VISION_MODEL) || 'gemini-2.5-flash').trim();
   const base = String((env && env.GEMINI_BASE_URL) || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
   const url = `${base}/models/${model}:generateContent`;
-  const userText = `請以繁體中文評估這張 AI 生成圖片是否符合提示詞。只回 JSON，不要加註解。分數 0-100。請特別檢查：主體是否存在、構圖是否平衡、畫質是否清晰、手指/臉部是否異常、是否有文字亂碼、浮水印、主體缺失、尺寸用途不適合。\n\n提示詞：\n${String(prompt || '').slice(0, 4000)}`;
   const payload = {
-    contents: [{ role: 'user', parts: [{ text: userText }, { inline_data: { mime_type: inline.mimeType, data: inline.data } }] }],
+    contents: [{ role: 'user', parts: [{ text: buildVisionUserText(prompt) }, { inline_data: { mime_type: inline.mimeType, data: inline.data } }] }],
     generationConfig: {
       temperature: 0.1,
       maxOutputTokens: 700,
@@ -112,18 +192,20 @@ async function runGeminiVisionQa(image, prompt, env, telemetry) {
   });
   if (response.status !== 200) throw new Error(`vision qa returned HTTP ${response.status}`);
   const text = parseGeminiText(await response.json());
-  return normalizeVisionQa(parseJsonObject(text));
+  return normalizeVisionQa(parseJsonObject(text), 'gemini');
 }
 
 export async function maybeRunVisionQa(image, prompt, env) {
   if (!envFlag(env && env.VISION_QA_ENABLED)) return null;
-  if (!String((env && env.GEMINI_API_KEY) || '').trim()) return null;
+  const provider = resolveVisionProvider(env);
+  if (!provider) return null;
   const telemetry = { attempts: 0 };
   try {
-    return withVisionAttempts(await runGeminiVisionQa(image, prompt, env, telemetry), telemetry.attempts);
+    const run = provider === 'nvidia' ? runNvidiaVisionQa : runGeminiVisionQa;
+    return withVisionAttempts(await run(image, prompt, env, telemetry), telemetry.attempts);
   } catch (e) {
     return withVisionAttempts({
-      provider: 'gemini',
+      provider,
       available: false,
       code: 'vision_qa_failed',
       message: '視覺 QA 暫時不可用，已保留本機 QAReport',

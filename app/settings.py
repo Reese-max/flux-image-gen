@@ -75,6 +75,16 @@ class Settings:
         "GEMINI_COMPLETE_TIMEOUT_SECONDS", 5.0
     )
     vision_qa_enabled: bool = _bool_env("VISION_QA_ENABLED", False)
+    # 生成後視覺 QA 的後端。預設 nvidia：與生圖共用同一把 NVIDIA_API_KEY，不必再備
+    # 一組 Gemini 金鑰。設 VISION_QA_PROVIDER=gemini 可切回 Gemini（責任鏈相同）。
+    # NVIDIA 走 OpenAI 相容的 chat/completions（與生圖的 genai 端點不同 base URL）。
+    vision_qa_provider: str = os.getenv("VISION_QA_PROVIDER", "nvidia")
+    nvidia_chat_base_url: str = os.getenv(
+        "NVIDIA_CHAT_BASE_URL", "https://integrate.api.nvidia.com/v1"
+    )
+    nvidia_vision_model: str = os.getenv(
+        "NVIDIA_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct"
+    )
     # Third-tier keyless Pollinations fallback, reached only when NVIDIA and
     # Workers AI both fail on infrastructure (5xx/timeout). Off by default; set
     # POLLINATIONS_FALLBACK_ENABLED=true to enable (mirrors the Worker flag).
