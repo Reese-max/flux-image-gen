@@ -39,7 +39,9 @@ NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
 GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
 GEMINI_VISION_MODEL = "gemini-2.5-flash"
-# Optional paid visual QA for agent mode. Keep false until budget is approved.
+# Post-generation visual QA. Opt-in per request: the checkbox ships unchecked and
+# app.js hides the row entirely while this is false, so turning it on exposes the
+# option rather than spending on every generation.
 VISION_QA_ENABLED = "true"
 # Vision QA backend. "nvidia" runs on the NVIDIA_API_KEY generation already uses,
 # so QA burns no separate paid quota - that is why it is the default.

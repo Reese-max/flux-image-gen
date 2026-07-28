@@ -46,6 +46,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - 線上功能 QA：Cloudflare 版提供 `npm run qa:browser`，會實際點擊 Prompt 強化器、歷史牆、詳情面板、標籤、PWA 與手機底部生成列。
 - 線上效能 QA：Cloudflare 版提供 `npm run qa:perf`，會量 TTFB、FCP、LCP、CLS、資源數與傳輸量，輸出到 `cloudflare/output/playwright/cloudflare-perf-qa.json`。
 - 錯誤監控：前端會把 `window.error`、`unhandledrejection` 與生成 API 失敗送到同源 `POST /client-error`；Worker 會回 `x-request-id` 並記錄已截斷的白名單欄位。
+- 生成後視覺 QA：勾「生成後 AI 檢查」才會執行（預設不勾），交給視覺模型評分構圖／畫質／符合度並指出問題。後端由 `VISION_QA_PROVIDER` 決定：`nvidia`（預設）與生圖共用同一把 `NVIDIA_API_KEY`、不另外吃付費配額，中位多花約 8 秒；`gemini` 較快（約 4 秒）但要另備金鑰。指定的後端缺金鑰時會自動退到另一邊，`/api/health` 的 `visionQaProvider` 會回報實際選中的後端。
 - 效能最佳化：已移除 Google Fonts 外部字型；Cloudflare deploy copy 會壓縮 JavaScript，範例圖與額外靈感模組則延後到接近可視區才載入。
 - 變更清單：本輪提交包在 `docs/release-package-2026-06-25.md`，版本紀錄在 `CHANGELOG.md`。
 
