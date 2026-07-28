@@ -1934,10 +1934,18 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 
 /* AI 改圖工作區 */
+/* 與生成分頁同樣的雙欄工作區：左設定、右預覽。改圖樣式排在 responsive 區塊之後，
+   所以窄螢幕的單欄覆蓋要寫在這裡，寫進上面的 980px 區塊會被這條蓋掉。 */
 .edit-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+  align-items: stretch;
   gap: 16px;
+}
+@media (max-width: 980px) {
+  .edit-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .edit-control-panel,
 .edit-preview-panel {
@@ -1980,32 +1988,25 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .edit-panel-body {
   padding: 4px 18px 18px;
 }
-.edit-control-section {
-  padding: 16px 0 18px;
-  border-bottom: 1px solid var(--line);
+/* 改圖面板直接沿用生成分頁的 composer / advanced-settings；外層 aside 已有 padding。 */
+.edit-panel-body .composer {
+  padding: 0;
+  margin-bottom: 0;
 }
-.edit-control-section:last-child {
-  border-bottom: 0;
-}
-.edit-section-label {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 10px;
-}
-.edit-section-label > span {
-  color: var(--accent);
-  font: 800 10px/1 var(--mono);
-}
-.edit-section-label strong {
-  color: var(--text);
-  font-size: 13px;
+.edit-panel-body .edit-mode-grid {
+  margin-top: 4px;
 }
 .edit-mode-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
   margin: 0;
+}
+/* 雙欄版面下設定欄只有 390px，三張模式卡改成直向堆疊才讀得完文案。 */
+@media (min-width: 981px) {
+  .edit-mode-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .edit-mode-card {
   min-height: 92px;
@@ -2106,32 +2107,10 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   margin-bottom: 12px;
 }
 .edit-product-controls[hidden] { display: none; }
-.edit-prompt-label {
-  display: block;
-  margin-bottom: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-}
 #editPrompt {
   width: 100%;
   min-height: 116px;
   resize: vertical;
-}
-.edit-panel-footer {
-  margin-top: auto;
-  padding: 14px 18px 16px;
-  display: grid;
-  gap: 10px;
-  border-top: 1px solid var(--line);
-  background: var(--surface-2);
-}
-.edit-panel-footer .status {
-  min-height: 18px;
-  margin: 0;
-}
-.edit-panel-footer .btn {
-  width: 100%;
 }
 .edit-preview-panel {
   min-height: 560px;
@@ -2241,8 +2220,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   background: var(--accent-soft);
   color: var(--accent-2);
 }
-.edit-strength-group { margin-bottom: 8px; }
-.edit-keep-head { margin: 14px 0 8px; color: var(--text); font-size: 12px; font-weight: 700; }
+.edit-keep-head { display: block; color: var(--text); font-size: 12px; font-weight: 700; }
 .edit-keep-group { display: flex; flex-wrap: wrap; gap: 6px; }
 .edit-keep.is-active {
   border-color: var(--sage-line);

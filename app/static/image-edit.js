@@ -37,6 +37,16 @@
   };
   var DEFAULT_STRENGTH = 'balanced';
 
+  // 風格：值對齊生成分頁的 #promptStyle，同一份選項也餵給 /prompt/complete 與
+  // /prompt/transform。auto＝維持原圖風格，不加任何句子。
+  var STYLE_CLAUSES = {
+    cute: '整體風格：可愛療癒的插畫感，線條柔和、色彩明亮。',
+    cinematic: '整體風格：電影感光線與色調，戲劇性的明暗對比。',
+    realistic: '整體風格：寫實攝影質感，自然光線與真實材質細節。',
+    anime: '整體風格：日系動畫插畫風格，乾淨線條與鮮明色彩。',
+    product: '整體風格：商業產品攝影質感，乾淨背景與精準打光。'
+  };
+
   var KEEP_OPTIONS = {
     face: { label: '臉部', clause: '人物臉部特徵與表情' },
     text: { label: '文字 / Logo', clause: '畫面中的文字與 Logo 內容' },
@@ -108,6 +118,10 @@
     return EDIT_STRENGTHS[value] ? String(value) : DEFAULT_STRENGTH;
   }
 
+  function normalizeStyle(value) {
+    return STYLE_CLAUSES[value] ? String(value) : 'auto';
+  }
+
   // 去掉未知 key 與重複值，並固定成 KEEP_OPTIONS 的宣告順序，讓 prompt 可重現。
   function normalizeKeepList(value) {
     var picked = {};
@@ -146,6 +160,8 @@
       if (opts.background) { parts.push('背景：' + opts.background + '。'); }
       if (opts.lighting) { parts.push('光線：' + opts.lighting + '。'); }
     }
+    var styleClause = STYLE_CLAUSES[normalizeStyle(opts.style)];
+    if (styleClause) { parts.push(styleClause); }
     parts.push(EDIT_STRENGTHS[normalizeStrength(opts.strength)].clause);
     normalizeKeepList(opts.keep).forEach(function (key) {
       keepClauses.push(KEEP_OPTIONS[key].clause);
@@ -235,12 +251,14 @@
     MAX_EDIT_IMAGES: MAX_EDIT_IMAGES,
     MAX_EDIT_DIM: MAX_EDIT_DIM,
     EDIT_STRENGTHS: EDIT_STRENGTHS,
+    STYLE_CLAUSES: STYLE_CLAUSES,
     KEEP_OPTIONS: KEEP_OPTIONS,
     EDIT_PRESETS: EDIT_PRESETS,
     computeResizeDims: computeResizeDims,
     validateEditSelection: validateEditSelection,
     normalizeReferenceRole: normalizeReferenceRole,
     normalizeStrength: normalizeStrength,
+    normalizeStyle: normalizeStyle,
     normalizeKeepList: normalizeKeepList,
     presetsForMode: presetsForMode,
     composeEditPrompt: composeEditPrompt,
@@ -274,6 +292,12 @@
   var presetsEl = byId('editPresets');
   var keepEl = byId('editKeep');
   var strengthHint = byId('editStrengthHint');
+  var strengthSelect = byId('editStrength');
+  var styleSelect = byId('editPromptStyle');
+  var completeBtn = byId('editCompletePrompt');
+  var transformBtn = byId('editTransformPrompt');
+  var effectInput = byId('editEffectPrompt');
+  var applyEffectBtn = byId('editApplyEffect');
   var compareBtn = byId('editCompare');
   var reuseBtn = byId('editReuse');
   var copyPromptBtn = byId('editCopyPrompt');
@@ -580,22 +604,27 @@
     return normalizeKeepList(Object.keys(keepFlags).filter(function (key) { return keepFlags[key]; }));
   }
 
+  function currentEditOptions() {
+    return {
+      mode: editMode,
+      strength: editStrength,
+      style: styleSelect ? styleSelect.value : 'auto',
+      keep: currentKeepList(),
+      background: productBackground ? productBackground.value : '',
+      lighting: productLighting ? productLighting.value : ''
+    };
+  }
+
   function setEditStrength(value) {
     editStrength = normalizeStrength(value);
-    Array.prototype.forEach.call(document.querySelectorAll('[data-edit-strength]'), function (button) {
-      var active = button.getAttribute('data-edit-strength') === editStrength;
-      button.classList.toggle('is-active', active);
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
+    if (strengthSelect && strengthSelect.value !== editStrength) { strengthSelect.value = editStrength; }
     if (strengthHint) { strengthHint.textContent = EDIT_STRENGTHS[editStrength].hint; }
     updateMeta();
   }
 
-  Array.prototype.forEach.call(document.querySelectorAll('[data-edit-strength]'), function (button) {
-    button.addEventListener('click', function () {
-      setEditStrength(button.getAttribute('data-edit-strength'));
-    });
-  });
+  if (strengthSelect) {
+    strengthSelect.addEventListener('change', function () { setEditStrength(strengthSelect.value); });
+  }
 
   function setEditMode(mode) {
     var copy;
@@ -770,15 +799,57 @@
     });
   }
 
+  function setEditTransformStatus(message, kind) {
+    var box = byId('editTransformStatus');
+    if (!box) { return; }
+    box.textContent = message || '';
+    box.className = 'transform-status' + (kind ? ' ' + kind : '');
+  }
+
+  // 加效果：重用生成分頁的 /prompt/enhance 管線，把中文效果融進改圖指令。
+  if (applyEffectBtn) {
+    applyEffectBtn.addEventListener('click', function () {
+      var base = (promptEl.value || '').trim();
+      var effect = effectInput ? (effectInput.value || '').trim() : '';
+      var elapsedTimer;
+      if (!root.PromptEnhancer) { return; }
+      if (!base) {
+        setEditTransformStatus('請先輸入中文改圖指令', 'fail');
+        promptEl.focus();
+        return;
+      }
+      if (!effect) {
+        setEditTransformStatus('請先說明想要的效果', 'fail');
+        if (effectInput) { effectInput.focus(); }
+        return;
+      }
+      applyEffectBtn.disabled = true;
+      applyEffectBtn.setAttribute('aria-busy', 'true');
+      elapsedTimer = root.ElapsedTimer.start({
+        onTick: function (seconds) {
+          setEditTransformStatus('AI 套用效果中… 已用 ' + seconds + ' 秒', 'busy');
+          applyEffectBtn.textContent = '套用中… ' + seconds + ' 秒';
+        }
+      });
+      root.PromptEnhancer.applyEffect(base, effect).then(function (result) {
+        var message;
+        promptEl.value = result.prompt;
+        message = '已套用效果 · ' + (result.provider === 'gemini' ? 'Gemini' : '離線強化') + ' · 耗時 ' + elapsedTimer.stop() + ' 秒';
+        if (result.warnings && result.warnings.length) { message += ' · ' + result.warnings.join('、'); }
+        setEditTransformStatus(message, 'done');
+      }, function (error) {
+        setEditTransformStatus('套用效果失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + (error && error.message ? error.message : error), 'fail');
+      }).then(function () {
+        applyEffectBtn.disabled = false;
+        applyEffectBtn.removeAttribute('aria-busy');
+        applyEffectBtn.textContent = '用 AI 套用效果';
+      });
+    });
+  }
+
   if (copyPromptBtn) {
     copyPromptBtn.addEventListener('click', function () {
-      var text = lastResult ? lastResult.providerPrompt : composeEditPrompt(promptEl.value || '', selected, {
-        mode: editMode,
-        strength: editStrength,
-        keep: currentKeepList(),
-        background: productBackground ? productBackground.value : '',
-        lighting: productLighting ? productLighting.value : ''
-      });
+      var text = lastResult ? lastResult.providerPrompt : composeEditPrompt(promptEl.value || '', selected, currentEditOptions());
       if (!text) {
         setStatus('還沒有可複製的指令', 'fail');
         return;
@@ -824,6 +895,13 @@
       setPreviewState('error', '需要改圖指令');
       return;
     }
+    // 驗證框在分頁外層與生成分頁共用；沒過就別送，否則後端一定回 403。
+    if (typeof isTurnstileRequired === 'function' && isTurnstileRequired()
+      && !(typeof readTurnstileToken === 'function' && readTurnstileToken())) {
+      setStatus('請先完成上方的真人驗證，再按開始改圖', 'fail');
+      setPreviewState('error', '需要真人驗證');
+      return;
+    }
 
     editInFlight = true;
     updateGoButton();
@@ -836,13 +914,7 @@
       }
     });
     var token = typeof readTurnstileToken === 'function' ? readTurnstileToken() : '';
-    var finalPrompt = composeEditPrompt(prompt, selected, {
-      mode: editMode,
-      strength: editStrength,
-      keep: currentKeepList(),
-      background: productBackground ? productBackground.value : '',
-      lighting: productLighting ? productLighting.value : ''
-    });
+    var finalPrompt = composeEditPrompt(prompt, selected, currentEditOptions());
     var fd = buildEditFormData(finalPrompt, selected.map(function (s) { return s.blob; }), token);
 
     fetch('/edit', { method: 'POST', body: fd })

@@ -87,6 +87,12 @@
       </button>
     </nav>
 
+    <!-- 人機驗證放在分頁外層：生成與改圖共用同一個 widget，切到改圖分頁時才看得到驗證框。 -->
+    <div id="turnstileGate" class="turnstile-gate" hidden>
+      <div id="turnstileWidget" class="cf-turnstile" data-action="turnstile-spin-v1"></div>
+      <p id="turnstileStatus" class="turnstile-status" role="status" aria-live="polite">公開站生成前需完成人機驗證。</p>
+    </div>
+
     <div class="tabpanel" id="panel-generate" role="tabpanel" aria-labelledby="tab-generate">
     <div class="generation-workspace" id="generationWorkspace">
       <aside class="generation-controls glass" id="generationControls" aria-label="生成設定面板">
@@ -148,10 +154,6 @@
         <div class="prompt-controls">
           <button id="completePrompt" class="btn secondary" type="button" aria-describedby="transformStatus">✨ 幫我補完整</button>
           <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
-        </div>
-        <div id="turnstileGate" class="turnstile-gate" hidden>
-          <div id="turnstileWidget" class="cf-turnstile" data-action="turnstile-spin-v1"></div>
-          <p id="turnstileStatus" class="turnstile-status" role="status" aria-live="polite">公開站生成前需完成人機驗證。</p>
         </div>
         <div id="transformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>
@@ -426,80 +428,126 @@
         </div>
         <div id="editStatus" class="status edit-availability-status" aria-live="polite">等待參考圖與改圖指令</div>
         <div class="edit-panel-body">
-          <section class="edit-control-section">
-            <div class="edit-section-label"><span>01</span><strong>選擇工作模式</strong></div>
-            <div class="edit-mode-grid" aria-label="參考圖模式">
-              <button class="edit-mode-card is-active" type="button" data-edit-mode="general" aria-pressed="true">
-                <i aria-hidden="true">◫</i><strong>一般改圖</strong><span>換色、換背景、合成與風格轉移。</span>
-              </button>
-              <button class="edit-mode-card" type="button" data-edit-mode="character" aria-pressed="false">
-                <i aria-hidden="true">◇</i><strong>角色一致模式</strong><span>保留角色核心外觀與辨識特徵。</span>
-              </button>
-              <button class="edit-mode-card" type="button" data-edit-mode="product" aria-pressed="false">
-                <i aria-hidden="true">▣</i><strong>產品照模式</strong><span>保持商品外觀並重建背景與光線。</span>
-              </button>
-            </div>
-          </section>
-
-          <section class="edit-control-section">
-            <div class="edit-section-label"><span>02</span><strong>加入參考圖片</strong></div>
-            <label id="editDrop" class="edit-drop" for="editFiles">
-              <input id="editFiles" type="file" accept="image/*" multiple hidden>
-              <span class="edit-drop-icon" aria-hidden="true">＋</span>
-              <strong>拖曳圖片到這裡</strong>
-              <span class="edit-drop-text">或點一下選擇檔案 · 自動縮至模型可用尺寸</span>
-            </label>
-            <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
-          </section>
-
-          <section class="edit-control-section">
-            <div class="edit-section-label"><span>03</span><strong>描述修改內容</strong></div>
-            <div class="edit-product-controls" id="editProductControls" aria-label="產品照設定" hidden>
-              <label class="field">
-                <span class="field-label">產品背景</span>
-                <select id="editProductBackground" class="text-input">
-                  <option value="clean studio background">乾淨棚拍背景</option>
-                  <option value="matte stone surface">霧面石材平台</option>
-                  <option value="warm lifestyle interior">溫暖生活情境</option>
-                  <option value="pure white ecommerce background">白底電商主圖</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="field-label">產品光線</span>
-                <select id="editProductLighting" class="text-input">
-                  <option value="softbox studio lighting">柔和棚燈</option>
-                  <option value="natural window light">自然窗光</option>
-                  <option value="dramatic rim light">高級輪廓光</option>
-                  <option value="bright clean commercial lighting">明亮商業光</option>
-                </select>
-              </label>
-            </div>
-            <div class="edit-preset-block">
-              <div class="edit-preset-head">
-                <span>✦ 快速指令</span>
-                <small>點一下帶入，可再自行修改</small>
+          <!-- 版面與生成分頁一致：首屏 composer 放必要決策，其餘收進「進階設定」。 -->
+          <section class="composer" aria-label="改圖描述">
+            <div class="prompt-tool product-first" aria-label="中文改圖">
+              <div class="section-heading">
+                <span class="section-kicker">中文改圖</span>
+                <h2>上傳圖片，用中文說怎麼改。</h2>
+                <p>適合換背景、去背白底、換服裝、風格轉換，以及角色與產品的一致延伸圖。</p>
               </div>
-              <div id="editPresets" class="edit-presets" role="group" aria-label="快速改圖指令"></div>
-            </div>
-            <label class="edit-prompt-label" id="editPromptLabel" for="editPrompt">改圖指令</label>
-            <textarea id="editPrompt" aria-label="改圖指令" rows="4" maxlength="900"
-              placeholder="例如：把背景換成雨夜街道，保留主體構圖與色彩層次。"></textarea>
-          </section>
 
-          <section class="edit-control-section">
-            <div class="edit-section-label"><span>04</span><strong>修改幅度與保留項目</strong></div>
-            <div class="seed-mode edit-strength-group" role="group" aria-label="修改幅度">
-              <button class="seed-mode-btn" type="button" data-edit-strength="subtle" aria-pressed="false">◦ 微調</button>
-              <button class="seed-mode-btn is-active" type="button" data-edit-strength="balanced" aria-pressed="true">◈ 適中</button>
-              <button class="seed-mode-btn" type="button" data-edit-strength="bold" aria-pressed="false">◆ 大改</button>
+              <div class="edit-mode-grid" role="group" aria-label="參考圖模式">
+                <button class="edit-mode-card is-active" type="button" data-edit-mode="general" aria-pressed="true">
+                  <i aria-hidden="true">◫</i><strong>一般改圖</strong><span>換色、換背景、合成與風格轉移。</span>
+                </button>
+                <button class="edit-mode-card" type="button" data-edit-mode="character" aria-pressed="false">
+                  <i aria-hidden="true">◇</i><strong>角色一致模式</strong><span>保留角色核心外觀與辨識特徵。</span>
+                </button>
+                <button class="edit-mode-card" type="button" data-edit-mode="product" aria-pressed="false">
+                  <i aria-hidden="true">▣</i><strong>產品照模式</strong><span>保持商品外觀並重建背景與光線。</span>
+                </button>
+              </div>
+
+              <label id="editDrop" class="edit-drop" for="editFiles">
+                <input id="editFiles" type="file" accept="image/*" multiple hidden>
+                <span class="edit-drop-icon" aria-hidden="true">＋</span>
+                <strong>拖曳圖片到這裡</strong>
+                <span class="edit-drop-text">或點一下選擇檔案 · 自動縮至模型可用尺寸</span>
+              </label>
+              <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
+
+              <label class="final-prompt-label" id="editPromptLabel" for="editPrompt">改圖指令</label>
+              <p id="editPromptHelp" class="visually-hidden">必填。請用中文描述要改成什麼樣子；按開始改圖後系統會自動整理成完整指令。</p>
+              <textarea id="editPrompt" rows="2" maxlength="900" aria-describedby="editPromptHelp editStatus" aria-required="true"
+                placeholder="例如：把背景換成雨夜街道，保留主體構圖與色彩層次。"></textarea>
+
+              <div class="composer-options" role="group" aria-label="改圖選項">
+                <label class="field option-field">
+                  <span class="field-label">風格</span>
+                  <div class="select-wrap">
+                    <select id="editPromptStyle" aria-label="選擇改圖風格">
+                      <option value="auto">維持原風格</option>
+                      <option value="cute">可愛</option>
+                      <option value="cinematic">電影感</option>
+                      <option value="realistic">寫實</option>
+                      <option value="anime">動漫</option>
+                      <option value="product">產品照</option>
+                    </select>
+                    <span class="chevron" aria-hidden="true">▾</span>
+                  </div>
+                </label>
+                <label class="field option-field">
+                  <span class="field-label">修改幅度</span>
+                  <div class="select-wrap">
+                    <select id="editStrength" aria-label="選擇修改幅度">
+                      <option value="subtle" data-edit-strength="subtle">微調</option>
+                      <option value="balanced" data-edit-strength="balanced" selected>適中</option>
+                      <option value="bold" data-edit-strength="bold">大改</option>
+                    </select>
+                    <span class="chevron" aria-hidden="true">▾</span>
+                  </div>
+                </label>
+              </div>
+              <p id="editStrengthHint" class="seed-mode-hint">依指令調整，同時維持原圖的整體構圖與氛圍。</p>
+
+              <div class="prompt-controls">
+                <button id="editCompletePrompt" class="btn secondary" type="button" aria-describedby="editTransformStatus">✨ 幫我補完整</button>
+                <button id="editGo" class="btn primary hero-generate" type="button" disabled aria-disabled="true" aria-describedby="editStatus">✦ 開始改圖</button>
+              </div>
+              <div id="editTransformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
             </div>
-            <p id="editStrengthHint" class="seed-mode-hint">依指令調整，同時維持原圖的整體構圖與氛圍。</p>
-            <div class="edit-keep-head">要保留的部分（可複選）</div>
-            <div id="editKeep" class="edit-keep-group" role="group" aria-label="要保留的部分"></div>
+
+            <details id="editAdvancedSettings" class="advanced-settings">
+              <summary>進階設定（指令、效果、保留項目與產品設定）</summary>
+              <p class="prompt-shortcut-hint">可用下方按鈕把指令轉成英文；鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
+              <button id="editTransformPrompt" class="btn secondary" type="button">轉成英文指令</button>
+
+              <div id="editPromptEnhancer" class="prompt-enhancer" role="group" aria-label="幫改圖加效果">
+                <label class="field-label" for="editEffectPrompt">加效果（選填）</label>
+                <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方改圖指令。</p>
+                <div class="enhance-actions">
+                  <input id="editEffectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="editTransformStatus"
+                    placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
+                  <button class="btn mini secondary" id="editApplyEffect" type="button">用 AI 套用效果</button>
+                </div>
+              </div>
+
+              <div class="edit-preset-block">
+                <div class="edit-preset-head">
+                  <span>✦ 快速指令</span>
+                  <small>點一下帶入，可再自行修改</small>
+                </div>
+                <div id="editPresets" class="edit-presets" role="group" aria-label="快速改圖指令"></div>
+              </div>
+
+              <div class="field">
+                <span class="edit-keep-head" id="editKeepHead">要保留的部分（可複選）</span>
+                <div id="editKeep" class="edit-keep-group" role="group" aria-labelledby="editKeepHead"></div>
+              </div>
+
+              <div class="edit-product-controls" id="editProductControls" aria-label="產品照設定" hidden>
+                <label class="field">
+                  <span class="field-label">產品背景</span>
+                  <select id="editProductBackground" class="text-input">
+                    <option value="clean studio background">乾淨棚拍背景</option>
+                    <option value="matte stone surface">霧面石材平台</option>
+                    <option value="warm lifestyle interior">溫暖生活情境</option>
+                    <option value="pure white ecommerce background">白底電商主圖</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">產品光線</span>
+                  <select id="editProductLighting" class="text-input">
+                    <option value="softbox studio lighting">柔和棚燈</option>
+                    <option value="natural window light">自然窗光</option>
+                    <option value="dramatic rim light">高級輪廓光</option>
+                    <option value="bright clean commercial lighting">明亮商業光</option>
+                  </select>
+                </label>
+              </div>
+            </details>
           </section>
-        </div>
-        <div class="edit-panel-footer">
-          <button id="editGo" class="btn primary" type="button" disabled aria-disabled="true">✦ 開始改圖</button>
         </div>
       </aside>
 

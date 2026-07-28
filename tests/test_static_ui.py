@@ -537,7 +537,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v24" in service_worker_js
+    assert "ai-image-generator-pwa-v25" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -629,17 +629,20 @@ def test_prompt_transform_ui_is_wired():
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html
     assert 'src="/static/prompt-transform.js"' in html
-    assert "fetch('/prompt/transform'" in transform_js
-    assert "fetch('/prompt/complete'" in transform_js
-    assert "plainPrompt" in transform_js
-    assert "transformPrompt" in transform_js
-    assert "completePrompt" in transform_js
-    assert "completePromptButton.addEventListener('click', completePrompt)" in transform_js
-    assert "finalPrompt.setAttribute('data-auto-source', source)" in transform_js
-    assert "finalPrompt.getAttribute('data-auto-source')" in transform_js
-    assert "finalPrompt.removeAttribute('data-auto-source')" in transform_js
-    assert "setCompletionBusy(completePromptButton, true)" in transform_js
-    assert "setCompletionBusy(completePromptButton, false)" in transform_js
+    assert "'/prompt/transform'" in transform_js
+    assert "'/prompt/complete'" in transform_js
+    # 生成分頁的欄位仍由同一份管線驅動（ctx 設定，不是硬編碼在函式裡）。
+    assert "sourceId: 'plainPrompt'" in transform_js
+    assert "targetId: 'prompt'" in transform_js
+    assert "styleId: 'promptStyle'" in transform_js
+    assert "transformButtonId: 'transformPrompt'" in transform_js
+    assert "completeButtonId: 'completePrompt'" in transform_js
+    assert "completeButton.addEventListener('click', function(){ completePrompt(ctx); })" in transform_js
+    assert "targetField.setAttribute('data-auto-source', source)" in transform_js
+    assert "targetField.getAttribute('data-auto-source')" in transform_js
+    assert "targetField.removeAttribute('data-auto-source')" in transform_js
+    assert "setBusy(button, true" in transform_js
+    assert "setBusy(button, false)" in transform_js
     assert "button.setAttribute('aria-busy', 'true')" in transform_js
     assert "button.removeAttribute('aria-busy')" in transform_js
     assert "event.key === 'Tab'" not in transform_js
@@ -863,6 +866,44 @@ def test_edit_tab_has_the_same_creative_toolkit_as_the_generate_tab():
     assert ".edit-keep" in styles
     assert ".edit-compare" in styles
     assert "clip-path: inset(0 0 0 var(--split))" in styles
+
+
+def test_edit_panel_matches_the_generate_panel_layout_and_prompt_tools():
+    """改圖設定面板與生成分頁同構：首屏 composer + 進階設定，並共用同一套 prompt 工具。"""
+    html = read_static("index.html")
+    image_edit_js = read_static("image-edit.js")
+    transform_js = read_static("prompt-transform.js")
+
+    # 版面：首屏 composer（模式／參考圖／指令／風格＋幅度／主按鈕），其餘收進進階設定。
+    assert 'class="composer" aria-label="改圖描述"' in html
+    assert 'id="editAdvancedSettings" class="advanced-settings"' in html
+    assert 'class="composer-options" role="group" aria-label="改圖選項"' in html
+    assert 'class="btn primary hero-generate"' in html
+    assert 'class="edit-panel-footer"' not in html
+
+    # 生成分頁的三個 prompt 工具在改圖分頁也有對應控制項。
+    assert 'id="editCompletePrompt"' in html
+    assert 'id="editTransformPrompt"' in html
+    assert 'id="editEffectPrompt"' in html
+    assert 'id="editApplyEffect"' in html
+    assert 'id="editTransformStatus"' in html
+    assert 'id="editPromptStyle"' in html
+    assert 'id="editStrength"' in html
+
+    # 補完整／轉英文重用同一份管線，只是換一組 ctx；加效果重用 PromptEnhancer。
+    assert "sourceId: 'editPrompt'" in transform_js
+    assert "styleId: 'editPromptStyle'" in transform_js
+    assert "statusId: 'editTransformStatus'" in transform_js
+    assert "root.PromptEnhancer.applyEffect" in image_edit_js
+
+    # 風格選擇要真的進得了送出的指令。
+    assert "STYLE_CLAUSES" in image_edit_js
+    assert "function normalizeStyle" in image_edit_js
+    assert "style: styleSelect ? styleSelect.value : 'auto'" in image_edit_js
+
+    # 人機驗證框移到分頁外層，兩個分頁共用；改圖送出前先自己擋一次。
+    assert html.index('id="turnstileGate"') < html.index('id="panel-generate"')
+    assert "isTurnstileRequired" in image_edit_js
 
 
 def test_workspace_canvas_viewport_is_wired_without_duplicate_library():
