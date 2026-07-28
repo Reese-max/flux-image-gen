@@ -179,9 +179,15 @@ async function runGeminiVisionQa(image, prompt, env, telemetry) {
   const url = `${base}/models/${model}:generateContent`;
   const payload = {
     contents: [{ role: 'user', parts: [{ text: buildVisionUserText(prompt) }, { inline_data: { mime_type: inline.mimeType, data: inline.data } }] }],
+    // maxOutputTokens is shared between thinking and output on thinking models.
+    // Measured: gemini-2.5-flash spends ~669 thinking tokens on a busy image,
+    // leaving 16 for the JSON, which comes back cut in half (MAX_TOKENS). Scoring
+    // is structured work, so thinking is off; 2048 is the net if a model ignores
+    // thinkingConfig.
     generationConfig: {
       temperature: 0.1,
-      maxOutputTokens: 700,
+      maxOutputTokens: 2048,
+      thinkingConfig: { thinkingBudget: 0 },
       responseMimeType: 'application/json',
       responseSchema: VISION_QA_SCHEMA,
     },

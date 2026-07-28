@@ -307,8 +307,13 @@ def test_run_gemini_vision_qa_sends_inline_image_and_normalizes_scores(monkeypat
     parts = captured["json"]["contents"][0]["parts"]
     assert parts[1]["inline_data"]["mime_type"] == "image/png"
     # Gemini 用 responseSchema 綁欄位，提示詞不必再列一次。
-    assert captured["json"]["generationConfig"]["responseSchema"] is VISION_QA_SCHEMA
+    gen_config = captured["json"]["generationConfig"]
+    assert gen_config["responseSchema"] is VISION_QA_SCHEMA
     assert "promptMatchScore" not in parts[0]["text"]
+    # thinking 與輸出共用 maxOutputTokens：實測 gemini-2.5-flash 評一張複雜圖會用掉
+    # 669 個 thinking token，只剩 16 個給 JSON，回來是半截字串（finishReason=MAX_TOKENS）。
+    assert gen_config["thinkingConfig"] == {"thinkingBudget": 0}
+    assert gen_config["maxOutputTokens"] >= 2048
     assert "data:image" not in str(captured["json"])
     assert result["provider"] == "gemini"
     assert result["available"] is True

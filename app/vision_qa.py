@@ -174,9 +174,14 @@ def run_gemini_vision_qa(image: str, prompt: str, settings: Settings | None = No
                 ],
             }
         ],
+        # maxOutputTokens 在 thinking 模型上是 thinking + 輸出共用的預算。實測
+        # gemini-2.5-flash 評一張複雜圖會用掉 669 個 thinking token，只剩 16 個給
+        # JSON，回來的是半截字串（finishReason=MAX_TOKENS）。評分是結構化任務，
+        # 關掉 thinking 就夠用又快；2048 是萬一某個模型忽略 thinkingConfig 的安全網。
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 700,
+            "maxOutputTokens": 2048,
+            "thinkingConfig": {"thinkingBudget": 0},
             "responseMimeType": "application/json",
             "responseSchema": VISION_QA_SCHEMA,
         },
