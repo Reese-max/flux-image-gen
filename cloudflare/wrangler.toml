@@ -49,11 +49,12 @@ VISION_QA_ENABLED = "true"
 # lands on users who ask for it. Switch to "gemini" to trade quota for speed.
 # A backend without its key steps aside for the other one.
 VISION_QA_PROVIDER = "nvidia"
-# Must be sized for the backend above, or QA aborts on every image - which is
-# exactly how this shipped broken. NVIDIA: median 23.2s, slowest observed 27.8s
-# (2026-07-28, 3 runs) -> 35000 leaves ~1.26x headroom under the 45s cap in
-# vision.js. Gemini only needs ~12000 (median 3.8s, slowest 5.0s).
-VISION_QA_TIMEOUT_MS = "35000"
+# Must be sized for the backend above, or QA aborts - which is exactly how this
+# shipped broken. NVIDIA's spread is wide: direct API calls measured median 23.2s
+# / slowest 27.8s, but through the Worker a run took 38s, so 35000 still dropped
+# 1 in 3. Pinned to 45000, the cap in vision.js. Gemini needs only ~12000
+# (median 3.8s, slowest 5.0s).
+VISION_QA_TIMEOUT_MS = "45000"
 NVIDIA_CHAT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NVIDIA_VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
 # Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
