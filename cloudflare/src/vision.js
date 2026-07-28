@@ -25,13 +25,14 @@ function envFlag(value) {
   return String(value || '').trim().toLowerCase() === 'true';
 }
 
-// 5s 是為 Gemini flash 調的。NVIDIA 的 VLM 對 1024x1024 圖片實測中位 23s(90b)~33s(12b)
-// （2026-07-28），所以上限放寬到 45s，讓 VISION_QA_PROVIDER=nvidia 真的跑得完；預設值
-// 不動，Gemini 用不到那麼久。
+// 5s 是為 Gemini flash 調的。NVIDIA 的 VLM 慢得多（透過 Worker 實測中位 8.4s、
+// 最慢 17.0s，直接打 API 則到 23s），上限放寬到 60s 讓 VISION_QA_PROVIDER=nvidia
+// 有餘裕；預設值不動，Gemini 用不到那麼久。
+// 這個上限會靜默夾住 VISION_QA_TIMEOUT_MS——調高那個設定前要先確認這裡夠大。
 function visionTimeoutMs(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 5000;
-  return Math.max(250, Math.min(45000, Math.round(parsed)));
+  return Math.max(250, Math.min(60000, Math.round(parsed)));
 }
 
 function withVisionAttempts(result, attempts) {
