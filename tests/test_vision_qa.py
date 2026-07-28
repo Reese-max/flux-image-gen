@@ -25,24 +25,33 @@ def test_maybe_run_vision_qa_is_disabled_by_default():
     assert result is None
 
 
-def test_resolve_vision_provider_defaults_to_gemini_and_falls_back_on_missing_keys():
-    """預設是 gemini：NVIDIA 的 VLM 對 1024x1024 圖片實測 23–33 秒，等待不成比例。"""
-    both = Settings(nvidia_api_key="n", gemini_api_key="g", vision_qa_enabled=True)
-    assert resolve_vision_provider(both) == "gemini"
+def test_default_vision_provider_is_nvidia():
+    """預設後端。改預設只需要動這裡——其餘測試都明確指定 provider，不依賴預設值。
+
+    選 nvidia 是為了共用生圖的金鑰、不另外吃付費配額；代價是實測 1024x1024 圖片
+    中位 23.2 秒（Gemini 3.8 秒）。換預設時 VISION_QA_TIMEOUT_MS 要一起調。
+    """
+    assert Settings().vision_qa_provider == "nvidia"
     assert resolve_vision_provider(
-        Settings(nvidia_api_key="n", gemini_api_key="g", vision_qa_provider="nvidia", vision_qa_enabled=True)
+        Settings(nvidia_api_key="n", gemini_api_key="g", vision_qa_enabled=True)
     ) == "nvidia"
+
+
+def test_resolve_vision_provider_honours_config_and_falls_back_on_missing_keys():
+    for requested in ("nvidia", "gemini"):
+        assert resolve_vision_provider(Settings(
+            nvidia_api_key="n", gemini_api_key="g",
+            vision_qa_provider=requested, vision_qa_enabled=True)) == requested
     # 指定的後端沒金鑰就退到另一邊，而不是整個關掉。
-    assert resolve_vision_provider(
-        Settings(nvidia_api_key="n", gemini_api_key="", vision_qa_enabled=True)
-    ) == "nvidia"
-    assert resolve_vision_provider(
-        Settings(nvidia_api_key="", gemini_api_key="g", vision_qa_provider="nvidia", vision_qa_enabled=True)
-    ) == "gemini"
+    assert resolve_vision_provider(Settings(
+        nvidia_api_key="n", gemini_api_key="",
+        vision_qa_provider="gemini", vision_qa_enabled=True)) == "nvidia"
+    assert resolve_vision_provider(Settings(
+        nvidia_api_key="", gemini_api_key="g",
+        vision_qa_provider="nvidia", vision_qa_enabled=True)) == "gemini"
     # 兩邊都沒金鑰＝沒有可用後端。
-    assert resolve_vision_provider(
-        Settings(nvidia_api_key="", gemini_api_key="", vision_qa_enabled=True)
-    ) == ""
+    assert resolve_vision_provider(Settings(
+        nvidia_api_key="", gemini_api_key="", vision_qa_enabled=True)) == ""
 
 
 def test_run_nvidia_vision_qa_posts_openai_shape_and_normalizes_scores(monkeypatch):
@@ -154,8 +163,7 @@ def test_run_nvidia_vision_qa_accepts_content_returned_as_parts(monkeypatch):
     assert result["recommendation"] == "retry"
 
 
-def test_maybe_run_vision_qa_routes_to_gemini_by_default(monkeypatch):
-    """兩把金鑰都在時走 Gemini；要 NVIDIA 得明確設 VISION_QA_PROVIDER。"""
+def test_maybe_run_vision_qa_routes_to_gemini_when_asked(monkeypatch):
     image = make_demo_png_data_url("demo", 64, 64, "schnell")
     captured = {}
 
@@ -184,7 +192,12 @@ def test_maybe_run_vision_qa_routes_to_gemini_by_default(monkeypatch):
     result = maybe_run_vision_qa(
         image,
         "一隻貓",
-        Settings(nvidia_api_key="nv-test", gemini_api_key="gm-test", vision_qa_enabled=True),
+        Settings(
+            nvidia_api_key="nv-test",
+            gemini_api_key="gm-test",
+            vision_qa_provider="gemini",
+            vision_qa_enabled=True,
+        ),
     )
 
     assert captured["url"].endswith(":generateContent")

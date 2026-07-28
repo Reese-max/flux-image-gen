@@ -41,19 +41,19 @@ GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
 GEMINI_VISION_MODEL = "gemini-2.5-flash"
 # Optional paid visual QA for agent mode. Keep false until budget is approved.
 VISION_QA_ENABLED = "true"
-# Vision QA backend. "nvidia" reuses the NVIDIA_API_KEY secret generation already
-# needs, but measured 2026-07-28 on a 1024x1024 image its VLMs take ~23s
-# (llama-3.2-90b) to ~33s (nemotron-nano-12b) median, against 7.5s for the
-# generation itself - too slow to sit in the request. Gemini is the default;
-# switch to "nvidia" only alongside a much larger VISION_QA_TIMEOUT_MS.
+# Vision QA backend. "nvidia" runs on the NVIDIA_API_KEY generation already uses,
+# so QA burns no separate paid quota - that is why it is the default.
+# The cost is latency: measured 2026-07-28 on a 1024x1024 image, median 23.2s
+# (llama-3.2-90b) against 3.8s for Gemini, while the generation itself takes ~7s.
+# QA is opt-in per request (the checkbox ships unchecked), so that wait only
+# lands on users who ask for it. Switch to "gemini" to trade quota for speed.
 # A backend without its key steps aside for the other one.
-VISION_QA_PROVIDER = "gemini"
-# The 5000ms default predates VISION_QA_ENABLED ever being true and is not enough
-# for a 1024x1024 image. Measured on Gemini once QA actually worked: median 3.8s
-# added to /generate, slowest observed 5.0s (2026-07-28, 3 runs). 12000 leaves
-# ~2.4x headroom without making a genuinely stuck call block the response for
-# 20 seconds. NVIDIA VLMs need 30000+ - see VISION_QA_PROVIDER above.
-VISION_QA_TIMEOUT_MS = "12000"
+VISION_QA_PROVIDER = "nvidia"
+# Must be sized for the backend above, or QA aborts on every image - which is
+# exactly how this shipped broken. NVIDIA: median 23.2s, slowest observed 27.8s
+# (2026-07-28, 3 runs) -> 35000 leaves ~1.26x headroom under the 45s cap in
+# vision.js. Gemini only needs ~12000 (median 3.8s, slowest 5.0s).
+VISION_QA_TIMEOUT_MS = "35000"
 NVIDIA_CHAT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NVIDIA_VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
 # Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
