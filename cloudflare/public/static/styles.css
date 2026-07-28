@@ -1490,6 +1490,11 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 .icon-btn:hover, .icon-btn:focus-visible { color: var(--text); border-color: var(--line-2); }
 .history-detail { width: min(920px, 100%); }
+/* 網址驗證失敗時 openHistoryDetail 會拿掉 src（見 history-wall.js）；不畫出一個
+   有邊框的空框，讓錯誤狀態安靜地收起來而不是留一塊破圖。 */
+.history-detail-image:not([src]) {
+  display: none;
+}
 .history-detail-image {
   display: block;
   width: 100%;

@@ -1,3 +1,4 @@
+import hashlib
 import re
 from pathlib import Path
 
@@ -9,6 +10,21 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 def read_static(name):
     path = STATIC_DIR / name
     return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def compute_static_fingerprint():
+    """app/static 下所有會進 service worker 快取的 HTML/CSS/JS 的合併雜湊。
+
+    排除 service-worker.js 自己（雜湊就存在它裡面，納入會自我參照）。行尾正規化成
+    LF，否則同一份原始碼在 Windows（CRLF）與 CI（LF）會算出不同雜湊。
+    """
+    digest = hashlib.sha256()
+    for path in sorted(STATIC_DIR.glob("*.*"), key=lambda p: p.name):
+        if path.suffix not in {".html", ".css", ".js"} or path.name == "service-worker.js":
+            continue
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8"))
+    return digest.hexdigest()[:12]
 
 
 def read_repo(path):
@@ -537,7 +553,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v26" in service_worker_js
+    assert "ai-image-generator-pwa-v27" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -551,6 +567,28 @@ def test_service_worker_static_cache_is_safe():
         "usage-dashboard.js",
     ]:
         assert f"'/static/{lazy_script}'" not in service_worker_js
+
+
+def test_service_worker_cache_version_tracks_static_assets():
+    """改了前端資源卻沒 bump CACHE_NAME 時擋下來。
+
+    worker 是 network-first，舊快取只是 fallback，所以漏 bump 不會壞掉——但也不會
+    觸發 install 重抓資產、不會刪掉舊快取、前端的「新版本已準備好」提示也不會跳，
+    回訪的分頁就繼續渲染舊介面。這在實務上發生過一次（改完滑桿部署，線上仍是舊的
+    select），純靠記性擋不住，所以在這裡設一道閘門。
+    """
+    service_worker_js = read_static("service-worker.js")
+    match = re.search(r"var ASSET_FINGERPRINT = '([0-9a-f]+)';", service_worker_js)
+    assert match, "service-worker.js 少了 ASSET_FINGERPRINT"
+
+    expected = compute_static_fingerprint()
+    cache_name = re.search(r"var CACHE_NAME = '([^']+)';", service_worker_js)
+    assert cache_name, "service-worker.js 少了 CACHE_NAME"
+    assert match.group(1) == expected, (
+        f"app/static 的資源已變動。請把 service-worker.js 的 ASSET_FINGERPRINT 改成 "
+        f"'{expected}'，並把 CACHE_NAME（目前 '{cache_name.group(1)}'）的版本號 +1，"
+        f"否則回訪使用者會繼續看到舊介面。"
+    )
 
 
 def test_history_regenerate_restores_complete_settings_before_visible_generation():
