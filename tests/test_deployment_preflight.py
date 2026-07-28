@@ -31,6 +31,10 @@ def run_preflight(root: Path, *args: str):
         [sys.executable, str(SCRIPT), "--root", str(root), *args],
         cwd=ROOT,
         text=True,
+        # 腳本輸出含中文；不指定編碼時 Windows 會用 cp950 解碼並丟 UnicodeDecodeError，
+        # 讓 stdout/stderr 變成 None，測試就看不到 JSON 結果。
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=20,
         check=False,

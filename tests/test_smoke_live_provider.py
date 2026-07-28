@@ -55,6 +55,9 @@ def run_smoke(base_url, *args):
         [sys.executable, str(SCRIPT), "--base-url", base_url, *args],
         cwd=ROOT,
         text=True,
+        # 同 test_deployment_preflight：Windows 預設 cp950 解不了腳本的中文輸出。
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=20,
         check=False,
