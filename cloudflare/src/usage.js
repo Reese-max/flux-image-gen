@@ -24,7 +24,10 @@ function estimatedCostUsd(env, event, imageCount) {
   const provider = String((event && event.provider) || "").toLowerCase();
   const route = String((event && event.route) || "");
   const attempts = Math.max(0, Number((event && event.attempt) || 0));
-  if ((route.startsWith("prompt_") || route === "vision_qa") && provider.startsWith("gemini")) {
+  // Priced per request, not per image - these routes call an LLM and produce no
+  // image. Keyed on route alone: gating on provider mispriced vision QA as a
+  // generated image the moment it moved off Gemini.
+  if (route.startsWith("prompt_") || route === "vision_qa") {
     const perRequest = Number(env && env.USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST != null
       ? env.USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST
       : 0);

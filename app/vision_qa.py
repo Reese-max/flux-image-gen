@@ -14,39 +14,14 @@ class VisionQAError(Exception):
     """Raised when optional visual QA is unavailable or fails."""
 
 
-VISION_QA_SCHEMA: dict[str, Any] = {
-    "type": "OBJECT",
-    "properties": {
-        "promptMatchScore": {"type": "NUMBER"},
-        "compositionScore": {"type": "NUMBER"},
-        "visualQualityScore": {"type": "NUMBER"},
-        "textAccuracyScore": {"type": "NUMBER"},
-        "detectedIssues": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "recommendation": {"type": "STRING", "enum": ["keep", "retry", "edit"]},
-        "reason": {"type": "STRING"},
-    },
-    "required": [
-        "promptMatchScore",
-        "compositionScore",
-        "visualQualityScore",
-        "detectedIssues",
-        "recommendation",
-        "reason",
-    ],
-}
-
-
 VISION_QA_USER_TEXT = (
     "請以繁體中文評估這張 AI 生成圖片是否符合提示詞。"
     "只回 JSON，不要加註解。分數 0-100。"
     "請特別檢查：主體是否存在、構圖是否平衡、畫質是否清晰、手指/臉部是否異常、"
     "是否有文字亂碼、浮水印、主體缺失、尺寸用途不適合。"
-)
-
-# Gemini 用 responseSchema 指定欄位，NVIDIA 只有 json_object：不把欄位名寫進提示詞，
-# 模型會回合法但欄位不同的 JSON，_normalize_vision_qa 就全部填兜底值（70/70/70、
-# 空 issues），看起來成功其實什麼都沒評估到。
-VISION_QA_FIELD_HINT = (
+    # NVIDIA 只有 response_format=json_object，保證合法 JSON 但不保證欄位。不把欄位名
+    # 寫進提示詞，模型會回合法但欄位不同的 JSON，_normalize_vision_qa 全部填兜底值
+    # （70/70/70、空 issues），看起來成功其實什麼都沒評估到。
     "\n\n只回下面這個 JSON 物件，欄位一個都不能少："
     '{"promptMatchScore": 整數 0-100, "compositionScore": 整數 0-100, '
     '"visualQualityScore": 整數 0-100, "textAccuracyScore": 整數 0-100（畫面沒有文字就給 100）, '
@@ -55,37 +30,17 @@ VISION_QA_FIELD_HINT = (
 )
 
 
-def resolve_vision_provider(settings: Settings) -> str:
-    """挑出實際可用的 QA 後端：設定優先，但金鑰缺了就退到另一邊。"""
-    requested = (settings.vision_qa_provider or "nvidia").strip().lower()
-    has_nvidia = bool(settings.nvidia_api_key.strip())
-    has_gemini = bool(settings.gemini_api_key.strip())
-    if requested == "gemini" and has_gemini:
-        return "gemini"
-    if requested == "nvidia" and has_nvidia:
-        return "nvidia"
-    # 指定的後端沒金鑰：能用哪個就用哪個，兩個都沒有才關掉。
-    if has_nvidia:
-        return "nvidia"
-    if has_gemini:
-        return "gemini"
-    return ""
-
-
 def maybe_run_vision_qa(image: str, prompt: str, settings: Settings | None = None) -> dict[str, Any] | None:
     resolved = settings or get_settings()
     if not resolved.vision_qa_enabled:
         return None
-    provider = resolve_vision_provider(resolved)
-    if not provider:
+    if not resolved.nvidia_api_key.strip():
         return None
     try:
-        if provider == "nvidia":
-            return run_nvidia_vision_qa(image, prompt, resolved)
-        return run_gemini_vision_qa(image, prompt, resolved)
+        return run_nvidia_vision_qa(image, prompt, resolved)
     except VisionQAError as exc:
         return {
-            "provider": provider,
+            "provider": "nvidia",
             "available": False,
             "code": "vision_qa_failed",
             "message": "視覺 QA 暫時不可用，已保留本機 QAReport",
@@ -96,8 +51,8 @@ def maybe_run_vision_qa(image: str, prompt: str, settings: Settings | None = Non
 def run_nvidia_vision_qa(image: str, prompt: str, settings: Settings | None = None) -> dict[str, Any]:
     """OpenAI 相容的 chat/completions + data URI 圖片。
 
-    與 Gemini 分支的差別只有請求格式：NVIDIA 沒有 responseSchema，只能用
-    response_format=json_object 要求合法 JSON，欄位齊不齊由 _normalize_vision_qa 兜底。
+    走 NVIDIA 是為了與生圖共用同一把金鑰，不另外吃付費配額；代價是延遲較高
+    （實測 1024x1024 中位約 8.4 秒）。
     """
     resolved = settings or get_settings()
     api_key = resolved.nvidia_api_key.strip()
@@ -110,7 +65,7 @@ def run_nvidia_vision_qa(image: str, prompt: str, settings: Settings | None = No
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": _build_vision_user_text(prompt, field_hint=True)},
+                    {"type": "text", "text": _build_vision_user_text(prompt)},
                     {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
                 ],
             }
@@ -137,14 +92,11 @@ def run_nvidia_vision_qa(image: str, prompt: str, settings: Settings | None = No
     except (ValueError, KeyError, TypeError, IndexError) as exc:
         raise VisionQAError("vision qa returned invalid response") from exc
     parsed = _parse_json_object(raw)
-    return _normalize_vision_qa(parsed, provider="nvidia")
+    return _normalize_vision_qa(parsed)
 
 
-def _build_vision_user_text(prompt: str, field_hint: bool = False) -> str:
-    text = VISION_QA_USER_TEXT
-    if field_hint:
-        text += VISION_QA_FIELD_HINT
-    return text + "\n\n提示詞：\n" + prompt.strip()[:4000]
+def _build_vision_user_text(prompt: str) -> str:
+    return VISION_QA_USER_TEXT + "\n\n提示詞：\n" + prompt.strip()[:4000]
 
 
 def _parse_openai_text(data: dict[str, Any]) -> str:
@@ -156,51 +108,6 @@ def _parse_openai_text(data: dict[str, Any]) -> str:
         # 有些 NIM 模型回 content 陣列而非字串。
         content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
     return str(content or "").strip()
-
-
-def run_gemini_vision_qa(image: str, prompt: str, settings: Settings | None = None) -> dict[str, Any]:
-    resolved = settings or get_settings()
-    api_key = resolved.gemini_api_key.strip()
-    if not api_key:
-        raise VisionQAError("missing GEMINI_API_KEY")
-    mime, b64 = _extract_inline_image(image)
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {"text": _build_vision_user_text(prompt)},
-                    {"inline_data": {"mime_type": mime, "data": b64}},
-                ],
-            }
-        ],
-        # maxOutputTokens 在 thinking 模型上是 thinking + 輸出共用的預算。實測
-        # gemini-2.5-flash 評一張複雜圖會用掉 669 個 thinking token，只剩 16 個給
-        # JSON，回來的是半截字串（finishReason=MAX_TOKENS）。評分是結構化任務，
-        # 關掉 thinking 就夠用又快；2048 是萬一某個模型忽略 thinkingConfig 的安全網。
-        "generationConfig": {
-            "temperature": 0.1,
-            "maxOutputTokens": 2048,
-            "thinkingConfig": {"thinkingBudget": 0},
-            "responseMimeType": "application/json",
-            "responseSchema": VISION_QA_SCHEMA,
-        },
-    }
-    url = f"{resolved.gemini_base_url.rstrip('/')}/models/{resolved.gemini_vision_model}:generateContent"
-    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
-    try:
-        with httpx.Client(timeout=resolved.prompt_llm_timeout_seconds) as client:
-            response = client.post(url, headers=headers, json=payload)
-    except httpx.HTTPError as exc:
-        raise VisionQAError("vision qa request failed") from exc
-    if response.status_code != 200:
-        raise VisionQAError(f"vision qa returned HTTP {response.status_code}")
-    try:
-        raw = _parse_gemini_text(response.json())
-    except (ValueError, KeyError, TypeError) as exc:
-        raise VisionQAError("vision qa returned invalid response") from exc
-    parsed = _parse_json_object(raw)
-    return _normalize_vision_qa(parsed, provider="gemini")
 
 
 def _extract_inline_image(image: str) -> tuple[str, str]:
@@ -216,15 +123,6 @@ def _extract_inline_image(image: str) -> tuple[str, str]:
     if len(b64) > 7_000_000:
         raise VisionQAError("vision qa image is too large")
     return mime, b64
-
-
-def _parse_gemini_text(data: dict[str, Any]) -> str:
-    feedback = data.get("promptFeedback") or {}
-    if feedback.get("blockReason"):
-        raise VisionQAError(f"vision qa blocked: {feedback.get('blockReason')}")
-    candidates = data.get("candidates") or []
-    parts = (candidates[0].get("content") or {}).get("parts") if candidates else []
-    return "".join(part.get("text", "") for part in (parts or [])).strip()
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:
@@ -252,7 +150,7 @@ def _score(value: Any, default: int = 70) -> int:
     return max(0, min(100, number))
 
 
-def _normalize_vision_qa(data: dict[str, Any], provider: str = "gemini") -> dict[str, Any]:
+def _normalize_vision_qa(data: dict[str, Any]) -> dict[str, Any]:
     issues = data.get("detectedIssues")
     if not isinstance(issues, list):
         issues = []
@@ -261,7 +159,7 @@ def _normalize_vision_qa(data: dict[str, Any], provider: str = "gemini") -> dict
     if recommendation not in {"keep", "retry", "edit"}:
         recommendation = "edit"
     result: dict[str, Any] = {
-        "provider": provider,
+        "provider": "nvidia",
         "available": True,
         "promptMatchScore": _score(data.get("promptMatchScore")),
         "compositionScore": _score(data.get("compositionScore")),

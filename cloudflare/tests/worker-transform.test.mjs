@@ -552,16 +552,19 @@ test('inspectGeneratedImage reports safe header-only diagnostics', () => {
   assert.match(quality.issues.join('；'), /圖片資料過小/);
 });
 
-test('POST /generate can attach optional Gemini vision QA without leaking image data', async () => {
+test('POST /generate can attach optional vision QA and keeps the image out of the prompt', async () => {
   const originalFetch = globalThis.fetch;
   let visionPayload;
-  globalThis.fetch = async (_url, init) => {
-    visionPayload = JSON.parse(init.body);
-    return new Response(JSON.stringify({
-      candidates: [{
-        content: {
-          parts: [{
-            text: JSON.stringify({
+  // QA now shares NVIDIA_API_KEY with generation, so the same key also sends
+  // /generate to NVIDIA. Route by URL: chat/completions is QA, everything else
+  // is the image call.
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/chat/completions')) {
+      visionPayload = JSON.parse(init.body);
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
               promptMatchScore: 91,
               compositionScore: 82,
               visualQualityScore: 73,
@@ -570,23 +573,29 @@ test('POST /generate can attach optional Gemini vision QA without leaking image 
               recommendation: 'edit',
               reason: '主體符合，手部需微調',
             }),
-          }],
-        },
-      }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          },
+        }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   try {
     const response = await worker.fetch(
       jsonRequest('/generate', { prompt: 'a person holding a cup', model: 'schnell', size: 'square', visionQa: true }),
-      fakeEnv({ GEMINI_API_KEY: 'test-key', VISION_QA_ENABLED: 'true' })
+      fakeEnv({ NVIDIA_API_KEY: 'nv-test', VISION_QA_ENABLED: 'true' })
     );
     const data = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(data.visionQa.provider, 'gemini');
+    assert.equal(data.visionQa.provider, 'nvidia');
     assert.equal(data.visionQa.promptMatchScore, 91);
     assert.equal(data.visionQa.detectedIssues[0], '手指略怪');
-    assert.equal(JSON.stringify(visionPayload).includes('data:image'), false);
-    assert.equal(visionPayload.contents[0].parts[1].inline_data.mime_type, 'image/png');
+    // The image belongs in image_url only - never inlined into the text part.
+    const content = visionPayload.messages[0].content;
+    assert.equal(content[0].text.includes('data:image'), false);
+    assert.ok(content[1].image_url.url.startsWith('data:image/png;base64,'));
+    // json_object does not pin fields, so the prompt must name them.
+    assert.ok(content[0].text.includes('promptMatchScore'));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -596,20 +605,29 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
   resetUsageMetrics();
   const originalFetch = globalThis.fetch;
   let sawSignal = false;
-  globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
-    sawSignal = Boolean(init && init.signal);
-    if (!init || !init.signal) {
-      reject(new Error('missing Vision QA abort signal'));
-      return;
+  // Only the QA call hangs; the image call must still succeed, otherwise this
+  // would test a failed generation rather than a failed inspection.
+  globalThis.fetch = async (url, init) => {
+    if (!String(url).includes('/chat/completions')) {
+      return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
-  });
+    return new Promise((_, reject) => {
+      sawSignal = Boolean(init && init.signal);
+      if (!init || !init.signal) {
+        reject(new Error('missing Vision QA abort signal'));
+        return;
+      }
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+  };
   const env = fakeEnv({
-    GEMINI_API_KEY: 'test-key',
+    NVIDIA_API_KEY: 'nv-test',
     VISION_QA_ENABLED: 'true',
     VISION_QA_TIMEOUT_MS: '10',
     GALLERY_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
+    USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.003',
   });
 
   try {
@@ -634,7 +652,9 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
     assert.equal(usage.byRoute.generate.successes, 1);
     assert.equal(usage.byRoute.vision_qa.failures, 1);
     assert.equal(usage.byRoute.vision_qa.attempts, 1);
-    assert.equal(usage.estimatedCostUsd, 0.001);
+    // One image at 0.003 plus one per-request QA call at 0.001. QA must never be
+    // priced per image - it produces none.
+    assert.equal(usage.estimatedCostUsd, 0.004);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -17,8 +17,8 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 ```
 
 - `NVIDIA_API_KEY`：供 FLUX live 出圖使用。
-- `GEMINI_API_KEY`：供中文 prompt 補全／轉換／強化使用；若 `VISION_QA_ENABLED="true"`，也會用於智慧體視覺 QA。
-- `GEMINI_VISION_MODEL` / `VISION_QA_ENABLED`：公開站預設可先維持 `VISION_QA_ENABLED="false"` 控制成本；開啟前需確認每日預算與用量告警。
+- `GEMINI_API_KEY`：供中文 prompt 補全／轉換／強化使用。
+- `VISION_QA_ENABLED`：生成後視覺 QA 走 NVIDIA VLM（共用 `NVIDIA_API_KEY`，不另外吃付費配額）。QA 是逐次勾選的，開啟只是讓選項出現；每次執行約多花 8 秒，逾時由 `VISION_QA_TIMEOUT_MS` 控制。
 - `TURNSTILE_SECRET_KEY`：後端驗證人機 token；驗證失敗不得呼叫模型。
 - `GALLERY_TOKEN_SECRET`：簽發短效雲端儲存 token；未設定時 `/gallery` 會拒絕寫入，因此公開站不得省略。
 - `GALLERY_ADMIN_TOKEN`：站長雲端圖庫 `GET /api/gallery` 使用；前端只由站長手動輸入並送 `X-Gallery-Admin-Token`，不可持久化到 `localStorage`。

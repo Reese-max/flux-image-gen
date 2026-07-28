@@ -36,7 +36,7 @@ from .settings import get_settings
 from .turnstile import turnstile_enabled, verify_turnstile_token
 from .moderation import moderate_prompt
 from .usage_metrics import record_usage_event, summarize_usage
-from .vision_qa import maybe_run_vision_qa, resolve_vision_provider
+from .vision_qa import maybe_run_vision_qa
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -231,8 +231,10 @@ def api_health() -> dict[str, object]:
         "hasApiKey": has_nvidia_key or has_workers_ai_key,
         "storageAvailable": False,
         "visionQa": settings.vision_qa_enabled,
-        # 實際會被選中的 QA 後端（金鑰缺了會自動退到另一邊，空字串＝兩邊都沒金鑰）。
-        "visionQaProvider": resolve_vision_provider(settings) if settings.vision_qa_enabled else "",
+        # QA 實際跑得起來才回後端名稱；空字串＝沒啟用或缺 NVIDIA_API_KEY。
+        "visionQaProvider": (
+            "nvidia" if settings.vision_qa_enabled and settings.nvidia_api_key.strip() else ""
+        ),
         "turnstile": {
             "required": turnstile_enabled(settings),
             "siteKey": settings.turnstile_site_key.strip() if turnstile_enabled(settings) else "",

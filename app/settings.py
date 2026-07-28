@@ -66,7 +66,6 @@ class Settings:
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
     gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-31b-it")
-    gemini_vision_model: str = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
     gemini_base_url: str = os.getenv(
         "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
     )
@@ -75,12 +74,9 @@ class Settings:
         "GEMINI_COMPLETE_TIMEOUT_SECONDS", 5.0
     )
     vision_qa_enabled: bool = _bool_env("VISION_QA_ENABLED", False)
-    # 生成後視覺 QA 的後端。預設 nvidia：與生圖共用同一把 NVIDIA_API_KEY，不另外吃
-    # 付費配額。代價是延遲——實測 1024x1024 圖片中位 23.2 秒（llama-3.2-90b），Gemini
-    # 只要 3.8 秒（2026-07-28 量測）。QA 是逐次勾選的（預設不勾），等待只落在主動要求
-    # 的人身上。要速度就設 VISION_QA_PROVIDER=gemini。
-    # 換後端時記得一起調 VISION_QA_TIMEOUT_MS，否則每張圖都會逾時。
-    vision_qa_provider: str = os.getenv("VISION_QA_PROVIDER", "nvidia")
+    # 生成後視覺 QA 走 NVIDIA VLM：與生圖共用同一把 NVIDIA_API_KEY，不另外吃付費配額。
+    # 代價是延遲（實測 1024x1024 中位約 8.4 秒），但 QA 是逐次勾選的（預設不勾），
+    # 等待只落在主動要求的人身上。
     nvidia_chat_base_url: str = os.getenv(
         "NVIDIA_CHAT_BASE_URL", "https://integrate.api.nvidia.com/v1"
     )

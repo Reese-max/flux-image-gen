@@ -30,7 +30,7 @@ import {
 } from "./image.js";
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
-import { maybeRunVisionQa, resolveVisionProvider } from "./vision.js";
+import { maybeRunVisionQa } from "./vision.js";
 
 function elapsedMs(started) {
   return Math.max(0, Math.round(Date.now() - started));
@@ -83,8 +83,8 @@ async function recordVisionQaEvent(env, request, started, visionQa) {
     outcome: visionQa.available ? "success" : "error",
     statusCode: visionQa.available ? 200 : 503,
     errorCode: visionQa.available ? "" : (visionQa.code || "vision_qa_failed"),
-    provider: "gemini",
-    model: String((env && env.GEMINI_VISION_MODEL) || "gemini-2.5-flash"),
+    provider: visionQa.provider || "nvidia",
+    model: String((env && env.NVIDIA_VISION_MODEL) || "meta/llama-3.2-90b-vision-instruct"),
     durationMs: elapsedMs(started),
     attempt: providerAttemptCount(visionQa),
   });
@@ -138,10 +138,11 @@ function buildHealthResponse(env) {
     hasApiKey: hasNvidia || hasWorkersAI,
     storageAvailable,
     visionQa: String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true",
-    // 實際會被選中的 QA 後端（金鑰缺了會自動退到另一邊，空字串＝兩邊都沒金鑰）。
+    // QA 實際跑得起來才回後端名稱；空字串＝沒啟用或缺 NVIDIA_API_KEY。
     visionQaProvider:
       String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true"
-        ? resolveVisionProvider(env)
+        && !!String((env && env.NVIDIA_API_KEY) || "").trim()
+        ? "nvidia"
         : "",
     turnstile: turnstileConfig(env),
     message,

@@ -38,24 +38,18 @@ NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 # Gemma models served via the Gemini API.
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
 GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
-GEMINI_VISION_MODEL = "gemini-2.5-flash"
 # Post-generation visual QA. Opt-in per request: the checkbox ships unchecked and
 # app.js hides the row entirely while this is false, so turning it on exposes the
 # option rather than spending on every generation.
 VISION_QA_ENABLED = "true"
-# Vision QA backend. "nvidia" runs on the NVIDIA_API_KEY generation already uses,
-# so QA burns no separate paid quota - that is why it is the default.
-# The cost is latency: measured 2026-07-28 on a 1024x1024 image, median 23.2s
-# (llama-3.2-90b) against 3.8s for Gemini, while the generation itself takes ~7s.
-# QA is opt-in per request (the checkbox ships unchecked), so that wait only
-# lands on users who ask for it. Switch to "gemini" to trade quota for speed.
-# A backend without its key steps aside for the other one.
-VISION_QA_PROVIDER = "nvidia"
-# Must be sized for the backend above, or QA aborts - which is exactly how this
-# shipped broken. NVIDIA's spread is wide: 6 Worker runs measured median 8.4s /
-# slowest 17.0s, but an earlier run took 38s, so 35000 still dropped 1 in 3.
-# 60000 buys margin for that tail. Capped by visionTimeoutMs() in vision.js -
-# raising this beyond that cap is silently ignored. Gemini needs only ~12000.
+# Vision QA runs on the NVIDIA VLM, sharing the NVIDIA_API_KEY generation already
+# needs, so it burns no separate paid quota. The cost is latency: 6 Worker runs
+# measured median 8.4s / slowest 17.0s (2026-07-28), with an earlier run at 38s,
+# against ~7s for the generation itself. QA is opt-in per request, so that wait
+# only lands on users who ask for it.
+# Must be sized for that tail or QA aborts - which is exactly how this shipped
+# broken. Capped by visionTimeoutMs() in vision.js; raising this beyond that cap
+# is silently ignored, so move both together.
 VISION_QA_TIMEOUT_MS = "60000"
 NVIDIA_CHAT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 NVIDIA_VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"

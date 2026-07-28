@@ -133,7 +133,6 @@ def test_public_deployment_checklist_documents_required_gates():
     for required in [
         "NVIDIA_API_KEY",
         "GEMINI_API_KEY",
-        "GEMINI_VISION_MODEL",
         "VISION_QA_ENABLED",
         "TURNSTILE_SECRET_KEY",
         "GALLERY_ADMIN_TOKEN",
