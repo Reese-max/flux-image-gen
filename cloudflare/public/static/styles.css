@@ -537,6 +537,20 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .advanced-settings[open] summary::before { transform: rotate(90deg); }
 .advanced-settings:not([open]) { padding-block: 10px; }
 .advanced-settings > * + * { margin-top: 12px; }
+/* 進階設定裡混了三種性質的東西（改提示詞／調生成行為／定輸出規格）。分組小標與
+   分隔線讓展開後掃得動，而不是一次噴一整片控制項。 */
+.advanced-group > * + * { margin-top: 10px; }
+.advanced-group + .advanced-group {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.advanced-group-title {
+  margin: 0;
+  color: var(--accent-2);
+  font: 800 11px/1.4 var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 .hero-generate { min-width: 180px; }
 .field-wide { min-width: min(100%, 280px); }
 .text-input {
@@ -608,10 +622,6 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   box-shadow: var(--shadow-sm);
 }
 
-.composer-foot {
-  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;
-  margin-top: 10px; padding-top: 16px; border-top: 1px solid var(--line);
-}
 .controls { display: flex; flex-wrap: wrap; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 12px; color: var(--muted); padding-left: 2px; }

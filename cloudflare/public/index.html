@@ -158,71 +158,78 @@
         <div id="transformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>
 
+      <!-- 三組小標把「改提示詞／調生成行為／定輸出規格」分開，展開後才掃得動。 -->
       <details id="advancedSettings" class="advanced-settings">
-        <summary>進階設定（提示詞、效果、畫質與尺寸）</summary>
-        <p class="prompt-shortcut-hint">可用下方按鈕轉成英文；鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
-        <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
-        <label class="final-prompt-label" for="prompt">英文提示詞（可查看、複製、編輯）</label>
-        <textarea id="prompt" rows="3" maxlength="4000" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理好。"></textarea>
+        <summary>進階設定（提示詞、生成品質與輸出）</summary>
 
-        <div id="promptEnhancer" class="prompt-enhancer" role="group" aria-label="幫圖片加效果">
-          <label class="field-label" for="effectPrompt">加效果（選填）</label>
-          <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
-          <div class="enhance-actions">
-            <input id="effectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="status"
-              placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
-            <button class="btn mini secondary" id="applyEffect" type="button">用 AI 套用效果</button>
-          </div>
-        </div>
+        <section class="advanced-group" aria-labelledby="advGroupPrompt">
+          <h3 class="advanced-group-title" id="advGroupPrompt">提示詞</h3>
+          <p class="prompt-shortcut-hint">通常不必填，直接生成就會自動整理；想自己調再用下面的工具。鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
+          <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
+          <label class="final-prompt-label" for="prompt">英文提示詞（可查看、複製、編輯）</label>
+          <textarea id="prompt" rows="3" maxlength="4000" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理好。"></textarea>
 
-        <div class="prompt-controls advanced-controls" role="group" aria-label="進階生成設定">
-          <div class="field seed-field">
-            <span class="field-label">畫面變化</span>
-            <div class="seed-mode" role="group" aria-label="構圖模式">
-              <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
-              <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
+          <div id="promptEnhancer" class="prompt-enhancer" role="group" aria-label="幫圖片加效果">
+            <label class="field-label" for="effectPrompt">加效果（選填）</label>
+            <div class="enhance-actions">
+              <input id="effectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="status"
+                placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
+              <button class="btn mini secondary" id="applyEffect" type="button">用 AI 套用效果</button>
             </div>
-            <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
-            <input id="seed" type="hidden">
-
           </div>
-          <label class="field field-wide">
-            <span class="field-label">生成後 AI 檢查</span>
-            <input id="visionQa" type="checkbox">
-            <small class="seed-advanced-hint">交給視覺模型評分構圖／畫質／符合度並指出問題；只在單張生成時適用，會多花幾秒。</small>
-          </label>
-        </div>
+        </section>
 
-        <div class="composer-foot">
-          <div class="controls">
-            <label class="field">
-              <span class="field-label">生成參數</span>
-              <!-- 兩個畫質檔已合併：生成一律走 NVIDIA FLUX.1-dev。select 保留在
-                   DOM 供歷史再生／分享連結回填 model 值，不再顯示。 -->
-              <select id="model" hidden aria-hidden="true">
-                <option value="schnell">快速（草稿）</option>
-                <option value="dev" selected>高品質（較慢）</option>
-              </select>
-              <div id="devTuning" class="custom-size-fields">
-                <div class="seed-mode" role="group" aria-label="畫質檔">
-                  <button id="qualityDraft" class="seed-mode-btn quality-preset-btn" type="button" data-preset="draft" aria-pressed="false">🚀 草稿</button>
-                  <button id="qualityBalanced" class="seed-mode-btn quality-preset-btn is-active" type="button" data-preset="balanced" aria-pressed="true">⚖️ 平衡</button>
-                  <button id="qualityFine" class="seed-mode-btn quality-preset-btn" type="button" data-preset="fine" aria-pressed="false">✨ 精緻</button>
-                </div>
-                <p id="qualityPresetHint" class="seed-mode-hint">站方推薦：速度與品質平衡，多數情況直接用這個。</p>
-                <details class="seed-advanced">
-                  <summary>自訂數值（steps / cfg_scale）</summary>
-                  <label>細緻度 steps（5–50）
-                    <input id="devSteps" class="text-input" type="number" min="5" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
-                  </label>
-                  <label>貼合提示詞 cfg_scale（1.5–9）
-                    <input id="devCfgScale" class="text-input" type="number" min="1.5" max="9" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
-                  </label>
-                  <p class="seed-advanced-hint">steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
-                </details>
+        <section class="advanced-group" aria-labelledby="advGroupQuality">
+          <h3 class="advanced-group-title" id="advGroupQuality">生成品質</h3>
+          <div class="prompt-controls advanced-controls" role="group" aria-label="進階生成設定">
+            <div class="field seed-field">
+              <span class="field-label">畫面變化</span>
+              <div class="seed-mode" role="group" aria-label="構圖模式">
+                <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
+                <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
               </div>
-              <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
+              <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
+              <input id="seed" type="hidden">
+            </div>
+            <label class="field field-wide">
+              <span class="field-label">生成後 AI 檢查</span>
+              <input id="visionQa" type="checkbox">
+              <small class="seed-advanced-hint">交給視覺模型評分構圖／畫質／符合度並指出問題；只在單張生成時適用，會多花幾秒。</small>
             </label>
+          </div>
+
+          <div class="field">
+            <span class="field-label">畫質檔</span>
+            <!-- 兩個畫質檔已合併：生成一律走 NVIDIA FLUX.1-dev。select 保留在
+                 DOM 供歷史再生／分享連結回填 model 值，不再顯示。 -->
+            <select id="model" hidden aria-hidden="true">
+              <option value="schnell">快速（草稿）</option>
+              <option value="dev" selected>高品質（較慢）</option>
+            </select>
+            <div id="devTuning" class="custom-size-fields">
+              <div class="seed-mode" role="group" aria-label="畫質檔">
+                <button id="qualityDraft" class="seed-mode-btn quality-preset-btn" type="button" data-preset="draft" aria-pressed="false">🚀 草稿</button>
+                <button id="qualityBalanced" class="seed-mode-btn quality-preset-btn is-active" type="button" data-preset="balanced" aria-pressed="true">⚖️ 平衡</button>
+                <button id="qualityFine" class="seed-mode-btn quality-preset-btn" type="button" data-preset="fine" aria-pressed="false">✨ 精緻</button>
+              </div>
+              <p id="qualityPresetHint" class="seed-mode-hint">站方推薦：速度與品質平衡，多數情況直接用這個。</p>
+              <details class="seed-advanced">
+                <summary>自訂數值（steps / cfg_scale）</summary>
+                <label>細緻度 steps（5–50）
+                  <input id="devSteps" class="text-input" type="number" min="5" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
+                </label>
+                <label>貼合提示詞 cfg_scale（1.5–9）
+                  <input id="devCfgScale" class="text-input" type="number" min="1.5" max="9" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
+                </label>
+                <p class="seed-advanced-hint">steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
+              </details>
+            </div>
+          </div>
+        </section>
+
+        <section class="advanced-group" aria-labelledby="advGroupOutput">
+          <h3 class="advanced-group-title" id="advGroupOutput">輸出</h3>
+          <div class="controls">
             <label class="field">
               <span class="field-label">用途尺寸</span>
               <div class="select-wrap">
@@ -238,6 +245,7 @@
                 </select>
                 <span class="chevron" aria-hidden="true">▾</span>
               </div>
+              <small class="seed-advanced-hint">選「用途」時會自動帶入，這裡可以覆寫。</small>
             </label>
             <label class="field">
               <span class="field-label">張數</span>
@@ -253,7 +261,8 @@
               <small class="seed-advanced-hint">多張會使用更多生成額度，也會花更久時間。</small>
             </label>
           </div>
-        </div>
+          <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
+        </section>
       </details>
       <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
     </section>
