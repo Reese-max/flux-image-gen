@@ -909,13 +909,14 @@
       setPreviewState('error', '需要參考圖');
       return;
     }
+    // 訊息要指出那個下拉在哪：它是縮圖上的小 select，光說「標成角色」找不到。
     if (editMode === 'character' && !selected.some(function (item) { return normalizeReferenceRole(item.role) === 'character'; })) {
-      setStatus('角色一致模式需要至少一張標成「角色」的參考圖', 'fail');
+      setStatus('角色一致模式需要至少一張標成「角色」的參考圖 — 用縮圖下方的選單改', 'fail');
       setPreviewState('error', '檢查參考圖');
       return;
     }
     if (editMode === 'product' && !selected.some(function (item) { return normalizeReferenceRole(item.role) === 'product'; })) {
-      setStatus('產品照模式需要至少一張標成「產品」的參考圖', 'fail');
+      setStatus('產品照模式需要至少一張標成「產品」的參考圖 — 用縮圖下方的選單改', 'fail');
       setPreviewState('error', '檢查參考圖');
       return;
     }

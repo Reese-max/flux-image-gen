@@ -443,7 +443,7 @@
               <div class="section-heading">
                 <span class="section-kicker">中文改圖</span>
                 <h2>上傳圖片，用中文說怎麼改。</h2>
-                <p>適合換背景、去背白底、換服裝、風格轉換，以及角色與產品的一致延伸圖。</p>
+                <p>選一種模式，加入參考圖，再用中文描述要改成什麼樣子。</p>
               </div>
 
               <div class="edit-mode-grid" role="group" aria-label="參考圖模式">
@@ -462,14 +462,45 @@
                 <input id="editFiles" type="file" accept="image/*" multiple hidden>
                 <span class="edit-drop-icon" aria-hidden="true">＋</span>
                 <strong>拖曳圖片到這裡</strong>
-                <span class="edit-drop-text">或點一下選擇檔案 · 自動縮至模型可用尺寸</span>
+                <span class="edit-drop-text">或點一下選擇檔案 · 最多 4 張 · 自動縮至模型可用尺寸</span>
               </label>
               <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
+              <p id="editRefRoleHint" class="seed-mode-hint">多張圖時，用每張縮圖下方的選單標明它是<b>角色</b>、<b>產品</b>、<b>風格</b>還是<b>構圖</b>參考，AI 會分別對待。</p>
+
+              <div class="edit-preset-block">
+                <div class="edit-preset-head">
+                  <span>✦ 快速指令</span>
+                  <small>點一下帶入，可再自行修改 · 不消耗額度</small>
+                </div>
+                <div id="editPresets" class="edit-presets" role="group" aria-label="快速改圖指令"></div>
+              </div>
 
               <label class="final-prompt-label" id="editPromptLabel" for="editPrompt">改圖指令</label>
               <p id="editPromptHelp" class="visually-hidden">必填。請用中文描述要改成什麼樣子；按開始改圖後系統會自動整理成完整指令。</p>
               <textarea id="editPrompt" rows="2" maxlength="900" aria-describedby="editPromptHelp editStatus" aria-required="true"
                 placeholder="例如：把背景換成雨夜街道，保留主體構圖與色彩層次。"></textarea>
+
+              <!-- 產品照模式專屬，跟著模式顯示在眼前，不收進進階設定。 -->
+              <div class="edit-product-controls" id="editProductControls" aria-label="產品照設定" hidden>
+                <label class="field">
+                  <span class="field-label">產品背景</span>
+                  <select id="editProductBackground" class="text-input">
+                    <option value="clean studio background">乾淨棚拍背景</option>
+                    <option value="matte stone surface">霧面石材平台</option>
+                    <option value="warm lifestyle interior">溫暖生活情境</option>
+                    <option value="pure white ecommerce background">白底電商主圖</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">產品光線</span>
+                  <select id="editProductLighting" class="text-input">
+                    <option value="softbox studio lighting">柔和棚燈</option>
+                    <option value="natural window light">自然窗光</option>
+                    <option value="dramatic rim light">高級輪廓光</option>
+                    <option value="bright clean commercial lighting">明亮商業光</option>
+                  </select>
+                </label>
+              </div>
 
               <div class="composer-options" role="group" aria-label="改圖選項">
                 <label class="field option-field">
@@ -507,6 +538,12 @@
               </div>
               <p id="editStrengthHint" class="seed-mode-hint">依指令調整，同時維持原圖的整體構圖與氛圍。</p>
 
+              <!-- 與修改幅度同樣在回答「要改多少」，放在一起而不是分兩層。 -->
+              <div class="field">
+                <span class="edit-keep-head" id="editKeepHead">要保留的部分（可複選）</span>
+                <div id="editKeep" class="edit-keep-group" role="group" aria-labelledby="editKeepHead"></div>
+              </div>
+
               <div class="prompt-controls">
                 <button id="editCompletePrompt" class="btn secondary" type="button" aria-describedby="editTransformStatus">✨ 幫我補完整</button>
                 <button id="editGo" class="btn primary hero-generate" type="button" disabled aria-disabled="true" aria-describedby="editStatus">✦ 開始改圖</button>
@@ -514,53 +551,19 @@
               <div id="editTransformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
             </div>
 
+            <!-- 只留會呼叫 API 的兩個工具；不消耗額度的快速指令已移到首屏。 -->
             <details id="editAdvancedSettings" class="advanced-settings">
-              <summary>進階設定（指令、效果、保留項目與產品設定）</summary>
-              <p class="prompt-shortcut-hint">可用下方按鈕把指令轉成英文；鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
+              <summary>進階設定（轉英文指令與 AI 加效果）</summary>
+              <p class="prompt-shortcut-hint">這兩項會呼叫 AI。鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
               <button id="editTransformPrompt" class="btn secondary" type="button">轉成英文指令</button>
 
               <div id="editPromptEnhancer" class="prompt-enhancer" role="group" aria-label="幫改圖加效果">
                 <label class="field-label" for="editEffectPrompt">加效果（選填）</label>
-                <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方改圖指令。</p>
                 <div class="enhance-actions">
                   <input id="editEffectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="editTransformStatus"
                     placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
                   <button class="btn mini secondary" id="editApplyEffect" type="button">用 AI 套用效果</button>
                 </div>
-              </div>
-
-              <div class="edit-preset-block">
-                <div class="edit-preset-head">
-                  <span>✦ 快速指令</span>
-                  <small>點一下帶入，可再自行修改</small>
-                </div>
-                <div id="editPresets" class="edit-presets" role="group" aria-label="快速改圖指令"></div>
-              </div>
-
-              <div class="field">
-                <span class="edit-keep-head" id="editKeepHead">要保留的部分（可複選）</span>
-                <div id="editKeep" class="edit-keep-group" role="group" aria-labelledby="editKeepHead"></div>
-              </div>
-
-              <div class="edit-product-controls" id="editProductControls" aria-label="產品照設定" hidden>
-                <label class="field">
-                  <span class="field-label">產品背景</span>
-                  <select id="editProductBackground" class="text-input">
-                    <option value="clean studio background">乾淨棚拍背景</option>
-                    <option value="matte stone surface">霧面石材平台</option>
-                    <option value="warm lifestyle interior">溫暖生活情境</option>
-                    <option value="pure white ecommerce background">白底電商主圖</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span class="field-label">產品光線</span>
-                  <select id="editProductLighting" class="text-input">
-                    <option value="softbox studio lighting">柔和棚燈</option>
-                    <option value="natural window light">自然窗光</option>
-                    <option value="dramatic rim light">高級輪廓光</option>
-                    <option value="bright clean commercial lighting">明亮商業光</option>
-                  </select>
-                </label>
               </div>
             </details>
           </section>

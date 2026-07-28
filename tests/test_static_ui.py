@@ -552,7 +552,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v28" in service_worker_js
+    assert "ai-image-generator-pwa-v29" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -948,6 +948,33 @@ def test_edit_panel_matches_the_generate_panel_layout_and_prompt_tools():
     # 人機驗證框移到分頁外層，兩個分頁共用；改圖送出前先自己擋一次。
     assert html.index('id="turnstileGate"') < html.index('id="panel-generate"')
     assert "isTurnstileRequired" in image_edit_js
+
+
+def test_edit_panel_keeps_mode_relevant_controls_out_of_the_fold():
+    """跟模式與「改多少」有關的控制項要在首屏，不能收進進階設定。
+
+    先前產品背景／光線藏在摺疊區裡：選了產品照模式，畫面上什麼都不會變，最相關的
+    兩個設定要自己展開才找得到。快速指令不消耗額度卻也被收起來，反而是會呼叫 API
+    的轉英文／加效果留在同一層。
+    """
+    html = read_static("index.html")
+    advanced_at = html.index('id="editAdvancedSettings"')
+
+    for element_id in ("editProductControls", "editPresets", "editKeep"):
+        assert html.index(f'id="{element_id}"') < advanced_at, (
+            f"{element_id} 應該留在首屏，不該收進進階設定"
+        )
+
+    # 進階設定只留會呼叫 AI 的兩項。
+    assert html.index('id="editTransformPrompt"') > advanced_at
+    assert html.index('id="editApplyEffect"') > advanced_at
+
+    # 多圖能力要講出來，否則沒人知道可以傳 4 張並分別標用途。
+    assert "最多 4 張" in html
+    assert 'id="editRefRoleHint"' in html
+    # 錯誤訊息要指出那個 role 下拉在哪。
+    image_edit_js = read_static("image-edit.js")
+    assert "用縮圖下方的選單改" in image_edit_js
 
 
 def test_workspace_canvas_viewport_is_wired_without_duplicate_library():
