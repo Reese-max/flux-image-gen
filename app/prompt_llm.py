@@ -54,8 +54,8 @@ def llm_transform_prompt(source: str, style: str, settings: Settings | None = No
     Raises PromptLLMError on any condition that should trigger a rule-based fallback.
     """
     resolved_settings = settings or get_settings()
-    api_key = resolved_settings.gemini_api_key.strip()
-    if not api_key:
+    keys = resolve_gemini_keys(resolved_settings)
+    if not keys:
         raise PromptLLMError("missing GEMINI_API_KEY")
 
     user_text = _build_user_text(source, style)
@@ -73,16 +73,16 @@ def llm_transform_prompt(source: str, style: str, settings: Settings | None = No
         f"{resolved_settings.gemini_base_url.rstrip('/')}"
         f"/models/{resolved_settings.gemini_prompt_model}:generateContent"
     )
-    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
     timeout = resolved_settings.prompt_llm_timeout_seconds
 
     last_error: PromptLLMError | None = None
-    for attempt in range(MAX_ATTEMPTS):
+    attempts = _gemini_attempt_plan(keys, MAX_ATTEMPTS)
+    for attempt in range(attempts):
         try:
-            return _request_prompt(url, headers, payload, timeout)
+            return _request_prompt(url, _key_headers(keys, attempt), payload, timeout)
         except _RetryableError as exc:
             last_error = PromptLLMError(str(exc))
-            if attempt + 1 >= MAX_ATTEMPTS:
+            if attempt + 1 >= attempts:
                 break
             time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("gemini request failed")
@@ -95,8 +95,8 @@ def llm_complete_prompt(source: str, style: str, settings: Settings | None = Non
     remains responsible for turning the completed description into English.
     """
     resolved_settings = settings or get_settings()
-    api_key = resolved_settings.gemini_api_key.strip()
-    if not api_key:
+    keys = resolve_gemini_keys(resolved_settings)
+    if not keys:
         raise PromptLLMError("missing GEMINI_API_KEY")
 
     user_text = _build_complete_user_text(source, style)
@@ -114,7 +114,6 @@ def llm_complete_prompt(source: str, style: str, settings: Settings | None = Non
         f"{resolved_settings.gemini_base_url.rstrip('/')}"
         f"/models/{model}:generateContent"
     )
-    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
     timeout = getattr(
         resolved_settings,
         "gemini_complete_timeout_seconds",
@@ -122,18 +121,19 @@ def llm_complete_prompt(source: str, style: str, settings: Settings | None = Non
     )
 
     last_error: PromptLLMError | None = None
-    for attempt in range(COMPLETION_MAX_ATTEMPTS):
+    attempts = _gemini_attempt_plan(keys, COMPLETION_MAX_ATTEMPTS)
+    for attempt in range(attempts):
         try:
             return _request_prompt(
                 url,
-                headers,
+                _key_headers(keys, attempt),
                 payload,
                 timeout,
                 response_parser=_parse_gemini_plain_text_response,
             )
         except _RetryableError as exc:
             last_error = PromptLLMError(str(exc))
-            if attempt + 1 >= COMPLETION_MAX_ATTEMPTS:
+            if attempt + 1 >= attempts:
                 break
             time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("gemini completion request failed")
@@ -146,8 +146,8 @@ def llm_enhance_prompt(prompt: str, effect: str, settings: Settings | None = Non
     that to an HTTP error (there is no offline fallback for effect optimisation).
     """
     resolved_settings = settings or get_settings()
-    api_key = resolved_settings.gemini_api_key.strip()
-    if not api_key:
+    keys = resolve_gemini_keys(resolved_settings)
+    if not keys:
         raise PromptLLMError("missing GEMINI_API_KEY")
 
     user_text = _build_enhance_user_text(prompt, effect)
@@ -165,16 +165,16 @@ def llm_enhance_prompt(prompt: str, effect: str, settings: Settings | None = Non
         f"{resolved_settings.gemini_base_url.rstrip('/')}"
         f"/models/{resolved_settings.gemini_prompt_model}:generateContent"
     )
-    headers = {"x-goog-api-key": api_key, "Content-Type": "application/json"}
     timeout = resolved_settings.prompt_llm_timeout_seconds
 
     last_error: PromptLLMError | None = None
-    for attempt in range(MAX_ATTEMPTS):
+    attempts = _gemini_attempt_plan(keys, MAX_ATTEMPTS)
+    for attempt in range(attempts):
         try:
-            return _request_prompt(url, headers, payload, timeout)
+            return _request_prompt(url, _key_headers(keys, attempt), payload, timeout)
         except _RetryableError as exc:
             last_error = PromptLLMError(str(exc))
-            if attempt + 1 >= MAX_ATTEMPTS:
+            if attempt + 1 >= attempts:
                 break
             time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
     raise last_error or PromptLLMError("gemini enhance request failed")
@@ -249,6 +249,32 @@ def _parse_codex_response(data: dict) -> str:
     if len(text) > MAX_LLM_PROMPT_LENGTH:
         text = text[:MAX_LLM_PROMPT_LENGTH].rstrip(" ,")
     return text
+
+
+def resolve_gemini_keys(settings: Settings) -> list[str]:
+    """可用的金鑰清單：GEMINI_API_KEYS（逗號分隔）優先，退回單把 GEMINI_API_KEY。
+
+    去重並保留順序——同一把金鑰列兩次只是白費一次重試。
+    """
+    raw = (getattr(settings, "gemini_api_keys", "") or "").strip()
+    keys: list[str] = []
+    for candidate in raw.split(","):
+        key = candidate.strip()
+        if key and key not in keys:
+            keys.append(key)
+    if keys:
+        return keys
+    single = (settings.gemini_api_key or "").strip()
+    return [single] if single else []
+
+
+def _gemini_attempt_plan(keys: list[str], max_attempts: int) -> int:
+    """至少讓每把金鑰輪到一次：配額是綁在單把金鑰上的，只重試同一把沒有意義。"""
+    return max(max_attempts, len(keys))
+
+
+def _key_headers(keys: list[str], attempt: int) -> dict:
+    return {"x-goog-api-key": keys[attempt % len(keys)], "Content-Type": "application/json"}
 
 
 def _request_prompt(

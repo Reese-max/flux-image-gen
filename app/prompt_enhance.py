@@ -10,6 +10,7 @@ from .prompt_llm import (
     MAX_LLM_PROMPT_LENGTH,
     PromptLLMError,
     llm_enhance_prompt,
+    resolve_gemini_keys,
 )
 from .settings import get_settings
 
@@ -56,7 +57,7 @@ def enhance_prompt(prompt: str, effect: str) -> PromptEnhanceResult:
         raise ValueError("效果描述太長")
 
     settings = get_settings()
-    if settings.gemini_api_key.strip():
+    if resolve_gemini_keys(settings):
         try:
             refined = llm_enhance_prompt(base, wanted)
             return PromptEnhanceResult(provider="gemini", prompt=refined, effect=wanted)

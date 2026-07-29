@@ -64,6 +64,9 @@ class Settings:
         "WORKERS_AI_EDIT_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"
     )
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    # 多把免費金鑰輪替（逗號分隔），優先於單把 GEMINI_API_KEY。免費層的配額是綁在
+    # 每一把金鑰上的，所以重試時換下一把才真的能提高容量；只設一把時行為不變。
+    gemini_api_keys: str = os.getenv("GEMINI_API_KEYS", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
     gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-31b-it")
     gemini_base_url: str = os.getenv(

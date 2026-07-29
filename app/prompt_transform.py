@@ -9,6 +9,7 @@ from .prompt_llm import (
     PromptLLMError,
     codex_transform_prompt,
     llm_transform_prompt,
+    resolve_gemini_keys,
 )
 from .settings import get_settings
 
@@ -144,7 +145,7 @@ def transform_plain_prompt(source: str, style: str = "auto") -> PromptTransformR
     settings = get_settings()
 
     # Tier 1: Gemini (primary) → Tier 2: local Codex proxy → Tier 3: offline rules.
-    if settings.gemini_api_key:
+    if resolve_gemini_keys(settings):
         try:
             prompt = llm_transform_prompt(source_text, resolved_style)
             return _llm_result("gemini", prompt, resolved_style, source_text)

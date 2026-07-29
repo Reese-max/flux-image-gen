@@ -134,9 +134,32 @@ function parseGeminiPlainTextResponse(data) {
   return text;
 }
 
+// Free-tier quota is per key, so retrying the same one after a 429 achieves
+// nothing. GEMINI_API_KEYS (comma separated) takes precedence over the single
+// GEMINI_API_KEY; duplicates are dropped so they cannot waste an attempt.
+export function resolveGeminiKeys(env) {
+  const keys = [];
+  for (const candidate of String((env && env.GEMINI_API_KEYS) || "").split(",")) {
+    const key = candidate.trim();
+    if (key && !keys.includes(key)) keys.push(key);
+  }
+  if (keys.length) return keys;
+  const single = String((env && env.GEMINI_API_KEY) || "").trim();
+  return single ? [single] : [];
+}
+
+// Give every key at least one turn, even where the base attempt count is 1.
+function geminiAttemptPlan(keys, maxAttempts) {
+  return Math.max(maxAttempts, keys.length);
+}
+
+function geminiKeyHeaders(keys, attempt) {
+  return { "x-goog-api-key": keys[attempt % keys.length], "Content-Type": "application/json" };
+}
+
 export async function geminiTransformPrompt(source, style, env, telemetry) {
-  const apiKey = String(env.GEMINI_API_KEY || "").trim();
-  if (!apiKey) throw new Error("missing GEMINI_API_KEY");
+  const keys = resolveGeminiKeys(env);
+  if (!keys.length) throw new Error("missing GEMINI_API_KEY");
 
   const model = env.GEMINI_PROMPT_MODEL || GEMINI_DEFAULT_MODEL;
   const base = (env.GEMINI_BASE_URL || GEMINI_DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -153,13 +176,14 @@ export async function geminiTransformPrompt(source, style, env, telemetry) {
   };
 
   let lastError;
-  for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
+  const attempts = geminiAttemptPlan(keys, GEMINI_MAX_ATTEMPTS);
+  for (let attempt = 0; attempt < attempts; attempt++) {
     let resp;
     try {
       noteProviderAttempt(telemetry, attempt + 1);
       resp = await fetch(url, {
         method: "POST",
-        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        headers: geminiKeyHeaders(keys, attempt),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(GEMINI_COMPLETE_TIMEOUT_MS),
       });
@@ -185,8 +209,8 @@ export async function geminiTransformPrompt(source, style, env, telemetry) {
 }
 
 export async function geminiCompletePrompt(source, style, env, telemetry) {
-  const apiKey = String(env.GEMINI_API_KEY || "").trim();
-  if (!apiKey) throw new HttpError("Gemma 中文補全尚未啟用（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
+  const keys = resolveGeminiKeys(env);
+  if (!keys.length) throw new HttpError("Gemma 中文補全尚未啟用（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
 
   const model = env.GEMINI_COMPLETE_MODEL || GEMINI_COMPLETE_DEFAULT_MODEL;
   const base = (env.GEMINI_BASE_URL || GEMINI_DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -203,13 +227,14 @@ export async function geminiCompletePrompt(source, style, env, telemetry) {
   };
 
   let lastError;
-  for (let attempt = 0; attempt < GEMINI_COMPLETE_MAX_ATTEMPTS; attempt++) {
+  const attempts = geminiAttemptPlan(keys, GEMINI_COMPLETE_MAX_ATTEMPTS);
+  for (let attempt = 0; attempt < attempts; attempt++) {
     let resp;
     try {
       noteProviderAttempt(telemetry, attempt + 1);
       resp = await fetch(url, {
         method: "POST",
-        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        headers: geminiKeyHeaders(keys, attempt),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(GEMINI_COMPLETE_TIMEOUT_MS),
       });
@@ -235,8 +260,8 @@ export async function geminiCompletePrompt(source, style, env, telemetry) {
 }
 
 async function geminiEnhancePrompt(prompt, effect, env, telemetry) {
-  const apiKey = String(env.GEMINI_API_KEY || "").trim();
-  if (!apiKey) throw new HttpError("效果優化需要 Gemini（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
+  const keys = resolveGeminiKeys(env);
+  if (!keys.length) throw new HttpError("效果優化需要 Gemini（缺少 GEMINI_API_KEY）", 503, "missing_api_key");
 
   const model = env.GEMINI_PROMPT_MODEL || GEMINI_DEFAULT_MODEL;
   const base = (env.GEMINI_BASE_URL || GEMINI_DEFAULT_BASE_URL).replace(/\/+$/, "");
@@ -253,13 +278,14 @@ async function geminiEnhancePrompt(prompt, effect, env, telemetry) {
   };
 
   let lastError;
-  for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
+  const attempts = geminiAttemptPlan(keys, GEMINI_MAX_ATTEMPTS);
+  for (let attempt = 0; attempt < attempts; attempt++) {
     let resp;
     try {
       noteProviderAttempt(telemetry, attempt + 1);
       resp = await fetch(url, {
         method: "POST",
-        headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+        headers: geminiKeyHeaders(keys, attempt),
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(GEMINI_COMPLETE_TIMEOUT_MS),
       });
@@ -306,7 +332,7 @@ export async function enhancePrompt(prompt, effect, env = {}, telemetry) {
   const wanted = String(effect || "").trim();
   if (!wanted) throw new HttpError("請說明想要的效果", 400, "bad_request");
 
-  if (String(env.GEMINI_API_KEY || "").trim()) {
+  if (resolveGeminiKeys(env).length) {
     try {
       const refined = await geminiEnhancePrompt(base, wanted, env, telemetry);
       return { prompt: refined, provider: "gemini", effect: wanted, warnings: [] };
@@ -443,7 +469,7 @@ export async function completePlainPrompt(source, style = "auto", env = {}, tele
   let prompt;
   let provider = "rule_based";
   let warnings = ["未設定 Gemini，已使用離線補全"];
-  if (String(env.GEMINI_API_KEY || "").trim()) {
+  if (resolveGeminiKeys(env).length) {
     try {
       prompt = await geminiCompletePrompt(sourceText, resolvedStyle, env, telemetry);
       provider = "gemini";

@@ -159,6 +159,55 @@ test('POST /prompt/transform uses Gemini when GEMINI_API_KEY is set', async () =
   }
 });
 
+test('POST /prompt/transform rotates to the next key when one is out of quota', async () => {
+  // Free-tier quota is per key, so a 429 must move to the next one; retrying the
+  // same key just burns the attempt.
+  const originalFetch = globalThis.fetch;
+  const used = [];
+  globalThis.fetch = async (_url, init) => {
+    used.push(init.headers['x-goog-api-key']);
+    if (used.length === 1) return new Response('quota exceeded', { status: 429 });
+    return new Response(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"prompt": "a cat"}' }] } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/transform', { source: '一隻貓', style: 'auto' }),
+      fakeEnv({ GEMINI_API_KEYS: 'first,second' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'gemini');
+    assert.deepEqual(used, ['first', 'second']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('GEMINI_API_KEYS alone still counts as having Gemini available', async () => {
+  // The "do we have a key" gates used to read GEMINI_API_KEY only; with just the
+  // plural set they would fall through to the offline rules and never call AI.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"prompt": "a fox"}' }] } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/transform', { source: '一隻狐狸', style: 'auto' }),
+      fakeEnv({ GEMINI_API_KEYS: 'only-plural' })
+    );
+    const data = await response.json();
+    assert.equal(data.provider, 'gemini', 'should not fall back to rule_based');
+    assert.equal(data.prompt, 'a fox');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /prompt/transform unwraps a fenced JSON envelope from Gemini', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
