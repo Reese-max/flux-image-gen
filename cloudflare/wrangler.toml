@@ -30,10 +30,9 @@ binding = "ASSETS"
 #   npx wrangler secret put NVIDIA_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY
 #   npx wrangler secret put TURNSTILE_SECRET_KEY
-#   npx wrangler secret put GALLERY_TOKEN_SECRET
-#   npx wrangler secret put GALLERY_ADMIN_TOKEN
-# Do not put GALLERY_ADMIN_TOKEN in [vars]; it gates GET /api/gallery for the
-# station/admin cloud gallery list and must stay server-side only.
+#   npx wrangler secret put USAGE_ADMIN_TOKEN
+# Do not put USAGE_ADMIN_TOKEN in [vars]; it gates the station-only usage
+# dashboard and must stay server-side only.
 NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 # Gemma models served via the Gemini API.
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
@@ -59,7 +58,7 @@ POLLINATIONS_FALLBACK_ENABLED = "true"
 # Public Turnstile config. Public deployments should set TURNSTILE_REQUIRED to
 # "true", fill TURNSTILE_SITE_KEY, and set the secret with:
 #   npx wrangler secret put TURNSTILE_SECRET_KEY
-TURNSTILE_REQUIRED = "false"
+TURNSTILE_REQUIRED = "true"
 TURNSTILE_SITE_KEY = "0x4AAAAAAD2QELaSWsFTNJOV"
 # Cost/usage dashboard. Worker logs structured usage_event lines and exposes
 # aggregated, prompt-free counters at GET /api/usage.
@@ -71,18 +70,12 @@ USAGE_ALERT_DAILY_GENERATIONS = "1000"
 
 # --- Edge rate limiting for /generate (per client IP) ---
 # The Worker enforces this binding before /generate, /generate/batch, /edit and
-# /gallery writes. If a local/dev env lacks the binding, the Worker treats it as
-# no-op so tests and previews still run.
+# paid prompt routes. If a local/dev env lacks the binding, the Worker treats it
+# as no-op so tests and previews still run.
 [[ratelimits]]
 name = "GENERATE_RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 12, period = 60 }
-
-# --- R2-backed cloud gallery (enabled 2026-06-28) ---
-# Worker reads env.IMAGE_BUCKET; binding name must stay IMAGE_BUCKET.
-[[r2_buckets]]
-binding = "IMAGE_BUCKET"
-bucket_name = "flux-image-gallery"
 
 # --- Workers AI: backs the "fast" model (FLUX.2 klein 4B) since 2026-07 ---
 # NVIDIA's hosted flux.1-schnell went dark (accepts requests, never responds),

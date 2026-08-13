@@ -64,7 +64,7 @@ test('deployment readiness parses only secret names and rejects malformed output
 test('deployment readiness reports only missing required secret names', () => {
   assert.deepEqual(
     findMissingSecrets(['NVIDIA_API_KEY', 'GEMINI_API_KEY']),
-    ['TURNSTILE_SECRET_KEY', 'GALLERY_TOKEN_SECRET', 'GALLERY_ADMIN_TOKEN'],
+    ['TURNSTILE_SECRET_KEY', 'USAGE_ADMIN_TOKEN'],
   );
   assert.throws(
     () => validateReadinessInputs({

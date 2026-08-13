@@ -27,19 +27,19 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - 後端限流：FastAPI 會依 IP 對 `/generate`、`/generate/batch`、`/edit` 與可能消耗 Gemini 配額的 `/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 做硬性 rate limit；Cloudflare 版使用 `wrangler.toml` 的 `GENERATE_RATE_LIMITER` binding。達上限時回 `429 rate_limited` 與 `retry_after`，不會呼叫模型。
 - Turnstile 防機器人：公開站可設定 `TURNSTILE_REQUIRED=true`、`TURNSTILE_SITE_KEY`，並把 `TURNSTILE_SECRET_KEY` 放在後端/Worker secret。前端只拿 site key，後端在呼叫模型前驗證 token；驗證失敗不會出圖。
 - Prompt moderation：`/generate`、`/generate/batch`、`/edit` 在呼叫模型前先擋高風險描述（色情、未成年敏感、血腥暴力、仿冒證件、詐欺、隱私侵犯、政治誤導與商標濫用）。拒絕訊息不回顯敏感全文。
-- 成本 Dashboard：網站「用量」分頁與 `GET /api/usage` 可查今日生成次數、失敗次數、估計成本、每模型／provider／匿名 IP 用量、錯誤率與平均生成時間。FastAPI 另寫入 `logs/usage-YYYY-MM-DD.jsonl`；Worker 輸出 `usage_event` 結構化 log。用量資料不保存 prompt、圖片內容或金鑰。
+- 成本 Dashboard：網站「用量」分頁與 `GET /api/usage` 可查目前 Worker 執行個體的生成次數、失敗次數、估計成本、每模型／provider 用量、錯誤率與平均生成時間。FastAPI 另寫入 `logs/usage-YYYY-MM-DD.jsonl`；Worker 輸出 `usage_event` 結構化 log。Worker 摘要只在記憶體暫存，重新部署或執行個體更新後會歸零；不保存 prompt、圖片內容或金鑰。
 
 ## v1.4 作品管理與分享
 
 - 作品詳情面板：查看圖片、白話描述、最終 prompt、排除描述、model、size、seed、provider、生成時間。
 - Prompt 版本比較：從歷史作品再生時會形成版本鏈，可切換比較不同 prompt / seed / model。
-- 分享卡片／分享頁：可複製分享文案、複製設定 JSON、匯出作品 JSON、下載圖片；雲端分享頁會顯示圖片、模式、風格、用途、尺寸、prompt 公開狀態與「再生成」入口，可選擇分享時隱藏 prompt；上傳成功後會產生一次性刪除連結，使用者打開連結確認後可自助刪除 R2 圖片與 metadata。
+- 本機作品管理：可複製分享文案、複製設定 JSON、匯出作品 JSON 與下載圖片；作品歷史只保存在目前瀏覽器的 `localStorage`，不會上傳到雲端儲存。
 - Prompt 強化器：提供更寫實、電影感、產品照、可愛、乾淨構圖、修正常見瑕疵等規則式強化，不增加 API 成本。
 - 失敗修正建議：依 `content_filtered`、`rate_limited`、`timeout`、`bad_provider_response`、`missing_api_key` 等錯誤提供下一步建議。
 - 歷史搜尋與標籤：可搜尋 prompt、篩選 model/size、收藏星號、編輯標籤。
 - PWA / 手機體驗：提供 manifest、service worker、手機底部生成列與響應式歷史牆。
 
-不包含帳號系統；公開站已具備後端限流、Turnstile 防機器人入口與雲端分享基礎。
+不包含帳號系統或作品雲端儲存；公開站保留後端限流、Turnstile 防機器人入口、本機歷史與下載。
 
 ## 品質 QA、效能與錯誤監控
 
@@ -60,7 +60,7 @@ D:\Users\Administrator\Desktop\圖片生成
 
 目前完成且已驗證的主要路徑包含 **FastAPI 版**（`app/`、`tests/`）與 **Cloudflare Workers 版**（`cloudflare/`）。兩個版本同步支援白話中文轉專業英文提示詞、使用者教學與迭代體驗功能。
 
-公開上線前請先跑完 `docs/deployment-checklist.md` 與 `docs/release-acceptance-checklist.md`：前者集中確認 Wrangler secrets、Turnstile、R2、Workers AI binding、rate limit、雲端圖庫、用量 Dashboard 與 smoke test；後者追蹤正式網域、真機、Vision QA、雲端保存、隱私與法務 sign-off 等 Release blocker。
+公開上線前請先跑完 `docs/deployment-checklist.md` 與 `docs/release-acceptance-checklist.md`：前者集中確認 Wrangler secrets、Turnstile、Workers AI binding、rate limit、用量 Dashboard 與 smoke test；後者追蹤正式網域、真機、Vision QA、本機歷史、下載、隱私與法務 sign-off 等 Release blocker。
 
 ## 安裝
 
@@ -122,7 +122,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --env-file 
 
 ### `GET /api/usage`
 
-回傳 prompt-free 成本／用量摘要；可加 `?date=YYYY-MM-DD` 查指定日期。前端「用量」分頁會呼叫此端點並顯示站長摘要。
+回傳 prompt-free 成本／用量摘要；可加 `?date=YYYY-MM-DD` 查指定日期。Worker 版本需以 `X-Usage-Admin-Token` 傳送 `USAGE_ADMIN_TOKEN`；前端「用量」分頁會呼叫此端點並顯示站長摘要。
 
 ```json
 {
@@ -132,53 +132,10 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --env-file 
   "estimatedCostUsd": 0.036,
   "byModel": {"schnell": {"requests": 12, "successes": 12, "failures": 0, "images": 12}},
   "byProvider": {"nvidia": {"requests": 12, "successes": 12, "failures": 0, "images": 12}},
-  "byActor": {"ip:匿名雜湊": {"requests": 3, "images": 3}},
   "errorRate": 0.0769,
   "averageGenerationMs": 4100,
-  "alerts": []
-}
-```
-
-### `GET /api/gallery`（Cloudflare Worker）
-
-站長雲端圖庫清單，讀取 R2 的 `gallery-meta/*.json` 摘要；本機 FastAPI 會回 `503 gallery_disabled`，因為本機沒有 R2 binding。
-
-部署前請把站長 token 設成 Worker secret：
-
-```powershell
-cd cloudflare
-npx wrangler secret put GALLERY_ADMIN_TOKEN
-```
-
-呼叫時必須帶 header：
-
-```http
-GET /api/gallery?limit=50
-X-Gallery-Admin-Token: <GALLERY_ADMIN_TOKEN>
-```
-
-回傳只包含管理摘要與安全連結，不包含 `deleteTokenHash`、刪除 token，也不包含未公開的完整 prompt：
-
-```json
-{
-  "items": [
-    {
-      "id": "example.png",
-      "imageUrl": "/gallery/example.png",
-      "shareUrl": "/share/example.png",
-      "visibility": "public",
-      "promptPublic": false,
-      "title": "簡報封面",
-      "model": "schnell",
-      "size": "landscape",
-      "createdAt": "2026-07-07T00:00:00.000Z",
-      "storage": "r2"
-    }
-  ],
-  "count": 1,
-  "truncated": false,
-  "cursor": null,
-  "checkedAt": "2026-07-07T00:00:01.000Z"
+  "storage": "memory",
+  "partial": true
 }
 ```
 
@@ -289,7 +246,7 @@ python scripts\validate_test_prompts.py
 
 ### 錯誤情境測試矩陣
 
-TASK-050 的錯誤情境回歸清單放在 `eval/error-scenarios.json`，涵蓋 API key 未設定、provider timeout / 500、rate limit、Turnstile、prompt moderation、雲端保存失敗、localStorage 滿、JSON 匯入錯誤、網路中斷、連點生成、手機版生成、清空歷史誤觸、參考圖用途缺漏、用量 Dashboard 讀取失敗、非生成分頁深連結被 onboarding 教學彈窗遮住、分享頁 prompt 隱私，以及雲端作品刪除 token 失效。驗證腳本會確認每個情境都有對應自動化測試或靜態證據：
+TASK-050 的錯誤情境回歸清單放在 `eval/error-scenarios.json`，涵蓋 API key 未設定、provider timeout / 500、rate limit、Turnstile、prompt moderation、localStorage 滿、JSON 匯入錯誤、網路中斷、連點生成、手機版生成、清空歷史誤觸、參考圖用途缺漏、用量 Dashboard 讀取失敗，以及非生成分頁深連結被 onboarding 教學彈窗遮住。驗證腳本會確認每個情境都有對應自動化測試或靜態證據：
 
 ```powershell
 python scripts\validate_error_scenarios.py

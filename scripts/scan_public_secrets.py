@@ -60,7 +60,7 @@ SECRET_SHAPES = [
 ]
 
 SENSITIVE_ASSIGNMENT = re.compile(
-    r"\b(?:NVIDIA_API_KEY|GEMINI_API_KEY|TURNSTILE_SECRET_KEY|GALLERY_ADMIN_TOKEN)\b"
+    r"\b(?:NVIDIA_API_KEY|GEMINI_API_KEY|TURNSTILE_SECRET_KEY|USAGE_ADMIN_TOKEN)\b"
     r"\s*[:=]\s*['\"](?P<value>[^'\"]{8,})['\"]",
     re.IGNORECASE,
 )
@@ -74,7 +74,7 @@ SAFE_ASSIGNMENT_VALUE = re.compile(
 )
 
 FORBIDDEN_LOCAL_STORAGE = re.compile(
-    r"localStorage\s*\.\s*(?:setItem|getItem)\s*\(\s*['\"](?:GALLERY_ADMIN_TOKEN|NVIDIA_API_KEY|GEMINI_API_KEY|TURNSTILE_SECRET_KEY)['\"]",
+    r"localStorage\s*\.\s*(?:setItem|getItem)\s*\(\s*['\"](?:USAGE_ADMIN_TOKEN|NVIDIA_API_KEY|GEMINI_API_KEY|TURNSTILE_SECRET_KEY)['\"]",
     re.IGNORECASE,
 )
 

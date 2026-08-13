@@ -1215,95 +1215,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: var(--radius-sm);
   background: var(--surface-2);
 }
-.cloud-library {
-  display: grid;
-  gap: 12px;
-  margin: 0 0 16px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-}
-.cloud-library-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-.cloud-library-head p {
-  margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.cloud-library-count {
-  flex: 0 0 auto;
-  color: var(--accent-2);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 800;
-}
-.cloud-record-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 10px;
-}
-.cloud-record-card {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 10px;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.cloud-record-thumb {
-  width: 72px;
-  height: 72px;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-  background: var(--bg-2);
-}
-.cloud-record-body {
-  display: grid;
-  min-width: 0;
-  gap: 7px;
-}
-.cloud-record-title {
-  margin: 0;
-  color: var(--text);
-  font-size: 12.5px;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.cloud-record-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 10.5px;
-}
-.cloud-record-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.cloud-record-actions .btn {
-  padding: 7px 9px;
-  font-size: 11px;
-}
-.cloud-record-empty {
-  padding: 12px;
-  border: 1.5px dashed var(--line-2);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-size: 13px;
-}
 .history-batch-bar {
   display: flex;
   align-items: center;
@@ -1542,15 +1453,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
-.history-cloud-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-.history-cloud-actions .btn {
-  flex: 0 1 auto;
-}
 .version-list {
   display: flex;
   flex-wrap: wrap;
@@ -1728,104 +1630,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   background: var(--surface-2);
   font-size: 13px;
 }
-.gallery-admin-card {
-  display: grid;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface-2);
-}
-.gallery-admin-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
-}
-.gallery-admin-head h3 {
-  margin: 0 0 5px;
-  color: var(--text);
-  font-size: 15px;
-}
-.gallery-admin-head p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.gallery-admin-head code {
-  color: var(--accent-2);
-  font-family: var(--mono);
-}
-.gallery-admin-count {
-  flex: 0 0 auto;
-  color: var(--accent-2);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 800;
-}
-.gallery-admin-controls {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
-  align-items: end;
-  gap: 10px;
-}
-.gallery-admin-filters {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.2fr) minmax(150px, .7fr) minmax(160px, .7fr) minmax(170px, .8fr);
-  align-items: center;
-  gap: 10px;
-}
-.gallery-admin-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-  gap: 10px;
-}
-.gallery-admin-item {
-  display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 10px;
-  min-width: 0;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-}
-.gallery-admin-thumb {
-  width: 76px;
-  height: 76px;
-  object-fit: cover;
-  border-radius: var(--radius-sm);
-  background: var(--bg-2);
-}
-.gallery-admin-body {
-  display: grid;
-  min-width: 0;
-  gap: 7px;
-}
-.gallery-admin-body h4 {
-  margin: 0;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.gallery-admin-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 10.5px;
-}
-.gallery-admin-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
 .tutorial-card { width: min(640px, 100%); }
 .tutorial-list {
   display: grid; gap: 12px; margin: 0 0 18px; padding-left: 1.3rem;
@@ -1914,8 +1718,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .history-filters { grid-template-columns: 1fr; }
   .history-date-filter { grid-template-columns: 1fr; }
   .history-filters .tutorial-check { justify-content: flex-start; }
-  .cloud-library-head { flex-direction: column; }
-  .cloud-record-list { grid-template-columns: 1fr; }
   .history-batch-bar { align-items: stretch; flex-direction: column; }
   .history-batch-actions { justify-content: stretch; }
   .history-batch-actions .btn { flex: 1 1 auto; }
@@ -1925,10 +1727,6 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .usage-query-controls .btn { width: 100%; }
   .usage-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .usage-columns { grid-template-columns: 1fr; }
-  .gallery-admin-head { flex-direction: column; }
-  .gallery-admin-controls { grid-template-columns: 1fr; }
-  .gallery-admin-filters { grid-template-columns: 1fr; }
-  .gallery-admin-list { grid-template-columns: 1fr; }
   .generation-preview {
     min-height: 560px;
   }

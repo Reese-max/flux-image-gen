@@ -53,7 +53,7 @@
 - Turnstile 加入 5 秒預設 timeout、bounded 設定與 `action=turnstile-spin-v1` 驗證；缺少 `GALLERY_TOKEN_SECRET` 時 R2 圖庫寫入改為 fail-closed。
 - 手機切換分頁後回到新 panel 起點；歷史再生完整帶回中文／Provider prompt、負面提示、尺寸與解析度，且先顯示生成分頁再送出。
 - Service Worker 不再安裝後自行接管；只有本分頁按下更新才 `skipWaiting` 並重載，network-first 快取寫入也納入事件生命週期。
-- 成本 Dashboard 共用 `GALLERY_ADMIN_TOKEN` 呼叫受保護的 `/api/usage`，新增 Provider 嘗試與成功事件，並修正手機查詢列遮擋／壓縮。
+- 成本 Dashboard 共用 `USAGE_ADMIN_TOKEN` 呼叫受保護的 `/api/usage`，新增 Provider 嘗試與成功事件，並修正手機查詢列遮擋／壓縮。
 
 ### Added
 

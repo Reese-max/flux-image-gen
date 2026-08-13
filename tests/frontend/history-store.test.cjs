@@ -112,11 +112,6 @@ test('normalizeRecord trims fields, uses injected id factory, and applies defaul
     agentRecommendation: '',
     autoRetry: null,
     nextSuggestions: [],
-    cloudShareUrl: '',
-    cloudDeleteUrl: '',
-    cloudSavedAt: '',
-    cloudPromptPublic: false,
-    cloudStorage: '',
     sourceRecordId: '',
     versionGroupId: 'history-id-1',
     versionNumber: 1,
@@ -144,11 +139,11 @@ test('normalizeRecord adds version, tags, favorite, and share defaults', () => {
   assert.equal(record.id, 'record-1');
   assert.equal(record.favorite, true);
   assert.deepEqual(plain(record.tags), ['cute', 'cat']);
-  assert.equal(record.cloudShareUrl, 'https://example.com/share/abc');
-  assert.equal(record.cloudDeleteUrl, 'https://example.com/gallery/abc/delete?deleteToken=secret');
-  assert.equal(record.cloudSavedAt, '2026-07-07T00:00:00.000Z');
-  assert.equal(record.cloudPromptPublic, true);
-  assert.equal(record.cloudStorage, 'R2 / R2 JSON');
+  assert.equal(Object.hasOwn(record, 'cloudShareUrl'), false);
+  assert.equal(Object.hasOwn(record, 'cloudDeleteUrl'), false);
+  assert.equal(Object.hasOwn(record, 'cloudSavedAt'), false);
+  assert.equal(Object.hasOwn(record, 'cloudPromptPublic'), false);
+  assert.equal(Object.hasOwn(record, 'cloudStorage'), false);
   assert.equal(record.sourceRecordId, 'parent-1');
   assert.equal(record.versionGroupId, 'record-1');
   assert.equal(record.versionNumber, 3);
@@ -308,7 +303,7 @@ test('updateRecordTags and toggleFavorite update only the target record', () => 
   assert.equal(favorited[1].favorite, true);
 });
 
-test('updateRecord persists cloud share and delete links for the target record', () => {
+test('updateRecord drops retired cloud fields from local history', () => {
   const Store = loadHistoryStore();
   const records = [
     Store.normalizeRecord({ id: 'a', image: 'data:image/png;base64,a', prompt: 'a' }),
@@ -323,13 +318,13 @@ test('updateRecord persists cloud share and delete links for the target record',
     cloudStorage: 'R2 / R2 JSON'
   });
 
-  assert.equal(updated[0].cloudShareUrl, 'https://example.com/share/a');
-  assert.equal(updated[0].cloudDeleteUrl, 'https://example.com/gallery/a/delete?deleteToken=secret');
-  assert.equal(updated[0].cloudSavedAt, '2026-07-07T00:00:00.000Z');
-  assert.equal(updated[0].cloudPromptPublic, true);
-  assert.equal(updated[0].cloudStorage, 'R2 / R2 JSON');
-  assert.equal(updated[1].cloudShareUrl, '');
-  assert.equal(updated[1].cloudDeleteUrl, '');
+  assert.equal(Object.hasOwn(updated[0], 'cloudShareUrl'), false);
+  assert.equal(Object.hasOwn(updated[0], 'cloudDeleteUrl'), false);
+  assert.equal(Object.hasOwn(updated[0], 'cloudSavedAt'), false);
+  assert.equal(Object.hasOwn(updated[0], 'cloudPromptPublic'), false);
+  assert.equal(Object.hasOwn(updated[0], 'cloudStorage'), false);
+  assert.equal(Object.hasOwn(updated[1], 'cloudShareUrl'), false);
+  assert.equal(Object.hasOwn(updated[1], 'cloudDeleteUrl'), false);
 });
 
 test('normalizeRecord rejects missing image or prompt', () => {
@@ -437,11 +432,6 @@ test('saveRecords writes normalized JSON to storage key', () => {
     agentRecommendation: '',
     autoRetry: null,
     nextSuggestions: [],
-    cloudShareUrl: '',
-    cloudDeleteUrl: '',
-    cloudSavedAt: '',
-    cloudPromptPublic: false,
-    cloudStorage: '',
     sourceRecordId: '',
     versionGroupId: 'save-me',
     versionNumber: 1,

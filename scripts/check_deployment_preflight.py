@@ -19,11 +19,10 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11 fallback is not 
     tomllib = None  # type: ignore[assignment]
 
 REQUIRED_SECRET_NAMES = {
-    "GALLERY_TOKEN_SECRET",
     "NVIDIA_API_KEY",
     "GEMINI_API_KEY",
     "TURNSTILE_SECRET_KEY",
-    "GALLERY_ADMIN_TOKEN",
+    "USAGE_ADMIN_TOKEN",
 }
 
 REQUIRED_VARS = {
@@ -61,8 +60,8 @@ REQUIRED_RELEASE_ACCEPTANCE_ITEMS = {
     "iPhone Safari",
     "Android Chrome",
     "張數明確可控",
-    "R2 gallery save",
-    "分享頁隱藏 prompt",
+    "本機歷史",
+    "圖片下載",
     "Turnstile 真實驗證",
     "Rate limit",
     "成本估算校準",
@@ -166,11 +165,6 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
     ai = data.get("ai")
     require(isinstance(ai, dict) and ai.get("binding") == "AI", "必須設定 [ai] binding = AI", errors)
 
-    r2 = list_contains_object(data.get("r2_buckets"), "binding", "IMAGE_BUCKET")
-    require(r2 is not None, "必須設定 [[r2_buckets]] binding = IMAGE_BUCKET", errors)
-    if r2 is not None:
-        require(bool(str(r2.get("bucket_name", "")).strip()), "IMAGE_BUCKET 必須設定 bucket_name", errors)
-
     limiter = list_contains_object(data.get("ratelimits"), "name", "GENERATE_RATE_LIMITER")
     require(limiter is not None, "必須設定 [[ratelimits]] name = GENERATE_RATE_LIMITER", errors)
     if limiter is not None:
@@ -210,8 +204,11 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
         except (TypeError, ValueError):
             errors.append("USAGE_ALERT_DAILY_GENERATIONS 必須是整數字串")
 
-    if public and str(vars_section.get("TURNSTILE_REQUIRED", "")).lower() == "true":
-        require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白", errors)
+    if public:
+        turnstile_required = str(vars_section.get("TURNSTILE_REQUIRED", "")).lower() == "true"
+        require(turnstile_required, "--public 模式必須設定 TURNSTILE_REQUIRED=true", errors)
+        if turnstile_required:
+            require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白", errors)
 
     checks.append("wrangler bindings OK")
 

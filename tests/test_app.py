@@ -474,16 +474,11 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(response.json()["code"], "bad_request")
         self.assertIn("count 必須是 1 到 4 之間的整數", response.json()["error"])
 
-    def test_gallery_route_reports_disabled_on_local_server(self):
+    def test_gallery_routes_are_removed_from_local_server(self):
         response = self.client.post("/gallery", json={"image": "data:image/png;base64,ZmFrZQ=="})
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["code"], "gallery_disabled")
-
-    def test_gallery_admin_route_reports_disabled_on_local_server(self):
-        response = self.client.get("/api/gallery", headers={"X-Gallery-Admin-Token": "local"})
-        self.assertEqual(response.status_code, 503)
-        self.assertEqual(response.json()["code"], "gallery_disabled")
-        self.assertIn("Cloudflare", response.json()["error"])
+        admin_response = self.client.get("/api/gallery", headers={"X-Usage-Admin-Token": "local"})
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(admin_response.status_code, 404)
 
     def test_prompt_transform_route_returns_professional_prompt(self):
         response = self.client.post(

@@ -135,11 +135,10 @@ def test_public_deployment_checklist_documents_required_gates():
         "GEMINI_API_KEY",
         "VISION_QA_ENABLED",
         "TURNSTILE_SECRET_KEY",
-        "GALLERY_ADMIN_TOKEN",
-        "X-Gallery-Admin-Token",
+        "USAGE_ADMIN_TOKEN",
+        "X-Usage-Admin-Token",
         "TURNSTILE_REQUIRED = \"true\"",
         "TURNSTILE_SITE_KEY",
-        "IMAGE_BUCKET",
         "GENERATE_RATE_LIMITER",
         "USAGE_ESTIMATED_COST_USD_PER_IMAGE",
         "USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST",
@@ -158,18 +157,16 @@ def test_public_deployment_checklist_documents_required_gates():
         "npm --prefix cloudflare run qa:a11y",
         "npm --prefix cloudflare run deploy:dry-run",
         "node scripts\\verify.mjs",
-        "deleteTokenHash",
-        "promptPublic=false",
+        "不使用 R2",
+        "本機歷史",
+        "圖片下載",
         "/generate",
         "/generate/batch",
         "/edit",
-        "/api/gallery",
     ]:
         assert required in checklist
     assert "不可持久化到 `localStorage`" in checklist
     assert "驗證失敗不得呼叫模型" in checklist
-    assert "未授權即可列出 R2 metadata" in checklist
-    assert "分享頁在 `promptPublic=false` 時仍顯示完整 prompt" in checklist
 
 
 def test_productization_spec_coverage_matrix_tracks_all_tasks_and_gaps():
@@ -231,8 +228,8 @@ def test_release_acceptance_checklist_tracks_manual_blockers():
         "螢幕閱讀器",
         "用途帶入尺寸",
         "張數明確可控",
-        "R2 gallery save",
-        "分享頁隱藏 prompt",
+        "本機歷史",
+        "圖片下載",
         "Turnstile 真實驗證",
         "Rate limit",
         "成本估算校準",
@@ -552,7 +549,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v29" in service_worker_js
+    assert "ai-image-generator-pwa-v32" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -605,6 +602,19 @@ def test_history_regenerate_restores_complete_settings_before_visible_generation
     assert "if (!switchToGenerateTab()) { return; }" in body
     assert body.index("switchToGenerateTab()") < body.index("setNextGenerationSourceRecord")
     assert body.index("switchToGenerateTab()") < body.index("ImageGenApp.setGenerationSettings({") < body.index("ImageGenApp.generate()")
+
+
+def test_history_composition_switches_to_generate_before_loading_settings():
+    history_wall_js = read_static("history-wall.js")
+    composition = re.search(
+        r"if \(useCompositionDetail\) \{([\s\S]*?)\n    \}\n    if \(historySearch\)",
+        history_wall_js,
+    )
+
+    assert composition
+    body = composition.group(1)
+    assert "if (!switchToGenerateTab()) { return; }" in body
+    assert body.index("switchToGenerateTab()") < body.index("lockCompositionFromRecord(record)")
 
 
 def test_cloudflare_csp_allows_local_image_preview_blobs():
@@ -773,7 +783,11 @@ def test_iteration_ux_scripts_integrate_with_app():
 def test_cloud_save_feature_is_removed():
     html = read_static("index.html")
     app_js = read_static("app.js")
+    history_store_js = read_static("history-store.js")
+    history_wall_js = read_static("history-wall.js")
     styles = read_static("styles.css")
+    worker_js = read_repo("cloudflare/src/index.js")
+    wrangler = read_repo("cloudflare/wrangler.toml")
 
     assert 'id="saveToCloud"' not in html
     assert 'id="cloudSaveModal"' not in html
@@ -783,6 +797,15 @@ def test_cloud_save_feature_is_removed():
     assert "function saveToCloud" not in app_js
     assert "fetch('/gallery'" not in app_js
     assert "galleryToken:" not in app_js
+    assert "IMAGE_BUCKET" not in wrangler
+    assert "[[r2_buckets]]" not in wrangler
+    assert "storageAvailable" not in worker_js
+    assert "issueGalleryToken" not in worker_js
+    assert 'from "./gallery.js"' not in worker_js
+    assert "cloudShareUrl" not in history_store_js
+    assert "cloudDeleteUrl" not in history_store_js
+    assert "cloudShareUrl" not in history_wall_js
+    assert "cloudDeleteUrl" not in history_wall_js
     assert ".cloud-save-modal" not in styles
     assert ".cloud-save-copy" not in styles
     assert ".cloud-fallback-info" not in styles
@@ -1037,26 +1060,14 @@ def test_usage_dashboard_ui_is_wired():
     assert "站長工具" in html
     assert 'id="usageDashboard"' in html
     assert "成本 Dashboard" in html
-    assert "所選 UTC 日期的生成次數、供應商嘗試、失敗率、估計成本與異常提醒" in html
-    assert "此摘要不保存提示詞、圖片內容或原始 IP" in html
+    assert "目前 Worker 執行個體的生成次數、供應商嘗試、失敗率與估計成本" in html
+    assert "資料只暫存在記憶體並寫入結構化日誌" in html
     assert 'id="usageDate"' in html
     assert 'id="refreshUsage"' in html
     assert 'class="history-actions usage-query-controls"' in html
     assert "查詢日期（UTC）" in html
-    assert 'id="galleryAdminToken"' in html
-    assert 'id="refreshGalleryAdmin"' in html
-    assert 'id="galleryAdminNext"' in html
-    assert 'id="galleryAdminStatus"' in html
-    assert 'id="galleryAdminCount"' in html
-    assert 'id="galleryAdminList"' in html
-    assert 'id="galleryAdminSearch"' in html
-    assert 'id="galleryAdminVisibility"' in html
-    assert 'id="galleryAdminPromptPublic"' in html
-    assert 'id="galleryAdminModel"' in html
-    assert "搜尋標題、id、模型或尺寸" in html
-    assert "GALLERY_ADMIN_TOKEN" in html
-    assert "不會暴露刪除 token hash" in html
-    assert "不會顯示未公開的完整 prompt" in html
+    assert 'id="usageAdminToken"' in html
+    assert "USAGE_ADMIN_TOKEN" in html
     for metric_id in [
         "usageGeneratedImages",
         "usageTotalAttempts",
@@ -1075,7 +1086,7 @@ def test_usage_dashboard_ui_is_wired():
     assert "'/static/usage-dashboard.js'" in read_static("tabs.js")
 
     assert "fetch('/api/usage?date='" in usage_js
-    assert "headers: { 'X-Gallery-Admin-Token': token }" in usage_js
+    assert "headers: { 'X-Usage-Admin-Token': token }" in usage_js
     assert "請先輸入站長 Token" in usage_js
     assert "function renderUsage" in usage_js
     assert "function renderUsageBucket" in usage_js
@@ -1084,39 +1095,16 @@ def test_usage_dashboard_ui_is_wired():
     assert "byRoute" in usage_js
     assert "byErrorCode" in usage_js
     assert "UsageDashboard" in usage_js
-    assert "url = '/api/gallery?limit=50'" in usage_js
-    assert "'X-Gallery-Admin-Token': token" in usage_js
-    assert "function fetchGalleryAdmin" in usage_js
-    assert "function renderGalleryAdmin" in usage_js
-    assert "function applyGalleryAdminFilters" in usage_js
-    assert "function galleryItemMatchesFilters" in usage_js
-    assert "function copyGalleryAdminUrl" in usage_js
-    assert "function appendGalleryCopyButton" in usage_js
-    assert "button.textContent = '複製' + label" in usage_js
-    assert "appendGalleryCopyButton(actions, '圖片'" in usage_js
-    assert "appendGalleryCopyButton(actions, '分享頁'" in usage_js
-    assert "navigator.clipboard.writeText(safeUrl)" in usage_js
-    assert "document.execCommand('copy')" in usage_js
-    assert "galleryPromptPublic" in usage_js
-    assert "目前篩選沒有符合的雲端作品" in usage_js
-    assert "control.addEventListener('input', applyGalleryAdminFilters)" in usage_js
-    assert "GALLERY_ADMIN_TOKEN" in usage_js
-    assert "刪除 token hash 或未公開 prompt" in usage_js
-    assert "window.localStorage" not in re.search(
-        r"function fetchGalleryAdmin\(reset\) \{([\s\S]*?)\n  \}\n\n  if \(els.date",
-        usage_js,
-    ).group(1)
+    assert "'X-Usage-Admin-Token': token" in usage_js
+    assert "fetchGalleryAdmin" not in usage_js
+    assert "fetch('/api/gallery" not in usage_js
 
     assert ".usage-dashboard" in styles
     assert ".usage-query-controls" in styles
     assert ".usage-metrics" in styles
     assert ".usage-columns" in styles
     assert ".usage-row" in styles
-    assert ".gallery-admin-card" in styles
-    assert ".gallery-admin-controls" in styles
-    assert ".gallery-admin-filters" in styles
-    assert ".gallery-admin-list" in styles
-    assert ".gallery-admin-item" in styles
+    assert ".gallery-admin-card" not in styles
     assert "body[data-tab=\"usage\"] #mobileGenerateBar" in styles
 
 
@@ -1248,24 +1236,18 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'id="historyDetailProviderPrompt"' in html
     assert 'id="historyDetailQaReport"' in html
     assert 'id="historyVersionList"' in html
-    assert 'id="historyCloudSection"' in html
-    assert 'id="historyCloudMeta"' in html
-    assert 'id="openHistoryCloudShare"' in html
-    assert 'id="openHistoryCloudDelete"' in html
+    assert 'id="historyCloudSection"' not in html
     assert 'id="copyHistoryShareText"' in html
     assert 'id="exportHistoryJson"' in html
     assert 'id="hidePromptInShare"' in html
     assert "匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定" in html
     assert 'openHistoryDetail' in history_wall_js
     assert 'renderVersionList' in history_wall_js
-    assert 'renderCloudLinks' in history_wall_js
-    assert 'renderCloudLibrary' in history_wall_js
-    assert 'createCloudRecordCard' in history_wall_js
-    assert 'getCloudRecords' in history_wall_js
-    assert 'safeCloudUrl' in history_wall_js
+    assert 'renderCloudLinks' not in history_wall_js
+    assert 'renderCloudLibrary' not in history_wall_js
     assert "document.addEventListener('history-record-updated'" in history_wall_js
-    assert 'cloudShareUrl' in history_wall_js
-    assert 'cloudDeleteUrl' in history_wall_js
+    assert 'cloudShareUrl' not in history_wall_js
+    assert 'cloudDeleteUrl' not in history_wall_js
     assert 'formatQaReport' in history_wall_js
     assert 'imageQuality = report.imageQuality' in history_wall_js
     assert 'visionQa = report.visionQa' in history_wall_js
@@ -1275,12 +1257,11 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'exportHistoryJson' in history_wall_js
     assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
     assert "已取消匯出作品 JSON" in history_wall_js
-    assert "檔案可能包含完整描述與雲端刪除連結" in history_wall_js
+    assert "檔案包含完整描述與生成設定" in history_wall_js
     assert 'sourceRecordId' in app_js
     assert '.history-detail' in styles
-    assert '.history-cloud-actions' in styles
-    assert '.cloud-library' in styles
-    assert '.cloud-record-card' in styles
+    assert '.history-cloud-actions' not in styles
+    assert '.cloud-library' not in styles
     assert '.version-list' in styles
 
 
@@ -1307,7 +1288,7 @@ def test_history_search_filters_tags_and_favorites_are_wired():
     assert 'id="historyDateFrom"' in html
     assert 'id="historyDateTo"' in html
     assert 'id="historyFavoritesOnly"' in html
-    assert 'id="historyCloudOnly"' in html
+    assert 'id="historyCloudOnly"' not in html
     assert 'id="historyBatchBar"' in html
     assert 'id="selectVisibleHistory"' in html
     assert 'id="clearHistorySelection"' in html
@@ -1315,7 +1296,7 @@ def test_history_search_filters_tags_and_favorites_are_wired():
     assert 'id="historyTagEditor"' in html
     assert 'applyHistoryFilters' in history_wall_js
     assert 'toggleHistoryFavorite' in history_wall_js
-    assert 'filters.cloudOnly' in history_wall_js
+    assert 'filters.cloudOnly' not in history_wall_js
     assert 'selectVisibleHistory' in history_wall_js
     assert 'deleteSelectedHistoryRecords' in history_wall_js
     assert 'deleteRecords(records, ids)' in history_wall_js
@@ -1329,7 +1310,6 @@ def test_history_search_filters_tags_and_favorites_are_wired():
     assert '.history-select' in styles
     assert '.history-tags' in styles
     assert '.history-card-favorite' in styles
-    assert '.cloud-record-list' in styles
     assert "if (!editor)" in save_tags
     assert "標籤輸入欄位尚未就緒" in save_tags
     assert "editor ? editor.value : ''" not in save_tags
@@ -1340,7 +1320,7 @@ def test_history_search_filters_tags_and_favorites_are_wired():
     assert "getRecordTags(sourceRecord)" in record_filter
     assert "filters.dateFrom" in record_filter
     assert "filters.dateTo" in record_filter
-    assert "filters.cloudOnly" in record_filter
+    assert "filters.cloudOnly" not in record_filter
     assert re.search(
         r"@media \(max-width: 760px\)\s*\{[\s\S]*?\.history-filters\s*\{\s*grid-template-columns:\s*1fr",
         styles,

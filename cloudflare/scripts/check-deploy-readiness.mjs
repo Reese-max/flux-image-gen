@@ -11,8 +11,7 @@ const localWranglerScript = path.join(rootDir, 'node_modules', 'wrangler', 'bin'
 
 export const REQUIRED_PRODUCTION_SECRETS = Object.freeze([
   'TURNSTILE_SECRET_KEY',
-  'GALLERY_TOKEN_SECRET',
-  'GALLERY_ADMIN_TOKEN',
+  'USAGE_ADMIN_TOKEN',
   'NVIDIA_API_KEY',
   'GEMINI_API_KEY',
 ]);

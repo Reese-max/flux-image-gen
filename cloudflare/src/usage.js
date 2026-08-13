@@ -1,8 +1,6 @@
 // Edge usage/cost metrics for the public Worker. The store is intentionally
 // prompt-free: no prompt text, image bytes, or secrets are persisted in metrics.
 const usageByDate = new Map();
-const USAGE_PREFIX = "usage-events/";
-const USAGE_LIST_LIMIT = 1000;
 
 function todayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -43,43 +41,6 @@ function estimatedCostUsd(env, event, imageCount) {
   return Math.round(perImage * Math.max(imageCount, attempts) * 1_000_000) / 1_000_000;
 }
 
-function usageBucket(env) {
-  const bucket = env && env.IMAGE_BUCKET;
-  return bucket && typeof bucket.put === "function" && typeof bucket.list === "function" ? bucket : null;
-}
-
-function usageObjectKey(date) {
-  const id = globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
-    ? globalThis.crypto.randomUUID()
-    : `${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
-  return `${USAGE_PREFIX}${date}/${Date.now().toString().padStart(13, "0")}-${id}`;
-}
-
-function usageMetadata(payload) {
-  const metadata = {};
-  for (const [key, value] of Object.entries(payload)) metadata[key] = String(value == null ? "" : value);
-  return metadata;
-}
-
-function usageEventFromMetadata(metadata) {
-  if (!metadata || !metadata.date) return null;
-  return {
-    date: metadata.date,
-    checkedAt: metadata.checkedAt || "",
-    route: metadata.route || "unknown",
-    outcome: metadata.outcome === "success" ? "success" : "error",
-    statusCode: Number(metadata.statusCode || 0),
-    errorCode: metadata.errorCode || "",
-    provider: metadata.provider || "unknown",
-    model: metadata.model || "unknown",
-    imageCount: Math.max(0, Number(metadata.imageCount || 0)),
-    durationMs: Math.max(0, Number(metadata.durationMs || 0)),
-    estimatedCostUsd: Math.max(0, Number(metadata.estimatedCostUsd || 0)),
-    attempt: Math.max(0, Number(metadata.attempt || 0)),
-    batchIndex: metadata.batchIndex === "" ? null : Number(metadata.batchIndex),
-  };
-}
-
 function bucketIncrement(bucket, key, event) {
   const safeKey = key || "unknown";
   if (!bucket[safeKey]) {
@@ -114,50 +75,15 @@ export async function recordUsageEvent(env, _request, event) {
     batchIndex: event && Number.isInteger(event.batchIndex) ? event.batchIndex : "",
   };
 
-  const bucket = usageBucket(env);
-  const hasBucketBinding = Boolean(env && env.IMAGE_BUCKET);
-  if (hasBucketBinding) {
-    try {
-      if (!bucket) throw new Error("IMAGE_BUCKET does not support put/list");
-      await bucket.put(usageObjectKey(date), "", { customMetadata: usageMetadata(payload) });
-    } catch (error) {
-      console.error(JSON.stringify({ event: "usage_persist_failed", error: String(error) }));
-    }
-  } else {
-    if (!usageByDate.has(date)) usageByDate.set(date, []);
-    usageByDate.get(date).push(payload);
-  }
+  if (!usageByDate.has(date)) usageByDate.set(date, []);
+  usageByDate.get(date).push(payload);
   console.log(JSON.stringify({ event: "usage_event", usage: payload }));
   return payload;
 }
 
 export async function buildUsageSummary(env, dateValue) {
   const date = parseDateKey(dateValue);
-  const bucket = usageBucket(env);
-  const hasBucketBinding = Boolean(env && env.IMAGE_BUCKET);
-  let events = usageByDate.get(date) || [];
-  let truncated = false;
-  if (hasBucketBinding) {
-    try {
-      if (!bucket) throw new Error("IMAGE_BUCKET does not support put/list");
-      // ponytail: one metadata-only R2 page is the low-traffic ceiling. Move to
-      // Analytics Engine when truncation becomes normal instead of growing this reader.
-      const listed = await bucket.list({
-        prefix: `${USAGE_PREFIX}${date}/`,
-        limit: USAGE_LIST_LIMIT,
-        include: ["customMetadata"],
-      });
-      events = (listed.objects || [])
-        .map((object) => usageEventFromMetadata(object.customMetadata))
-        .filter(Boolean);
-      truncated = Boolean(listed.truncated);
-    } catch (error) {
-      const unavailable = new Error("用量資料暫時無法讀取");
-      unavailable.status = 503;
-      unavailable.code = "usage_unavailable";
-      throw unavailable;
-    }
-  }
+  const events = usageByDate.get(date) || [];
   const byModel = {};
   const byProvider = {};
   const byRoute = {};
@@ -193,15 +119,10 @@ export async function buildUsageSummary(env, dateValue) {
       actual: generatedImages,
     });
   }
-  if (truncated) {
-    alerts.push({
-      code: "usage_event_list_truncated",
-      message: "今日用量事件超過低流量摘要上限，數字可能不完整",
-      threshold: USAGE_LIST_LIMIT,
-      actual: events.length,
-    });
-  }
-
+  alerts.push({
+    code: "usage_memory_only",
+    message: "用量只暫存在目前 Worker 執行個體，重新部署或執行個體更新後會歸零",
+  });
   return {
     date,
     totalRequests: total,
@@ -217,8 +138,8 @@ export async function buildUsageSummary(env, dateValue) {
     byRoute,
     byErrorCode,
     alerts,
-    storage: hasBucketBinding ? "r2" : "memory-test-fallback",
-    partial: truncated,
+    storage: "memory",
+    partial: true,
     updatedAt: new Date().toISOString(),
   };
 }

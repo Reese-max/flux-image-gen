@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -55,7 +56,8 @@ def run_smoke(base_url, *args):
         [sys.executable, str(SCRIPT), "--base-url", base_url, *args],
         cwd=ROOT,
         text=True,
-        # 同 test_deployment_preflight：Windows 預設 cp950 解不了腳本的中文輸出。
+        # 子行程與父行程固定使用同一編碼，避免 Windows 的 cp950 破壞 JSON 中文。
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         encoding="utf-8",
         errors="replace",
         capture_output=True,

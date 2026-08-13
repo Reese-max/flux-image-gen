@@ -31,8 +31,6 @@ REQUIRED_SCENARIOS = {
     "reference-image-validation",
     "usage-dashboard-read-failed",
     "deep-link-onboarding-blocked",
-    "share-page-prompt-privacy",
-    "cloud-delete-token-invalid",
 }
 
 

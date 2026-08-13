@@ -17,7 +17,7 @@
 | [ ] | Node LTS for Wrangler | 若 Wrangler dry-run crash，需改用 Node 20 或 22 LTS 後重跑 `check:wrangler` 與 `deploy:dry-run` | 是 |
 | [ ] | 乾淨部署來源 | 正式 deploy 前 `git status --porcelain` 必須無輸出；wrapper 通過 readiness gate 後才可用 HEAD 標記版本 | 是 |
 | [ ] | 固定 production 目標 | Wrapper 只接受無參數正式 deploy 或 `--dry-run`；不得用 `--env`、`--name`、`--config`、自訂 entrypoint、`--tag` 或 `--message` 改寫目標／版本對照 | 是 |
-| [ ] | Production secrets inventory | `node cloudflare\scripts\check-deploy-readiness.mjs` 唯讀確認 `TURNSTILE_SECRET_KEY`、`GALLERY_TOKEN_SECRET`、`GALLERY_ADMIN_TOKEN`、`NVIDIA_API_KEY`、`GEMINI_API_KEY` 全部存在；輸出不得含 secret 值 | 是 |
+| [ ] | Production secrets inventory | `node cloudflare\scripts\check-deploy-readiness.mjs` 唯讀確認 `TURNSTILE_SECRET_KEY`、`USAGE_ADMIN_TOKEN`、`NVIDIA_API_KEY`、`GEMINI_API_KEY` 全部存在；輸出不得含 secret 值 | 是 |
 | [ ] | GitHub Actions CI | `.github/workflows/ci.yml` 的 `verify` job 在目標 commit 通過；repo 尚無 remote 時不得勾選 | 是 |
 | [ ] | Version metadata／observability | `wrangler.toml` 有 `CF_VERSION_METADATA` 與取樣後 Workers Logs；部署後 health 可對應 active Version ID | 是 |
 | [ ] | Rollback rehearsal | 依 `docs/deployment-checklist.md` 執行 `wrangler versions list`／`wrangler versions view` 的唯讀步驟，確認已知正常版本與 `wrangler rollback <VERSION_ID>` 指令；不要為演練真的 rollback | 是 |
@@ -69,16 +69,13 @@
 | [ ] | 風格卡 JSON 匯入 / 匯出 | 匯出會提醒含完整 prompt；匯入 schema version 錯誤會友善失敗 | TASK-026, TASK-027 | 是 |
 | [ ] | 專案整理 | 建立專案、加入作品與風格卡、從專案繼續生成 | TASK-029 | 否 |
 
-## 6. 雲端保存、分享與圖庫管理
+## 6. 本機歷史與圖片下載
 
 | 狀態 | 項目 | 驗收方式 | 對應任務 | Release blocker |
 |---|---|---|---|---|
-| [ ] | R2 gallery save | 正式 Worker + R2 綁定後，保存作品成功回分享頁與刪除連結 | TASK-030, TASK-031 | 是 |
-| [ ] | 雲端保存失敗 fallback | 模擬 R2 失敗，確認本機歷史保留且錯誤友善 | TASK-030, TASK-050 | 是 |
-| [ ] | 分享頁隱藏 prompt | `promptPublic=false` 時分享頁不顯示完整 prompt，也不把 prompt 放進模板 URL | TASK-043, TASK-048 | 是 |
-| [ ] | 分享頁公開 prompt | 使用者明確公開時才顯示 prompt；HTML escape 正確 | TASK-043, TASK-048 | 是 |
-| [ ] | OG / social preview | 正式網域分享到 Discord / LINE / X，確認 title、description、OG image 可讀 | TASK-046, TASK-048 | 是 |
-| [ ] | 站長雲端圖庫 | 用量分頁手動輸入 `GALLERY_ADMIN_TOKEN` 可讀 `/api/gallery`；不得顯示 `deleteTokenHash` 或未公開 prompt | TASK-039, TASK-043 | 是 |
+| [ ] | 本機歷史 | 生成成功後寫入瀏覽器 `localStorage`，重新整理後作品、標籤與收藏仍在 | TASK-028, TASK-030 | 是 |
+| [ ] | 圖片下載 | 結果卡與歷史詳情都能下載圖片，檔案格式與內容可開啟 | TASK-025, TASK-030 | 是 |
+| [ ] | 不使用 R2 | `wrangler.toml` 沒有 `[[r2_buckets]]`／`IMAGE_BUCKET`；`/gallery`、`/gallery/*`、`/share/*`、`/api/gallery` 回 `404 not_found` | TASK-030, TASK-031, TASK-048 | 是 |
 
 ## 7. 參考圖與圖片編輯
 
@@ -96,14 +93,14 @@
 | [ ] | Turnstile 真實驗證 | 正式 site key / secret 啟用；未通過不得呼叫 `/generate`、`/generate/batch`、`/edit` | TASK-037 | 是 |
 | [ ] | Rate limit | 超過限制回 `429 rate_limited`，不暴露內部錯誤；Worker binding 生效 | TASK-036 | 是 |
 | [ ] | Prompt moderation | 高風險 prompt 不呼叫 provider；log 不保存敏感全文 | TASK-040 | 是 |
-| [ ] | 成本 Dashboard | 今日生成次數、失敗次數、估計成本、模型用量、錯誤率、平均生成時間可查 | TASK-039 | 是 |
+| [ ] | 成本 Dashboard | 目前 Worker 執行個體的生成次數、失敗次數、估計成本、模型用量、錯誤率、平均生成時間可查；畫面明示重新部署或執行個體更新後會歸零 | TASK-039 | 是 |
 | [ ] | 成本估算校準 | 用實際 provider 價格更新 `USAGE_ESTIMATED_COST_USD_PER_IMAGE` 與 `USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST`；維持 `0` 時只能宣稱已記嘗試，不可宣稱 prompt／Vision 成本完整 | TASK-039 | 是 |
 
 ## 9. 隱私、授權與內容來源
 
 | 狀態 | 項目 | 驗收方式 | 對應任務 | Release blocker |
 |---|---|---|---|---|
-| [ ] | 隱私政策法務確認 | 確認 prompt / 圖片第三方傳輸、localStorage、雲端保存、刪除方式、訓練用途敘述符合實際服務 | TASK-041 | 是 |
+| [ ] | 隱私政策法務確認 | 確認 prompt / 圖片第三方傳輸、localStorage、本機刪除方式、訓練用途敘述符合實際服務 | TASK-041 | 是 |
 | [ ] | 授權與商用說明法務確認 | 依實際 NVIDIA / Cloudflare Workers AI / Gemini 條款更新商用限制、禁止用途與 AI 標示建議 | TASK-042 | 是 |
 | [ ] | Gallery 範例素材權利 | 首頁範例圖、OG 圖、icon / favicon 權利可公開使用 | TASK-046, TASK-047 | 是 |
 | [ ] | JSON 匯出提醒 | 匯出作品 / 風格卡 JSON 前提醒可能包含 prompt 與 metadata | TASK-026, TASK-043 | 是 |

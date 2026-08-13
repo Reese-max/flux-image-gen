@@ -395,7 +395,7 @@
           "patterns": [
             "test_usage_dashboard_ui_is_wired",
             "fetch('/api/usage?date='",
-            "此摘要不保存提示詞、圖片內容或原始 IP"
+            "資料只暫存在記憶體並寫入結構化日誌"
           ]
         },
         {
@@ -445,60 +445,6 @@
           "patterns": [
             "window.addEventListener('hashchange'",
             "document.body.setAttribute('data-tab', name)"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "share-page-prompt-privacy",
-      "title": "分享頁 prompt 隱私與再生成入口",
-      "expected": [
-        "預設分享頁不公開完整 prompt，也不把 prompt 放進再生成連結",
-        "使用者明確公開 prompt 時才顯示 prompt 與模板複製／再生成入口",
-        "公開內容需 HTML escape，避免分享頁注入"
-      ],
-      "evidence": [
-        {
-          "path": "cloudflare/tests/worker-transform.test.mjs",
-          "patterns": [
-            "GET /share/:id hides prompts by default and only renders public prompts",
-            "assert.doesNotMatch(privateHtml, /prompt=/)",
-            "public &lt;prompt&gt;"
-          ]
-        },
-        {
-          "path": "cloudflare/src/index.js",
-          "patterns": [
-            "const prompt = promptPublic ? String(metadata.prompt || \"\") : \"\";",
-            "shareTemplateUrl(promptPublic ? prompt : \"\", metadata)",
-            "此作品未公開完整 prompt。"
-          ]
-        }
-      ]
-    },
-    {
-      "id": "cloud-delete-token-invalid",
-      "title": "雲端作品刪除授權無效",
-      "expected": [
-        "沒有刪除 token 或 token 錯誤時不得刪除 R2 圖片與 metadata",
-        "刪除連結可打開確認頁，且有效 token 可刪除圖片與 metadata",
-        "刪除 token 不得以明文寫入 metadata 或分享頁"
-      ],
-      "evidence": [
-        {
-          "path": "cloudflare/tests/worker-transform.test.mjs",
-          "patterns": [
-            "DELETE /gallery/:id deletes image and metadata only with the owner delete token",
-            "assert.equal(missingToken.status, 401)",
-            "assert.equal(JSON.stringify(metaBefore).includes(deleteToken), false)"
-          ]
-        },
-        {
-          "path": "cloudflare/src/index.js",
-          "patterns": [
-            "function handleGalleryDelete",
-            "verifyGalleryDeleteTokenHash",
-            "await bucket.delete(imageKey)"
           ]
         }
       ]

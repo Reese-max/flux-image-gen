@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -31,8 +32,8 @@ def run_preflight(root: Path, *args: str):
         [sys.executable, str(SCRIPT), "--root", str(root), *args],
         cwd=ROOT,
         text=True,
-        # 腳本輸出含中文；不指定編碼時 Windows 會用 cp950 解碼並丟 UnicodeDecodeError，
-        # 讓 stdout/stderr 變成 None，測試就看不到 JSON 結果。
+        # 子行程與父行程固定使用同一編碼，避免 Windows 的 cp950 破壞 JSON 中文。
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         encoding="utf-8",
         errors="replace",
         capture_output=True,
@@ -64,13 +65,15 @@ def test_deployment_preflight_passes_current_repo_default_mode():
     assert payload["publicMode"] is False
 
 
-def test_deployment_preflight_public_mode_allows_turnstile_opt_out(tmp_path):
+def test_deployment_preflight_public_mode_rejects_turnstile_opt_out(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
     set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "")
     result = run_preflight(root, "--public")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert "--public 模式必須設定 TURNSTILE_REQUIRED=true" in payload["errors"]
 
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
     result = run_preflight(root, "--public")
@@ -103,17 +106,15 @@ def test_deployment_preflight_rejects_secret_in_public_vars(tmp_path):
     assert "Secret 不可放在 [vars]：NVIDIA_API_KEY" in payload["errors"]
 
 
-def test_deployment_preflight_requires_r2_and_rate_limit_bindings(tmp_path):
+def test_deployment_preflight_requires_rate_limit_binding(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
     text = wrangler.read_text(encoding="utf-8")
     text = text.replace('[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"', '[[ratelimits]]\nname = "BROKEN_LIMITER"')
-    text = text.replace('binding = "IMAGE_BUCKET"', 'binding = "BROKEN_BUCKET"')
     wrangler.write_text(text, encoding="utf-8")
     result = run_preflight(root)
     assert result.returncode == 1
     payload = json.loads(result.stderr)
-    assert "必須設定 [[r2_buckets]] binding = IMAGE_BUCKET" in payload["errors"]
     assert "必須設定 [[ratelimits]] name = GENERATE_RATE_LIMITER" in payload["errors"]
 
 

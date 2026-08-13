@@ -25,15 +25,10 @@ export const MODEL_ENDPOINTS = {
 };
 
 export const MAX_JSON_BYTES = 64 * 1024;
-// The gallery POST carries a whole generated image as a base64 data URL
-// (~4/3 × binary size), so the generic 64KB JSON cap would reject every real
-// image. Sized for MAX_GALLERY_IMAGE_BYTES × 4/3 plus meta headroom.
-export const MAX_GALLERY_JSON_BYTES = 8 * 1024 * 1024;
 export const MAX_PROMPT_LENGTH = 900;
 export const MAX_TRANSFORM_SOURCE_LENGTH = sharedConstants.maxPromptSourceLength;
 export const MAX_ENHANCE_PROMPT_LENGTH = sharedConstants.maxEnhancePromptLength;
 export const MAX_ENHANCE_EFFECT_LENGTH = sharedConstants.maxEnhanceEffectLength;
-export const MAX_GALLERY_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_SEED = 2147483647;
 export const CJK_PATTERN = /[㐀-䶿一-鿿豈-﫿]/;
 export const SUPPORTED_STYLES = new Set(["auto", "cute", "cinematic", "realistic", "anime", "product"]);
@@ -183,11 +178,5 @@ export const MAX_EDIT_IMAGES = 4;
 // 單張上傳上限（前端已縮到 <512，這是防濫用的硬上限）。
 export const MAX_EDIT_IMAGE_BYTES = 12 * 1024 * 1024;
 export const MAX_BATCH_COUNT = 4;
-
-// --- Cloud gallery (R2) ---
-export const GALLERY_PREFIX = "gallery/";
-export const GALLERY_META_PREFIX = "gallery-meta/";
-export const GALLERY_EXT = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" };
-export const GALLERY_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

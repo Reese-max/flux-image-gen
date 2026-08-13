@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createHash, createHmac } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { transformSync } from 'esbuild';
@@ -16,25 +16,10 @@ function jsonRequest(path, body) {
   });
 }
 
-const TEST_GALLERY_SECRET = 'test-gallery-secret';
-
 function adminGet(path, token = 'admin-secret') {
   return new Request(`https://example.test${path}`, {
     method: 'GET',
-    headers: { 'X-Gallery-Admin-Token': token },
-  });
-}
-
-function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', secret).update(timestamp).digest('hex');
-  return new Request('https://example.test/gallery', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Gallery-Token': `${timestamp}.${signature}`,
-    },
-    body: JSON.stringify(body),
+    headers: { 'X-Usage-Admin-Token': token },
   });
 }
 
@@ -313,7 +298,7 @@ test('POST /prompt/complete aborts a hung Gemma call and falls back without retr
   let sawSignal = false;
   const env = fakeEnv({
     GEMINI_API_KEY: 'test-key',
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
   });
   globalThis.fetch = async (_url, init) => {
@@ -674,7 +659,7 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
     NVIDIA_API_KEY: 'nv-test',
     VISION_QA_ENABLED: 'true',
     VISION_QA_TIMEOUT_MS: '10',
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
     USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.003',
   });
@@ -709,12 +694,10 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
   }
 });
 
-test('GET /api/usage requires admin auth and reads persistent prompt-free R2 events', async () => {
+test('GET /api/usage requires admin auth and reads prompt-free in-memory events', async () => {
   resetUsageMetrics();
-  const bucket = fakeBucket();
   const env = fakeEnv({
-    IMAGE_BUCKET: bucket,
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ALERT_DAILY_GENERATIONS: '1',
   });
   const generated = await worker.fetch(
@@ -734,16 +717,14 @@ test('GET /api/usage requires admin auth and reads persistent prompt-free R2 eve
     env
   );
   const unauthorized = await worker.fetch(new Request('https://example.test/api/usage'), env);
-  resetUsageMetrics();
   const usage = await worker.fetch(adminGet('/api/usage'), env);
   const body = await usage.json();
 
   assert.equal(generated.status, 200);
   assert.equal(unauthorized.status, 401);
   assert.equal(usage.status, 200);
-  const usageKey = [...bucket.store.keys()].find((key) => key.startsWith('usage-events/'));
-  assert.ok(usageKey);
-  assert.equal(Object.hasOwn(bucket.store.get(usageKey).options.customMetadata, 'actorHash'), false);
+  assert.equal(body.storage, 'memory');
+  assert.equal(body.partial, true);
   assert.equal(body.generatedImages, 1);
   assert.equal(body.failedRequests, 0);
   assert.equal(body.byModel.schnell.images, 1);
@@ -767,7 +748,7 @@ test('GET /api/usage reports a missing admin secret as disabled', async () => {
 
 test('GET /api/usage records Worker failure codes and validates date', async () => {
   resetUsageMetrics();
-  const env = fakeEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const env = fakeEnv({ USAGE_ADMIN_TOKEN: 'admin-secret' });
   const blocked = await worker.fetch(
     jsonRequest('/generate', {
       prompt: 'clean product photo',
@@ -799,7 +780,7 @@ test('paid prompt routes record prompt-free success and failure usage', async ()
   }), { status: 200, headers: { 'content-type': 'application/json' } });
   const env = fakeEnv({
     GEMINI_API_KEY: 'test-key',
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
   });
 
@@ -840,7 +821,7 @@ test('Gemini transform and enhance usage count every provider retry', async () =
   };
   const env = fakeEnv({
     GEMINI_API_KEY: 'test-key',
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
   });
 
@@ -1701,7 +1682,7 @@ test('Cloudflare Wrangler auth checker diagnoses login and dry-run gates', async
   assert.match(checker, /CommandLineArgsError/);
   assert.match(checker, /Account ID/);
   assert.match(checker, /--dry-run:\\s\+exiting now\\\./);
-  assert.match(checker, /R2 bucket/);
+  assert.match(checker, /AI binding/);
   assert.match(checker, /rate limit binding/);
   assert.match(checker, /PASS: Wrangler login and dry-run configuration are verifiable/);
 });
@@ -1760,7 +1741,7 @@ test('POST /generate retries a transient 5xx then succeeds', async () => {
   let calls = 0;
   const env = fakeEnv({
     NVIDIA_API_KEY: 'test-key',
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.01',
   });
 
@@ -1800,7 +1781,7 @@ test('POST /generate surfaces the error after exhausting retries on 5xx', async 
   let calls = 0;
   const env = fakeEnv({
     NVIDIA_API_KEY: 'test-key',
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.01',
   });
 
@@ -1940,438 +1921,17 @@ test('POST /generate/batch is rate limited before image generation', async () =>
   assert.equal(ai.calls.length, 0, 'must not call Workers AI when rate limited');
 });
 
-function fakeBucket() {
-  const store = new Map();
-  return {
-    store,
-    async put(key, value, options) {
-      store.set(key, { value, options });
-    },
-    async get(key) {
-      if (!store.has(key)) return null;
-      const entry = store.get(key);
-      return {
-        body: entry.value,
-        httpMetadata: entry.options?.httpMetadata,
-        customMetadata: entry.options?.customMetadata,
-      };
-    },
-    async delete(key) {
-      store.delete(key);
-    },
-    async list(options = {}) {
-      const prefix = options.prefix || '';
-      const limit = options.limit || 1000;
-      const keys = [...store.keys()].filter((key) => key.startsWith(prefix)).sort();
-      const start = options.cursor ? Math.max(0, Number(options.cursor)) : 0;
-      const selected = keys.slice(start, start + limit);
-      const next = start + selected.length;
-      return {
-        objects: selected.map((key) => ({
-          key,
-          customMetadata: options.include?.includes('customMetadata')
-            ? store.get(key).options?.customMetadata
-            : undefined,
-        })),
-        truncated: next < keys.length,
-        cursor: next < keys.length ? String(next) : undefined,
-      };
-    },
-  };
-}
-
-function galleryEnv(bucket, extra = {}) {
-  return fakeEnv({ IMAGE_BUCKET: bucket, GALLERY_TOKEN_SECRET: TEST_GALLERY_SECRET, ...extra });
-}
-
-const TINY_PNG_DATA_URL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC';
-
-test('POST /gallery returns 503 when no R2 bucket is bound', async () => {
-  const response = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL }),
-    fakeEnv()
-  );
-  const data = await response.json();
-  assert.equal(response.status, 503);
-  assert.equal(data.code, 'gallery_disabled');
-});
-
-test('POST /gallery is fail-closed when GALLERY_TOKEN_SECRET is missing', async () => {
-  const bucket = fakeBucket();
-  const response = await worker.fetch(
-    jsonRequest('/gallery', { image: TINY_PNG_DATA_URL }),
-    fakeEnv({ IMAGE_BUCKET: bucket })
-  );
-  assert.equal(response.status, 401);
-  assert.equal((await response.json()).code, 'unauthorized');
-  assert.equal(bucket.store.size, 0);
-});
-
-test('POST /gallery stores the image and GET /gallery/:id round-trips it', async () => {
-  const bucket = fakeBucket();
-
-  const saveResponse = await worker.fetch(
-    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat', seed: 7 } }),
-    galleryEnv(bucket)
-  );
-  const saved = await saveResponse.json();
-  assert.equal(saveResponse.status, 201);
-  assert.match(saved.id, /\.png$/);
-  assert.equal(saved.url, `/gallery/${saved.id}`);
-  assert.equal(saved.shareUrl, `/share/${saved.id}`);
-  assert.equal(saved.storage.image, 'R2');
-  assert.equal(saved.storage.metadata, 'R2 JSON');
-  assert.equal(bucket.store.size, 2);
-  assert.equal(bucket.store.has(`gallery/${saved.id}`), true);
-  assert.equal(bucket.store.has(`gallery-meta/${saved.id}.json`), true);
-
-  const getResponse = await worker.fetch(
-    new Request(`https://example.test/gallery/${saved.id}`, { method: 'GET' }),
-    galleryEnv(bucket)
-  );
-  assert.equal(getResponse.status, 200);
-  assert.equal(getResponse.headers.get('content-type'), 'image/png');
-  const bytes = new Uint8Array(await getResponse.arrayBuffer());
-  assert.ok(bytes.length > 0);
-});
-
-test('POST /gallery keeps prompt private by default and only stores it when explicitly public', async () => {
-  const privateBucket = fakeBucket();
-  const privateResponse = await worker.fetch(
-    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', seed: 7 } }),
-    galleryEnv(privateBucket)
-  );
-  const privateSaved = await privateResponse.json();
-  const privateMeta = JSON.parse(privateBucket.store.get(`gallery-meta/${privateSaved.id}.json`).value);
-  assert.equal(privateSaved.promptPublic, false);
-  assert.equal(privateMeta.promptPublic, false);
-  assert.equal(Object.hasOwn(privateMeta.metadata, 'prompt'), false);
-
-  const publicBucket = fakeBucket();
-  const publicResponse = await worker.fetch(
-    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'public prompt', promptPublic: true, visibility: 'public' } }),
-    galleryEnv(publicBucket)
-  );
-  const publicSaved = await publicResponse.json();
-  const publicMeta = JSON.parse(publicBucket.store.get(`gallery-meta/${publicSaved.id}.json`).value);
-  assert.equal(publicSaved.promptPublic, true);
-  assert.equal(publicSaved.visibility, 'public');
-  assert.equal(publicMeta.metadata.prompt, 'public prompt');
-});
-
-test('GET /api/gallery requires admin token and lists cloud metadata without delete hashes', async () => {
-  const bucket = fakeBucket();
-  const env = galleryEnv(bucket, { GALLERY_ADMIN_TOKEN: 'admin-secret' });
-  const first = await worker.fetch(
-    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { title: '第一張', prompt: 'private prompt', model: 'schnell', size: 'square' } }),
-    env
-  );
-  const second = await worker.fetch(
-    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { title: '第二張', prompt: 'public prompt', promptPublic: true, visibility: 'public', seed: 9, mode: 'agent' } }),
-    env
-  );
-  const firstSaved = await first.json();
-  const secondSaved = await second.json();
-
-  const noToken = await worker.fetch(new Request('https://example.test/api/gallery', { method: 'GET' }), env);
-  assert.equal(noToken.status, 401);
-  assert.equal((await noToken.json()).code, 'unauthorized');
-
-  const disabled = await worker.fetch(
-    new Request('https://example.test/api/gallery', { method: 'GET', headers: { 'X-Gallery-Admin-Token': 'admin-secret' } }),
-    galleryEnv(bucket)
-  );
-  assert.equal(disabled.status, 503);
-  assert.equal((await disabled.json()).code, 'admin_gallery_disabled');
-
-  const listed = await worker.fetch(
-    new Request('https://example.test/api/gallery?limit=1', { method: 'GET', headers: { 'X-Gallery-Admin-Token': 'admin-secret' } }),
-    env
-  );
-  const data = await listed.json();
-  const body = JSON.stringify(data);
-  assert.equal(listed.status, 200);
-  assert.equal(data.items.length, 1);
-  assert.equal(data.truncated, true);
-  assert.equal(typeof data.cursor, 'string');
-  assert.equal(data.items[0].imageUrl.startsWith('/gallery/'), true);
-  assert.equal(data.items[0].shareUrl.startsWith('/share/'), true);
-  assert.equal(body.includes('deleteTokenHash'), false);
-  assert.equal(body.includes('private prompt'), false);
-
-  const listedAll = await worker.fetch(
-    new Request('https://example.test/api/gallery', { method: 'GET', headers: { 'X-Gallery-Admin-Token': 'admin-secret' } }),
-    env
-  );
-  const allData = await listedAll.json();
-  assert.equal(listedAll.status, 200);
-  assert.deepEqual(new Set(allData.items.map((item) => item.id)), new Set([firstSaved.id, secondSaved.id]));
-  assert.equal(allData.items.some((item) => item.promptPublic === true && item.visibility === 'public' && item.mode === 'agent'), true);
-});
-
-test('DELETE /gallery/:id deletes image and metadata only with the owner delete token', async () => {
-  const bucket = fakeBucket();
-  const saveResponse = await worker.fetch(
-    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'delete me', seed: 7 } }),
-    galleryEnv(bucket)
-  );
-  const saved = await saveResponse.json();
-  const deleteUrl = new URL(`https://example.test${saved.deleteUrl}`);
-  const deleteToken = deleteUrl.searchParams.get('deleteToken');
-  const metaBefore = JSON.parse(bucket.store.get(`gallery-meta/${saved.id}.json`).value);
-
-  assert.equal(saveResponse.status, 201);
-  assert.equal(typeof saved.deleteUrl, 'string');
-  assert.match(saved.deleteUrl, new RegExp(`^/gallery/${saved.id}/delete\\?deleteToken=`));
-  assert.equal(typeof deleteToken, 'string');
-  assert.equal(JSON.stringify(metaBefore).includes(deleteToken), false);
-  assert.equal(typeof metaBefore.deleteTokenHash, 'string');
-
-  const deletePage = await worker.fetch(
-    new Request(`https://example.test${saved.deleteUrl}`, { method: 'GET' }),
-    galleryEnv(bucket)
-  );
-  const deletePageHtml = await deletePage.text();
-  assert.equal(deletePage.status, 200);
-  assert.match(deletePageHtml, /刪除雲端作品/);
-  assert.match(deletePageHtml, /確認刪除雲端作品/);
-  assert.match(deletePageHtml, /method: 'DELETE'/);
-  assert.equal(bucket.store.size, 2, 'opening the delete page must not delete the work');
-
-  const invalidDeletePage = await worker.fetch(
-    new Request(`https://example.test/gallery/${saved.id}/delete?deleteToken=bad-token`, { method: 'GET' }),
-    galleryEnv(bucket)
-  );
-  const invalidDeletePageHtml = await invalidDeletePage.text();
-  assert.equal(invalidDeletePage.status, 401);
-  assert.match(invalidDeletePageHtml, /刪除授權無效/);
-
-  const missingToken = await worker.fetch(
-    new Request(`https://example.test/gallery/${saved.id}`, { method: 'DELETE' }),
-    galleryEnv(bucket)
-  );
-  assert.equal(missingToken.status, 401);
-  assert.equal(bucket.store.size, 2);
-
-  const badToken = await worker.fetch(
-    new Request(`https://example.test/gallery/${saved.id}?deleteToken=bad-token`, { method: 'DELETE' }),
-    galleryEnv(bucket)
-  );
-  assert.equal(badToken.status, 401);
-  assert.equal(bucket.store.size, 2);
-
-  const deleted = await worker.fetch(
-    new Request(`https://example.test/gallery/${saved.id}?deleteToken=${encodeURIComponent(deleteToken)}`, { method: 'DELETE' }),
-    galleryEnv(bucket)
-  );
-  const deletedBody = await deleted.json();
-  assert.equal(deleted.status, 200);
-  assert.equal(deletedBody.deleted, true);
-  assert.equal(bucket.store.has(`gallery/${saved.id}`), false);
-  assert.equal(bucket.store.has(`gallery-meta/${saved.id}.json`), false);
-
-  const afterDelete = await worker.fetch(
-    new Request(`https://example.test/gallery/${saved.id}`, { method: 'GET' }),
-    galleryEnv(bucket)
-  );
-  assert.equal(afterDelete.status, 404);
-});
-
-test('GET /share/:id hides prompts by default and only renders public prompts', async () => {
-  const privateBucket = fakeBucket();
-  const privateResponse = await worker.fetch(
-    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'secret prompt', model: 'schnell', size: 'square', style: 'realistic', useCase: 'social' } }),
-    galleryEnv(privateBucket)
-  );
-  const privateSaved = await privateResponse.json();
-  const privateShare = await worker.fetch(
-    new Request(`https://example.test/share/${privateSaved.id}`, { method: 'GET' }),
-    galleryEnv(privateBucket)
-  );
-  const privateHtml = await privateShare.text();
-  assert.equal(privateShare.status, 200);
-  assert.match(privateHtml, /此作品未公開完整 prompt/);
-  assert.match(privateHtml, /仍可套用公開設定/);
-  assert.match(privateHtml, /Prompt：隱藏/);
-  assert.match(privateHtml, /套用公開設定再生成/);
-  assert.match(privateHtml, /複製模板設定/);
-  assert.match(privateHtml, /model=schnell/);
-  assert.match(privateHtml, /size=square/);
-  assert.match(privateHtml, /style=realistic/);
-  assert.match(privateHtml, /useCase=social/);
-  assert.doesNotMatch(privateHtml, /secret prompt/);
-  assert.doesNotMatch(privateHtml, /prompt=/);
-  assert.match(privateHtml, /noindex,nofollow/);
-
-  const publicBucket = fakeBucket();
-  const publicResponse = await worker.fetch(
-    signedGalleryRequest({
-      image: TINY_PNG_DATA_URL,
-      meta: {
-        title: '測試作品標題',
-        prompt: 'public <prompt>',
-        promptPublic: true,
-        visibility: 'public',
-        seed: 9,
-        mode: 'agent',
-        model: 'schnell',
-        size: 'landscape',
-        style: 'cinematic',
-        styleLabel: '電影感',
-        useCase: 'ppt',
-        useCaseLabel: '簡報插圖',
-      },
-    }),
-    galleryEnv(publicBucket)
-  );
-  const publicSaved = await publicResponse.json();
-  const publicShare = await worker.fetch(
-    new Request(`https://example.test/share/${publicSaved.id}`, { method: 'GET' }),
-    galleryEnv(publicBucket)
-  );
-  const publicHtml = await publicShare.text();
-  assert.equal(publicShare.status, 200);
-  assert.match(publicHtml, /測試作品標題/);
-  assert.match(publicHtml, /public &lt;prompt&gt;/);
-  assert.doesNotMatch(publicHtml, /public <prompt>/);
-  assert.match(publicHtml, /複製 prompt 模板/);
-  assert.match(publicHtml, /複製模板設定/);
-  assert.match(publicHtml, /用這個 prompt 再生成/);
-  assert.match(publicHtml, /prompt=public\+%3Cprompt%3E/);
-  assert.match(publicHtml, /style=cinematic/);
-  assert.match(publicHtml, /useCase=ppt/);
-  assert.match(publicHtml, /智慧體模式/);
-  assert.match(publicHtml, /風格：電影感/);
-  assert.match(publicHtml, /用途：簡報插圖/);
-  assert.match(publicHtml, /Prompt：公開/);
-  assert.match(publicHtml, /index,follow/);
-});
-
-test('GET /share/:id does not leak sensitive metadata fields even if R2 metadata is polluted', async () => {
-  const bucket = fakeBucket();
-  const response = await worker.fetch(
-    signedGalleryRequest({
-      image: TINY_PNG_DATA_URL,
-      meta: {
-        title: '安全分享測試',
-        prompt: 'visible public prompt',
-        promptPublic: true,
-        visibility: 'public',
-        model: 'schnell',
-        size: 'square',
-      },
-    }),
-    galleryEnv(bucket)
-  );
-  const saved = await response.json();
-  const metaKey = `gallery-meta/${saved.id}.json`;
-  const stored = JSON.parse(bucket.store.get(metaKey).value);
-
-  stored.deleteTokenHash = 'secret-delete-token-hash';
-  stored.deleteUrl = `/gallery/${saved.id}/delete?deleteToken=raw-delete-token`;
-  stored.metadata.providerPrompt = 'secret provider prompt';
-  stored.metadata.negativePrompt = 'secret negative prompt';
-  stored.metadata.apiKey = 'sk-live-secret-key';
-  stored.metadata.nvidiaApiKey = 'nvapi-secret-key';
-  stored.metadata.cloudDeleteUrl = `/gallery/${saved.id}/delete?deleteToken=cloud-delete-secret`;
-  stored.metadata.deleteTokenHash = 'nested-delete-token-hash';
-  stored.metadata.localImageData = 'data:image/png;base64,secret-local-image';
-  bucket.store.set(metaKey, { value: JSON.stringify(stored), options: { httpMetadata: { contentType: 'application/json' } } });
-
-  const share = await worker.fetch(
-    new Request(`https://example.test/share/${saved.id}`, { method: 'GET' }),
-    galleryEnv(bucket)
-  );
-  const html = await share.text();
-
-  assert.equal(share.status, 200);
-  assert.match(html, /visible public prompt/);
-  assert.match(html, /安全分享測試/);
-  assert.doesNotMatch(html, /secret-delete-token-hash/);
-  assert.doesNotMatch(html, /raw-delete-token/);
-  assert.doesNotMatch(html, /cloud-delete-secret/);
-  assert.doesNotMatch(html, /secret provider prompt/);
-  assert.doesNotMatch(html, /secret negative prompt/);
-  assert.doesNotMatch(html, /sk-live-secret-key/);
-  assert.doesNotMatch(html, /nvapi-secret-key/);
-  assert.doesNotMatch(html, /nested-delete-token-hash/);
-  assert.doesNotMatch(html, /secret-local-image/);
-  assert.doesNotMatch(html, /deleteToken/i);
-  assert.doesNotMatch(html, /providerPrompt/);
-  assert.doesNotMatch(html, /apiKey/);
-});
-
-test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', async () => {
-  const bucket = fakeBucket();
-  const env = fakeEnv({ IMAGE_BUCKET: bucket, GALLERY_TOKEN_SECRET: 'test-secret' });
-
-  const noToken = await worker.fetch(jsonRequest('/gallery', { image: TINY_PNG_DATA_URL }), env);
-  assert.equal(noToken.status, 401);
-  assert.equal((await noToken.json()).code, 'unauthorized');
-
-  const badToken = await worker.fetch(
-    new Request('https://example.test/gallery', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Gallery-Token': `${Date.now()}.deadbeef` },
-      body: JSON.stringify({ image: TINY_PNG_DATA_URL }),
-    }),
-    env
-  );
-  assert.equal(badToken.status, 401);
-
-  // A token minted by /generate (demo path, no NVIDIA key needed) is accepted.
-  const gen = await worker.fetch(jsonRequest('/generate', { prompt: 'a cat' }), env);
-  const genData = await gen.json();
-  assert.equal(typeof genData.galleryToken, 'string');
-
-  const withToken = await worker.fetch(
-    new Request('https://example.test/gallery', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Gallery-Token': genData.galleryToken },
-      body: JSON.stringify({ image: TINY_PNG_DATA_URL }),
-    }),
-    env
-  );
-  assert.equal(withToken.status, 201);
-  assert.equal([...bucket.store.keys()].filter((key) => key.startsWith('gallery')).length, 2);
-});
-
-test('POST /gallery accepts a realistic-size image larger than the generic 64KB JSON cap', async () => {
-  const bucket = fakeBucket();
-  // ~150KB of valid base64 (no interior padding) — matches a real 1024×1024
-  // generation, which the old shared 64KB readJsonPayload cap rejected.
-  const bigImage = 'data:image/png;base64,' + 'QUJD'.repeat(38400);
-
-  const response = await worker.fetch(
-    signedGalleryRequest({ image: bigImage, meta: { prompt: 'big qa image' } }),
-    galleryEnv(bucket)
-  );
-  const data = await response.json();
-  assert.equal(response.status, 201);
-  assert.match(data.id, /\.png$/);
-  assert.equal(bucket.store.size, 2);
-});
-
-test('GET /gallery/:id returns 404 for an unknown id', async () => {
-  const response = await worker.fetch(
-    new Request('https://example.test/gallery/does-not-exist.png', { method: 'GET' }),
-    fakeEnv({ IMAGE_BUCKET: fakeBucket() })
-  );
-  const data = await response.json();
-  assert.equal(response.status, 404);
-  assert.equal(data.code, 'not_found');
-});
-
-test('POST /gallery rejects a non-data-URL image', async () => {
-  const bucket = fakeBucket();
-  const response = await worker.fetch(
-    signedGalleryRequest({ image: 'https://example.test/not-allowed.png' }),
-    galleryEnv(bucket)
-  );
-  const data = await response.json();
-  assert.equal(response.status, 400);
-  assert.equal(data.code, 'bad_request');
+test('retired cloud gallery and share routes return 404 without touching storage', async () => {
+  for (const request of [
+    jsonRequest('/gallery', { image: 'data:image/png;base64,ZmFrZQ==' }),
+    new Request('https://example.test/gallery/old.png'),
+    new Request('https://example.test/share/old.png'),
+    new Request('https://example.test/api/gallery'),
+  ]) {
+    const response = await worker.fetch(request, fakeEnv());
+    assert.equal(response.status, 404);
+    assert.equal((await response.json()).code, 'not_found');
+  }
 });
 
 test('POST /generate/batch returns an images array of the requested count', async () => {
@@ -2433,7 +1993,7 @@ test('POST /generate/batch returns partial successes and records every image att
     { image: 'iVBORw0KGgo=' },
     { image: 'iVBORw0KGgo=' },
   ]);
-  const env = fakeEnv({ AI: ai, GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const env = fakeEnv({ AI: ai, USAGE_ADMIN_TOKEN: 'admin-secret' });
   const response = await worker.fetch(
     jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 4 }),
     env
@@ -2461,7 +2021,7 @@ test('POST /generate/batch returns non-2xx when every image fails', async () => 
     new Error('NSFW content detected'),
     new Error('NSFW content detected'),
   ]);
-  const env = fakeEnv({ AI: ai, GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const env = fakeEnv({ AI: ai, USAGE_ADMIN_TOKEN: 'admin-secret' });
   const response = await worker.fetch(
     jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
     env
@@ -2734,7 +2294,7 @@ test('POST /generate model=schnell maps a Workers AI timeout to a clean 504', as
   const ai = fakeAi(Object.assign(new Error('hang'), { name: 'TimeoutError' }));
   const env = fakeEnv({
     AI: ai,
-    GALLERY_ADMIN_TOKEN: 'admin-secret',
+    USAGE_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.01',
   });
   const response = await worker.fetch(

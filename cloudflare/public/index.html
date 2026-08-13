@@ -640,10 +640,6 @@
           <input id="historyFavoritesOnly" type="checkbox">
           <span>只看收藏</span>
         </label>
-        <label class="tutorial-check" for="historyCloudOnly">
-          <input id="historyCloudOnly" type="checkbox">
-          <span>只看雲端</span>
-        </label>
       </div>
       <div id="historyBatchBar" class="history-batch-bar" hidden>
         <span id="historySelectionCount">尚未選取作品</span>
@@ -663,12 +659,12 @@
         <div>
           <span class="section-kicker">站長工具</span>
           <h2>成本 Dashboard</h2>
-          <p>查看所選 UTC 日期的生成次數、供應商嘗試、失敗率、估計成本與異常提醒。需輸入站長 Token；此摘要不保存提示詞、圖片內容或原始 IP。</p>
+          <p>查看目前 Worker 執行個體的生成次數、供應商嘗試、失敗率與估計成本。需輸入站長 Token；資料只暫存在記憶體並寫入結構化日誌，不保存提示詞、圖片內容或原始 IP。</p>
         </div>
         <div class="history-actions usage-query-controls">
-          <label class="field" for="galleryAdminToken">
+          <label class="field" for="usageAdminToken">
             <span class="field-label">站長 Token</span>
-            <input id="galleryAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 GALLERY_ADMIN_TOKEN" aria-label="用量與雲端圖庫站長 Token">
+            <input id="usageAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 USAGE_ADMIN_TOKEN" aria-label="用量站長 Token">
           </label>
           <label class="field" for="usageDate">
             <span class="field-label">查詢日期（UTC）</span>
@@ -707,35 +703,6 @@
           <div id="usageByError" class="usage-table" role="table" aria-label="錯誤碼統計"></div>
         </section>
       </div>
-      <section class="gallery-admin-card" aria-label="站長雲端圖庫管理">
-        <div class="gallery-admin-head">
-          <div>
-            <h3>◇ 雲端圖庫管理</h3>
-            <p>用 Worker secret <code>GALLERY_ADMIN_TOKEN</code> 讀取 R2 metadata 清單；此工具不會暴露刪除 token hash，也不會顯示未公開的完整 prompt。</p>
-          </div>
-          <span id="galleryAdminCount" class="gallery-admin-count">尚未載入</span>
-        </div>
-        <div class="gallery-admin-controls">
-          <button id="refreshGalleryAdmin" class="btn mini secondary" type="button">讀取雲端圖庫</button>
-          <button id="galleryAdminNext" class="btn mini secondary" type="button" disabled>載入下一頁</button>
-        </div>
-        <div class="gallery-admin-filters" aria-label="雲端圖庫篩選">
-          <input id="galleryAdminSearch" class="text-input" type="search" placeholder="搜尋標題、id、模型或尺寸" aria-label="搜尋雲端圖庫">
-          <select id="galleryAdminVisibility" class="text-input" aria-label="篩選公開狀態">
-            <option value="">所有公開狀態</option>
-            <option value="public">公開</option>
-            <option value="private">非公開</option>
-          </select>
-          <select id="galleryAdminPromptPublic" class="text-input" aria-label="篩選 Prompt 公開狀態">
-            <option value="">所有 Prompt 狀態</option>
-            <option value="true">Prompt 公開</option>
-            <option value="false">Prompt 隱藏</option>
-          </select>
-          <input id="galleryAdminModel" class="text-input" type="search" placeholder="模型篩選，例如 schnell" aria-label="依模型篩選">
-        </div>
-        <div id="galleryAdminStatus" class="status" role="status" aria-live="polite" aria-atomic="true">尚未讀取雲端圖庫。</div>
-        <div id="galleryAdminList" class="gallery-admin-list" aria-live="polite"></div>
-      </section>
     </section>
     </div><!-- /panel-usage -->
 
@@ -779,14 +746,6 @@
             <h3>版本</h3>
             <div id="historyVersionList" class="version-list"></div>
           </section>
-          <section id="historyCloudSection" hidden>
-            <h3>雲端保存</h3>
-            <p id="historyCloudMeta"></p>
-            <div class="history-cloud-actions">
-              <a id="openHistoryCloudShare" class="btn secondary" href="#" target="_blank" rel="noopener">開啟分享頁</a>
-              <a id="openHistoryCloudDelete" class="btn danger" href="#" target="_blank" rel="noopener">開啟刪除頁</a>
-            </div>
-          </section>
         </div>
         <label class="form-field" for="historyTagEditor">
           <span>標籤</span>
@@ -797,7 +756,7 @@
           <input id="hidePromptInShare" type="checkbox">
           <span>分享時隱藏提示詞</span>
         </label>
-        <p class="custom-ideas-copy">匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定，且可能包含雲端分享或刪除連結；公開前請先檢查。</p>
+        <p class="custom-ideas-copy">匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定；公開前請先檢查。</p>
         <div class="modal-actions">
           <button id="downloadHistoryDetail" class="btn secondary" type="button">下載圖片</button>
           <button id="copyHistoryPrompt" class="btn secondary" type="button">複製提示詞</button>

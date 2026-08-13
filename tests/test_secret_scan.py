@@ -37,7 +37,7 @@ def test_secret_scan_allows_documented_env_var_names_and_placeholders():
             "請設定 NVIDIA_API_KEY 與 GEMINI_API_KEY。",
             'GEMINI_API_KEY="REPLACE_WITH_REAL_SECRET"',
             'TURNSTILE_SECRET_KEY="<turnstile-secret>"',
-            'GALLERY_ADMIN_TOKEN="placeholder-admin-token"',
+            'USAGE_ADMIN_TOKEN="placeholder-admin-token"',
         ]
     )
 
@@ -50,7 +50,7 @@ def test_secret_scan_rejects_sensitive_assignment_and_local_storage():
     text = "\n".join(
         [
             'GEMINI_API_KEY="live-secret-value"',
-            "window.localStorage.setItem('GALLERY_ADMIN_TOKEN', token);",
+            "window.localStorage.setItem('USAGE_ADMIN_TOKEN', token);",
         ]
     )
 

@@ -4,7 +4,7 @@
   var records = [];
   var selectedRecordId = '';
   var selectedRecordIds = {};
-  var filters = { query: '', model: '', size: '', dateFrom: '', dateTo: '', favoritesOnly: false, cloudOnly: false };
+  var filters = { query: '', model: '', size: '', dateFrom: '', dateTo: '', favoritesOnly: false };
 
   function el(id) {
     return document.getElementById(id);
@@ -47,16 +47,6 @@
     button.className = className || 'btn secondary';
     button.textContent = label;
     return button;
-  }
-
-  function makeAnchor(label, href, className) {
-    var anchor = document.createElement('a');
-    anchor.className = className || 'btn secondary';
-    anchor.textContent = label;
-    anchor.href = href;
-    anchor.target = '_blank';
-    anchor.rel = 'noopener';
-    return anchor;
   }
 
   function copyWithApp(text) {
@@ -119,13 +109,6 @@
       return source;
     }
     throw new Error('歷史圖片網址格式不正確');
-  }
-
-  function safeCloudUrl(value) {
-    var source = toText(value);
-    if (source.indexOf('https://') === 0 || source.indexOf('http://') === 0) { return source; }
-    if (source.charAt(0) === '/' && source.indexOf('//') !== 0) { return source; }
-    return '';
   }
 
   function downloadHistoryImage(record) {
@@ -257,7 +240,6 @@
     if (filters.dateFrom && (!recordDateKey(sourceRecord) || recordDateKey(sourceRecord) < filters.dateFrom)) { return false; }
     if (filters.dateTo && (!recordDateKey(sourceRecord) || recordDateKey(sourceRecord) > filters.dateTo)) { return false; }
     if (filters.favoritesOnly && sourceRecord.favorite !== true) { return false; }
-    if (filters.cloudOnly && !safeCloudUrl(sourceRecord.cloudShareUrl) && !safeCloudUrl(sourceRecord.cloudDeleteUrl)) { return false; }
     if (!query) { return true; }
     for (i = 0; i < tags.length; i += 1) {
       tagText += ' ' + tags[i];
@@ -265,8 +247,6 @@
     searchable = [
       toText(sourceRecord.prompt),
       toText(sourceRecord.providerPrompt),
-      toText(sourceRecord.cloudShareUrl),
-      toText(sourceRecord.cloudDeleteUrl),
       tagText
     ].join(' ').toLowerCase();
     return searchable.indexOf(query) !== -1;
@@ -279,14 +259,12 @@
     var dateFrom = el('historyDateFrom');
     var dateTo = el('historyDateTo');
     var favoritesOnly = el('historyFavoritesOnly');
-    var cloudOnly = el('historyCloudOnly');
     filters.query = search ? toText(search.value) : '';
     filters.model = model ? toText(model.value) : '';
     filters.size = size ? toText(size.value) : '';
     filters.dateFrom = dateFrom ? toText(dateFrom.value) : '';
     filters.dateTo = dateTo ? toText(dateTo.value) : '';
     filters.favoritesOnly = !!(favoritesOnly && favoritesOnly.checked);
-    filters.cloudOnly = !!(cloudOnly && cloudOnly.checked);
     renderHistoryWall();
   }
 
@@ -454,148 +432,6 @@
     if (node) { node.textContent = toText(value); }
   }
 
-  function renderCloudLinks(record) {
-    var section = el('historyCloudSection');
-    var meta = el('historyCloudMeta');
-    var share = el('openHistoryCloudShare');
-    var remove = el('openHistoryCloudDelete');
-    var shareUrl = safeCloudUrl(record && record.cloudShareUrl);
-    var deleteUrl = safeCloudUrl(record && record.cloudDeleteUrl);
-    var parts = [];
-    if (!section) { return; }
-    if (!shareUrl && !deleteUrl) {
-      section.hidden = true;
-      if (share) { share.removeAttribute('href'); }
-      if (remove) { remove.removeAttribute('href'); }
-      return;
-    }
-    section.hidden = false;
-    if (share) {
-      share.hidden = !shareUrl;
-      if (shareUrl) { share.href = shareUrl; } else { share.removeAttribute('href'); }
-    }
-    if (remove) {
-      remove.hidden = !deleteUrl;
-      if (deleteUrl) { remove.href = deleteUrl; } else { remove.removeAttribute('href'); }
-    }
-    parts.push('已保存到：' + (toText(record.cloudStorage) || 'R2'));
-    parts.push('Prompt：' + (record.cloudPromptPublic ? '公開' : '隱藏'));
-    if (record.cloudSavedAt) { parts.push('保存時間：' + toText(record.cloudSavedAt)); }
-    if (meta) { meta.textContent = parts.join(' · '); }
-  }
-
-  function getCloudRecords() {
-    var cloudRecords = [];
-    var i;
-    var record;
-    for (i = 0; i < records.length; i += 1) {
-      record = normalizeRecordForUi(records[i]);
-      if (record && (safeCloudUrl(record.cloudShareUrl) || safeCloudUrl(record.cloudDeleteUrl))) {
-        cloudRecords.push(record);
-      }
-    }
-    return cloudRecords;
-  }
-
-  function copyCloudRecordLink(record, fieldName) {
-    var sourceRecord = normalizeRecordForUi(record);
-    var value = safeCloudUrl(sourceRecord && sourceRecord[fieldName]);
-    if (!value) {
-      setAppStatus('沒有可複製的雲端連結', 'warn');
-      return;
-    }
-    copyWithApp(value).then(function () {
-      setAppStatus(fieldName === 'cloudDeleteUrl' ? '已複製雲端刪除連結' : '已複製雲端分享連結', 'done');
-    }).catch(function (error) {
-      setAppStatus('複製失敗：' + error.message, 'fail');
-    });
-  }
-
-  function appendCloudMeta(parent, label) {
-    var item = document.createElement('span');
-    item.textContent = label;
-    parent.appendChild(item);
-  }
-
-  function createCloudRecordCard(record) {
-    var card = document.createElement('article');
-    var thumb = document.createElement('img');
-    var body = document.createElement('div');
-    var title = document.createElement('p');
-    var meta = document.createElement('div');
-    var actions = document.createElement('div');
-    var shareUrl = safeCloudUrl(record.cloudShareUrl);
-    var deleteUrl = safeCloudUrl(record.cloudDeleteUrl);
-    var detail = makeButton('詳情', 'btn mini secondary');
-    var copyShare = makeButton('複製分享', 'btn mini secondary');
-    var copyDelete = makeButton('複製刪除', 'btn mini danger');
-    var share;
-    var remove;
-
-    card.className = 'cloud-record-card';
-    thumb.className = 'cloud-record-thumb';
-    thumb.src = toText(record.thumbnail || record.image);
-    thumb.alt = '雲端作品預覽';
-    body.className = 'cloud-record-body';
-    title.className = 'cloud-record-title';
-    title.textContent = toText(record.prompt || record.providerPrompt) || '未命名雲端作品';
-    meta.className = 'cloud-record-meta';
-    appendCloudMeta(meta, record.cloudPromptPublic ? 'Prompt 公開' : 'Prompt 隱藏');
-    appendCloudMeta(meta, toText(record.cloudStorage) || 'R2');
-    if (record.cloudSavedAt) { appendCloudMeta(meta, '保存：' + toText(record.cloudSavedAt)); }
-    actions.className = 'cloud-record-actions';
-
-    detail.addEventListener('click', function () {
-      openHistoryDetail(record);
-    });
-    actions.appendChild(detail);
-
-    if (shareUrl) {
-      share = makeAnchor('開啟分享頁', shareUrl, 'btn mini secondary');
-      actions.appendChild(share);
-      copyShare.addEventListener('click', function () { copyCloudRecordLink(record, 'cloudShareUrl'); });
-      actions.appendChild(copyShare);
-    }
-    if (deleteUrl) {
-      remove = makeAnchor('開啟刪除頁', deleteUrl, 'btn mini danger');
-      actions.appendChild(remove);
-      copyDelete.addEventListener('click', function () { copyCloudRecordLink(record, 'cloudDeleteUrl'); });
-      actions.appendChild(copyDelete);
-    }
-
-    body.appendChild(title);
-    body.appendChild(meta);
-    body.appendChild(actions);
-    card.appendChild(thumb);
-    card.appendChild(body);
-    return card;
-  }
-
-  function renderCloudLibrary() {
-    var library = el('cloudLibrary');
-    var list = el('cloudRecordList');
-    // 面板已移除時提早收工，避免多做一次 getCloudRecords() 全掃描。
-    if (!library || !list) { return; }
-    var countNode = el('cloudLibraryCount');
-    var cloudRecords = getCloudRecords();
-    var empty;
-    var i;
-    clearNode(list);
-    if (countNode) {
-      countNode.textContent = String(cloudRecords.length) + ' 筆雲端作品';
-    }
-    if (!cloudRecords.length) {
-      empty = document.createElement('div');
-      empty.className = 'cloud-record-empty';
-      empty.textContent = '尚無雲端作品。生成成功後點「存到雲端」，分享與刪除連結會保存在這裡。';
-      list.appendChild(empty);
-      return;
-    }
-    for (i = 0; i < cloudRecords.length; i += 1) {
-      list.appendChild(createCloudRecordCard(cloudRecords[i]));
-    }
-  }
-
   function openHistoryDetail(record) {
     var sourceRecord = normalizeRecordForUi(record);
     var modal = el('historyDetailModal');
@@ -621,7 +457,6 @@
     setDetailText('historyDetailProviderPrompt', sourceRecord.providerPrompt);
     setDetailText('historyDetailMeta', formatHistoryMeta(sourceRecord));
     setDetailText('historyDetailQaReport', formatQaReport(sourceRecord));
-    renderCloudLinks(sourceRecord);
     if (tagEditor) {
       tagEditor.value = getRecordTags(sourceRecord).join(', ');
     }
@@ -670,7 +505,6 @@
   function buildShareText(record, hidePrompt) {
     var sourceRecord = normalizeRecordForUi(record);
     var lines = [];
-    var cloudShareUrl;
     if (!sourceRecord) { return ''; }
     lines.push('AI 圖片作品');
     lines.push('畫質：' + qualityLabel(sourceRecord));
@@ -678,8 +512,6 @@
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
     if (sourceRecord.provider) { lines.push('Provider：' + toText(sourceRecord.provider)); }
-    cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
-    if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
     if (!hidePrompt) {
       lines.push('中文描述：' + toText(sourceRecord.prompt));
       lines.push('英文提示詞：' + toText(sourceRecord.providerPrompt));
@@ -724,7 +556,7 @@
       setAppStatus('作品資料格式不正確，無法匯出', 'fail');
       return;
     }
-    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定。公開分享前請先檢查內容，確定要匯出？')) {
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
@@ -742,7 +574,7 @@
       }
       root.URL.revokeObjectURL(url);
     }
-    setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+    setAppStatus('已匯出備份檔；檔案包含完整描述與生成設定，公開分享前請先檢查。', 'done');
   }
 
   function switchToGenerateTab() {
@@ -910,7 +742,7 @@
     });
     remove.addEventListener('click', function (event) {
       event.stopPropagation();
-      if (confirmAction('確定要刪除這張作品嗎？此動作無法復原（雲端作品不受影響）。')) {
+      if (confirmAction('確定要刪除這張本機作品嗎？此動作無法復原。')) {
         deleteHistoryRecord(record.id);
       }
     });
@@ -942,7 +774,6 @@
 
     // 更新歷史分頁上的數量徽章（總數，與篩選無關）。
     if (typeof root.setHistoryCount === 'function') { root.setHistoryCount(records.length); }
-    renderCloudLibrary();
     if (!records.length) {
       empty = document.createElement('div');
       empty.className = 'history-empty';
@@ -1089,7 +920,6 @@
     var historyDateFrom = el('historyDateFrom');
     var historyDateTo = el('historyDateTo');
     var historyFavoritesOnly = el('historyFavoritesOnly');
-    var historyCloudOnly = el('historyCloudOnly');
     var selectVisible = el('selectVisibleHistory');
     var deleteSelected = el('deleteSelectedHistory');
     var clearSelection = el('clearHistorySelection');
@@ -1128,6 +958,7 @@
         var record = getSelectedRecord();
         if (!record) { return; }
         if (root.ImageGenApp && typeof root.ImageGenApp.lockCompositionFromRecord === 'function') {
+          if (!switchToGenerateTab()) { return; }
           if (root.ImageGenApp.lockCompositionFromRecord(record)) {
             closeHistoryDetail();
           }
@@ -1151,9 +982,6 @@
     }
     if (historyFavoritesOnly) {
       historyFavoritesOnly.addEventListener('change', applyHistoryFilters);
-    }
-    if (historyCloudOnly) {
-      historyCloudOnly.addEventListener('change', applyHistoryFilters);
     }
     if (selectVisible) {
       selectVisible.addEventListener('click', selectVisibleHistory);
@@ -1195,9 +1023,6 @@
     deleteSelectedHistoryRecords: deleteSelectedHistoryRecords,
     toggleHistoryFavorite: toggleHistoryFavorite,
     saveHistoryTags: saveHistoryTags,
-    renderCloudLinks: renderCloudLinks,
-    renderCloudLibrary: renderCloudLibrary,
-    getCloudRecords: getCloudRecords,
     reloadHistoryAfterRecordUpdate: reloadHistoryAfterRecordUpdate,
     renderTagList: renderTagList
   };

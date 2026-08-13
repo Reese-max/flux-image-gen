@@ -2,7 +2,7 @@
 
 這份清單用於把本機 Demo／Cloudflare 預覽升級成可公開使用的產品站。每次上線前請逐項確認；不要把任何 secret 寫進前端 bundle、公開 repo 或 `wrangler.toml [vars]`。
 
-> 正式公開前還需要完成 `docs/release-acceptance-checklist.md`；該文件把真實網域、真機、Vision QA、R2 gallery save、分享隱私、Turnstile / Rate limit、成本、隱私政策、授權與商用說明等人工簽核項目列成 Release blocker。
+> 正式公開前還需要完成 `docs/release-acceptance-checklist.md`；該文件把真實網域、真機、Vision QA、本機歷史、圖片下載、Turnstile / Rate limit、成本、隱私政策、授權與商用說明等人工簽核項目列成 Release blocker。
 
 ## 1. 必要 secrets
 
@@ -12,18 +12,16 @@
 npx wrangler secret put NVIDIA_API_KEY
 npx wrangler secret put GEMINI_API_KEY
 npx wrangler secret put TURNSTILE_SECRET_KEY
-npx wrangler secret put GALLERY_TOKEN_SECRET
-npx wrangler secret put GALLERY_ADMIN_TOKEN
+npx wrangler secret put USAGE_ADMIN_TOKEN
 ```
 
 - `NVIDIA_API_KEY`：供 FLUX live 出圖使用。
 - `GEMINI_API_KEY`：供中文 prompt 補全／轉換／強化使用。
 - `VISION_QA_ENABLED`：生成後視覺 QA 走 NVIDIA VLM（共用 `NVIDIA_API_KEY`，不另外吃付費配額）。QA 是逐次勾選的，開啟只是讓選項出現；每次執行約多花 8 秒，逾時由 `VISION_QA_TIMEOUT_MS` 控制。
 - `TURNSTILE_SECRET_KEY`：後端驗證人機 token；驗證失敗不得呼叫模型。
-- `GALLERY_TOKEN_SECRET`：簽發短效雲端儲存 token；未設定時 `/gallery` 會拒絕寫入，因此公開站不得省略。
-- `GALLERY_ADMIN_TOKEN`：站長雲端圖庫 `GET /api/gallery` 使用；前端只由站長手動輸入並送 `X-Gallery-Admin-Token`，不可持久化到 `localStorage`。
+- `USAGE_ADMIN_TOKEN`：用於站長用量摘要 `GET /api/usage`；前端只由站長手動輸入並送 `X-Usage-Admin-Token`，不可持久化到 `localStorage`。
 
-正式 deploy 會透過專案鎖定的 Wrangler 唯讀執行 `secret list --format json`，並要求上述五個名稱全部存在。檢查只解析與輸出 secret 名稱，不讀取或顯示 secret 值；缺少任一名稱即在上傳前停止。
+正式 deploy 會透過專案鎖定的 Wrangler 唯讀執行 `secret list --format json`，並要求上述四個名稱全部存在。檢查只解析與輸出 secret 名稱，不讀取或顯示 secret 值；缺少任一名稱即在上傳前停止。
 
 ## 2. Public vars 與 Worker binding
 
@@ -31,20 +29,19 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 
 - `[assets]` 指向 `./public`，確保 SPA 與 `/static/*` 由 Worker assets 服務。
 - `[ai] binding = "AI"` 已存在，供 Workers AI FLUX.2 klein 快速模型與 AI 改圖使用。
-- `[[r2_buckets]] binding = "IMAGE_BUCKET"` 已存在，bucket 名稱為 `flux-image-gallery` 或正式環境指定名稱。
+- 不使用 R2；`wrangler.toml` 不得設定 `[[r2_buckets]]` 或 `IMAGE_BUCKET`。
 - `[[ratelimits]] name = "GENERATE_RATE_LIMITER"` 已存在，公開站必須保留後端硬限制。
 - `TURNSTILE_REQUIRED = "true"`、`TURNSTILE_SITE_KEY` 填入公開 site key；只有本機或內部預覽可暫時維持 `false`。
-- `USAGE_ESTIMATED_COST_USD_PER_IMAGE`、`USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 與 `USAGE_ALERT_DAILY_GENERATIONS` 已設定；prompt／Vision 單價未校準時維持 `0`，但 Provider 嘗試仍會持久記錄，不得誤稱為完整成本。
+- `USAGE_ESTIMATED_COST_USD_PER_IMAGE`、`USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 與 `USAGE_ALERT_DAILY_GENERATIONS` 已設定；prompt／Vision 單價未校準時維持 `0`。Worker 摘要只在目前執行個體記憶體暫存，結構化日誌仍保留；不得誤稱為持久或完整成本。
 - `[version_metadata] binding = "CF_VERSION_METADATA"` 已存在，讓 health／記錄可對應 Cloudflare Version ID。
 - `[observability]` 與 `[observability.logs]` 已啟用，並使用明確取樣率控制記錄量。
 - 部署設定只有 `cloudflare/wrangler.toml`；不得恢復 `wrangler.deploy.toml` 或部署被 Git 忽略的 `dist/_worker.bundle.js`。
 
 ## 3. 安全與隱私檢查
 
-- 前端 bundle 不得包含 `NVIDIA_API_KEY`、`GEMINI_API_KEY`、`TURNSTILE_SECRET_KEY`、`GALLERY_ADMIN_TOKEN`。
+- 前端 bundle 不得包含 `NVIDIA_API_KEY`、`GEMINI_API_KEY`、`TURNSTILE_SECRET_KEY`、`USAGE_ADMIN_TOKEN`。
 - `/api/health` 只能回公開 site key 與服務狀態，不得回 secret。
-- `/api/gallery` 必須要求 `X-Gallery-Admin-Token`，且回應不得包含 `deleteTokenHash`、刪除 token 或未公開完整 prompt。
-- 雲端保存預設 `promptPublic=false`；分享頁預設隱藏完整 prompt。
+- `/gallery`、`/gallery/*`、`/share/*` 與 `/api/gallery` 必須回 `404 not_found`，且程式不得綁定或寫入 R2。
 - Moderation 擋下高風險 prompt 後，不可把敏感全文寫入錯誤訊息或用量 log。
 - 用量 Dashboard 只顯示聚合資料；不得保存 prompt、圖片內容或原始 IP。
 
@@ -74,7 +71,7 @@ node cloudflare\scripts\check-deploy-readiness.mjs
 
 `npm run deploy` 與 `npm run deploy:dry-run` 都會先執行 `node scripts\verify.mjs`；正式 deploy 還會強制執行 `python scripts\check_deployment_preflight.py --public` 與 `check-deploy-readiness.mjs`。後者要求 Git worktree 完全乾淨（包含 staged、unstaged 與 untracked 檔案），再唯讀確認 production secrets，通過後才取得 HEAD 作為 tag／message；因此版本中繼資料一定對應實際上傳的已提交內容。Wrapper 固定部署 `wrangler.toml` 的 `flux-image-gen` production 與 `src/index.js`，外部唯一允許的參數是 `--dry-run`；`--env`、`--name`、`--config`、`--profile`、自訂 entrypoint、`--tag`、`--message` 等覆寫一律拒絕。不得以直接呼叫 `wrangler deploy` 規避 gate。
 
-`check:wrangler` 會先跑 `wrangler whoami`，再跑 `wrangler deploy --dry-run` 做登入與部署設定診斷；預設不輸出帳號 email / account id / token。若失敗，先處理 `npx wrangler login`、`CLOUDFLARE_API_TOKEN`、帳號權限、R2 bucket、AI binding 或 rate limit binding；需要更多診斷時可用 `npm --prefix cloudflare run check:wrangler -- --verbose`，輸出仍會遮罩敏感資訊。
+`check:wrangler` 會先跑 `wrangler whoami`，再跑 `wrangler deploy --dry-run` 做登入與部署設定診斷；預設不輸出帳號 email / account id / token。若失敗，先處理 `npx wrangler login`、`CLOUDFLARE_API_TOKEN`、帳號權限、AI binding 或 rate limit binding；需要更多診斷時可用 `npm --prefix cloudflare run check:wrangler -- --verbose`，輸出仍會遮罩敏感資訊。
 
 若 `check:wrangler` 回報 Wrangler / Node 子程序 crash，優先切到 Node 20 或 22 LTS 再重跑；Node 25 曾在 Windows 上讓 Wrangler 4.106 的 `deploy --dry-run` 只印 banner 後非正常結束。
 
@@ -117,10 +114,10 @@ WSL 必須使用 Node 20 或 22 LTS。腳本會先在 Windows 跑完整 verify �
 - 首頁：只輸入中文即可生成；進階設定預設收起。
 - Turnstile：公開站生成前會出現驗證；驗證失敗不得呼叫模型。
 - Rate limit：超過限制時回友善 `429 rate_limited`，不暴露 stack trace。
-- 雲端保存：上傳成功後有分享頁與刪除頁；本機歷史會保存連結。
-- 分享頁：預設隱藏 prompt；公開 prompt 只在使用者明確勾選時顯示。
-- 站長雲端圖庫：用量分頁輸入 `GALLERY_ADMIN_TOKEN` 後可讀取 `/api/gallery`，搜尋與篩選可用。
-- 用量 Dashboard：輸入 `GALLERY_ADMIN_TOKEN` 後，可依 UTC 日期查看生成數、Provider 嘗試、失敗數、錯誤率、平均事件時間與模型用量。
+- 本機歷史：生成成功後會寫入瀏覽器 `localStorage`，重新整理後仍可看到作品。
+- 圖片下載：結果卡與歷史詳情都能下載圖片，不需 R2 或帳號。
+- 已移除路徑：`/gallery`、`/gallery/*`、`/share/*` 與 `/api/gallery` 都回 `404 not_found`。
+- 用量 Dashboard：輸入 `USAGE_ADMIN_TOKEN` 後，可查看目前 Worker 執行個體的生成數、Provider 嘗試、失敗數、錯誤率、平均事件時間與模型用量；重新部署或執行個體更新後會歸零。
 
 ## 6. 回滾 Runbook
 
@@ -129,8 +126,8 @@ WSL 必須使用 Node 20 或 22 LTS。腳本會先在 Windows 跑完整 verify �
 - 前端 bundle 或錯誤訊息出現任何完整 secret。
 - 生成失敗造成白屏、清空使用者輸入，或回傳 stack trace。
 - `/generate`、`/generate/batch`、`/edit` 未通過 Turnstile／rate limit 就呼叫 provider。
-- `/api/gallery` 未授權即可列出 R2 metadata。
-- 分享頁在 `promptPublic=false` 時仍顯示完整 prompt。
+- 本機歷史在重新整理後消失，或下載按鈕無法下載圖片。
+- 已移除的圖庫／分享路徑不再回 `404 not_found`。
 
 ### 6.1 選擇並檢查目標版本
 
@@ -146,7 +143,7 @@ $TargetVersion = "<已確認的 VERSION_ID>"
 & $wrangler versions view $TargetVersion --name flux-image-gen --json --config wrangler.toml
 ```
 
-檢查目標版本的建立時間、tag、message 與 bindings；若 R2 bucket、rate limiter、Workers AI 或其他資源已刪除／改名，不可直接回滾。Cloudflare rollback 只切換 Worker 版本，不會復原 R2 內容、secret 或其他平台資源。
+檢查目標版本的建立時間、tag、message 與 bindings；若 rate limiter、Workers AI 或其他資源已刪除／改名，不可直接回滾。Cloudflare rollback 只切換 Worker 版本，不會復原 secret 或其他平台資源；更早仍含 R2 binding 的版本不得直接回滾。
 
 ### 6.2 執行回滾
 

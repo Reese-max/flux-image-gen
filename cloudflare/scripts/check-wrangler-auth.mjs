@@ -108,7 +108,7 @@ if (dryRun.code !== 0 || !hasConfigSuccess(dryRun.output)) {
   } else if (nodeMajor > 22) {
     message += ` 目前 Node ${process.version} 高於 Wrangler 公開部署建議的 LTS 範圍；請先切到 Node 20 或 22 LTS 後重跑。`;
   } else {
-    message += ' 請確認 Cloudflare 帳號、權限、wrangler.toml、R2 bucket、AI binding 與 rate limit binding。';
+    message += ' 請確認 Cloudflare 帳號、權限、wrangler.toml、AI binding 與 rate limit binding。';
   }
   failures.push(message);
 } else {

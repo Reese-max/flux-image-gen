@@ -81,13 +81,13 @@
 | TASK-027 成功後存風格卡 | 已覆蓋 | 結果操作「儲存成風格卡」、preview / seed / prompt 帶入 | 無。 |
 | TASK-028 歷史記錄升級 | 已覆蓋 | `history-store.js`、搜尋 / 篩選 / 收藏 / 批次刪除 / migration tests | localStorage 滿載需瀏覽器人工測。 |
 
-## Milestone 8：專案與雲端保存
+## Milestone 8：專案與本機保存
 
 | Task | 狀態 | 覆蓋證據 | 剩餘風險 |
 |---|---|---|---|
 | TASK-029 專案概念 | 已覆蓋 | `project-store.js`、`project-board.js`、專案加入作品 / 卡片測試 | 無。 |
-| TASK-030 雲端保存明確化 | 部分覆蓋、需部署驗證 | UI 隱私說明、Worker share / cloud API、local fallback | FastAPI 本機雲端保存可停用；真實 R2 分享連結需部署驗證。 |
-| TASK-031 雲端資料架構 | 部分覆蓋、需部署驗證 | Worker R2 metadata、分享 prompt 隱藏、deployment checklist | D1 / KV 長期 metadata 與使用者設定仍是建議架構，非完整登入雲端產品。 |
+| TASK-030 保存範圍明確化 | 已覆蓋 | 本機歷史、圖片下載、隱私說明與回歸測試 | 產品決策是不提供雲端作品保存。 |
+| TASK-031 雲端資料架構 | 已取消 | Worker R2 binding、API 與 UI 已移除；舊路徑固定回 404 | 無；若未來重啟雲端保存，需重新設計帳號、權限與資料生命週期。 |
 
 ## Milestone 9：參考圖與圖片編輯
 
@@ -129,7 +129,7 @@
 |---|---|---|---|
 | TASK-046 正式產品名稱與描述 | 已覆蓋 | `Fluxi` branding、meta title / description / OG / manifest / icon 測試 | OG 圖需部署 URL 實際可讀驗證。 |
 | TASK-047 範例 Gallery | 已覆蓋 | 首頁 Gallery、八類分類、一鍵套用不自動生成測試 | 範例圖版權需人工確認。 |
-| TASK-048 作品分享頁 | 部分覆蓋、需部署驗證 | Worker share page、模板套用、prompt 隱藏測試 | 分享連結與 OG 預覽需公開網域測試。 |
+| TASK-048 作品分享頁 | 已取消 | 保留本機分享文案與設定匯出；Worker 分享頁已移除 | 無；不提供伺服器端作品分享。 |
 
 ## Milestone 14：測試與驗收
 
@@ -141,8 +141,8 @@
 ## 已知最高價值後續缺口
 
 1. **真實視覺 QA 部署驗證**：TASK-021 / TASK-023 已接可選 Gemini Vision QA 與自動重試分類；若要對外宣稱智慧體能可靠檢查手指、臉部、文字亂碼，仍需用真實 provider 圖片與 Gemini 金鑰做部署抽驗。
-2. **部署驗證**：TASK-030 / TASK-031 / TASK-037 / TASK-048 需要真實 Cloudflare Workers、R2、Turnstile、provider secrets 驗證。
+2. **部署驗證**：TASK-037 與真實 provider 路徑仍需要 Cloudflare Workers、Turnstile、provider secrets 驗證。
 3. **登入與配額**：TASK-036 已有 IP / Worker 限制，但「已登入每日 N 次」需先建立帳號系統。
 4. **參考圖一致性**：TASK-033 / TASK-034 有產品化 UI 與 metadata，但是否真的能維持角色 / 產品一致，取決於後端模型能力。
 5. **法務與授權**：TASK-041 / TASK-042 已有產品文案，公開前仍應依實際 provider 條款做法務確認。
-6. **Release acceptance**：`docs/release-acceptance-checklist.md` 已把正式網域 smoke、真機、雲端保存、分享隱私、Turnstile、Rate limit、成本與法務確認整理成公開前 Release blocker。
+6. **Release acceptance**：`docs/release-acceptance-checklist.md` 已把正式網域 smoke、真機、本機歷史、圖片下載、Turnstile、Rate limit、成本與法務確認整理成公開前 Release blocker。

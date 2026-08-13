@@ -229,7 +229,6 @@ def api_health() -> dict[str, object]:
         "mode": mode,
         "providers": providers,
         "hasApiKey": has_nvidia_key or has_workers_ai_key,
-        "storageAvailable": False,
         "visionQa": settings.vision_qa_enabled,
         # QA 實際跑得起來才回後端名稱；空字串＝沒啟用或缺 NVIDIA_API_KEY。
         "visionQaProvider": (
@@ -633,21 +632,6 @@ async def edit(
         "model": result.model,
         "image_count": result.image_count,
     }
-
-
-@app.post("/gallery")
-def gallery_save_unavailable():
-    # The cloud gallery is backed by Cloudflare R2 and is only served by the Worker.
-    # The local FastAPI dev server returns 503 so the frontend shows a clear notice.
-    return JSONResponse({"error": "雲端圖庫僅在 Cloudflare 部署可用", "code": "gallery_disabled"}, status_code=503)
-
-
-@app.get("/api/gallery")
-def gallery_admin_list_unavailable():
-    # The admin cloud gallery list reads Cloudflare R2 metadata through the Worker.
-    # Local FastAPI intentionally returns the same machine-readable disabled code
-    # so the station/admin UI can show a clear fallback instead of a generic 404.
-    return JSONResponse({"error": "站長雲端圖庫僅在 Cloudflare 部署可用", "code": "gallery_disabled"}, status_code=503)
 
 
 @app.post("/prompt/transform")

@@ -1,12 +1,12 @@
 (function(){
   // Bump this whenever the caching strategy changes. The activate handler deletes
   // any cache that does not match, forcing a clean re-cache of current assets.
-  var CACHE_NAME = 'ai-image-generator-pwa-v29';
+  var CACHE_NAME = 'ai-image-generator-pwa-v32';
   // Hash of every HTML/CSS/JS file in app/static (this file excluded), checked by
   // tests/test_static_ui.py::test_service_worker_cache_version_tracks_static_assets.
   // Change a front-end asset and the test fails until this and CACHE_NAME are both
   // updated — without the bump, returning tabs keep rendering the previous UI.
-  var ASSET_FINGERPRINT = '5c84336ca8c4';
+  var ASSET_FINGERPRINT = '666f1def5984';
   var STATIC_URLS = [
     '/',
     '/static/styles.css',
@@ -52,7 +52,7 @@
   });
 
   // Only same-origin GETs for the app shell and static assets are cached here.
-  // API calls (/generate, /prompt/*, /gallery) and cross-origin requests (e.g. the
+  // API calls (/generate, /prompt/*) and cross-origin requests (e.g. the
   // Hugging Face dataset) bypass the cache entirely.
   function isAppAsset(request){
     if(request.method !== 'GET'){ return false; }
