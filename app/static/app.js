@@ -34,7 +34,7 @@ var R_EXTRAS = [
 
 var MAX_SEED = 2147483647;
 var WORKSPACE_STORAGE_KEY = 'fluxiGenerationWorkspace.v1';
-var WORKSPACE_DEFAULT_WIDTH = 390;
+var WORKSPACE_DEFAULT_WIDTH = 460;
 var WORKSPACE_MIN_WIDTH = 320;
 var WORKSPACE_MAX_WIDTH = 560;
 var generationInFlight = false;

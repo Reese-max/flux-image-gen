@@ -99,7 +99,7 @@ body {
 
 /* ---------- generation workspace ---------- */
 .generation-workspace {
-  --control-panel-width: 390px;
+  --control-panel-width: 460px;
   display: grid;
   grid-template-columns: minmax(320px, var(--control-panel-width)) 10px minmax(0, 1fr);
   align-items: stretch;
@@ -254,7 +254,7 @@ body {
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
-  font: 700 12px/1 var(--font);
+  font: 700 14px/1 var(--font);
   cursor: pointer;
 }
 .preview-view-btn:hover { color: var(--text); }
@@ -284,7 +284,7 @@ body {
 .generation-preview .result-actions .btn {
   min-height: 44px;
   padding: 9px 12px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .generation-workspace.is-controls-collapsed {
   grid-template-columns: 68px 10px minmax(0, 1fr);
@@ -347,7 +347,7 @@ body.is-workspace-resizing {
 }
 .pill {
   display: inline-flex; align-items: center; gap: 8px; font-family: var(--mono);
-  font-size: 12px; color: var(--muted); padding: 7px 13px; border-radius: 999px;
+  font-size: 14px; color: var(--muted); padding: 7px 13px; border-radius: 999px;
   background: var(--surface); border: 1px solid var(--line); white-space: nowrap;
 }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
@@ -367,7 +367,7 @@ body.is-workspace-resizing {
   text-align: center;
 }
 .canvas-empty-mark { font-size: 22px; }
-.canvas-empty p { margin: 0; font-size: 13px; }
+.canvas-empty p { margin: 0; font-size: 14px; }
 .canvas-empty-hints { display: none; }
 .pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 0 rgba(111, 143, 101, 0.5); }
 .pill.online { color: var(--sage-ink); background: var(--sage-soft); border-color: var(--sage-line); }
@@ -393,7 +393,7 @@ body.is-workspace-resizing {
 
 /* ---------- hero ---------- */
 .hero { margin-bottom: clamp(22px, 5vw, 36px); }
-.eyebrow { margin: 0 0 18px; font-family: var(--mono); font-size: clamp(11px, 2.6vw, 13px); letter-spacing: 0.02em; color: var(--muted); }
+.eyebrow { margin: 0 0 18px; font-family: var(--mono); font-size: 14px; letter-spacing: 0.02em; color: var(--muted); }
 .title { margin: 0 0 16px; font-size: clamp(38px, 8.5vw, 72px); font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; overflow-wrap: anywhere; }
 .lede { margin: 0; max-width: 46ch; color: var(--muted); font-size: clamp(14px, 3.4vw, 16px); line-height: 1.6; }
 .help-btn {
@@ -401,7 +401,7 @@ body.is-workspace-resizing {
   margin-top: 18px; padding: 10px 15px; min-height: 44px; border-radius: 999px;
   border: 1px solid var(--accent-line);
   background: var(--accent-soft); color: var(--text);
-  font-family: var(--font); font-size: 13px; font-weight: 800; cursor: pointer;
+  font-family: var(--font); font-size: 14px; font-weight: 800; cursor: pointer;
   box-shadow: var(--shadow-sm);
 }
 .help-btn:hover, .help-btn:focus-visible {
@@ -461,7 +461,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .section-heading h2 { margin: 0; font-size: clamp(17px, 3.8vw, 22px); line-height: 1.25; letter-spacing: -0.01em; }
 .section-heading p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .section-kicker {
-  font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  font-family: var(--mono); font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--accent-2);
 }
 .prompt-controls {
@@ -494,7 +494,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   border-color: transparent;
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 600;
 }
 .composer-options .option-field select:hover { color: var(--text); border-color: var(--line); }
@@ -547,7 +547,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .advanced-group-title {
   margin: 0;
   color: var(--accent-2);
-  font: 800 11px/1.4 var(--mono);
+  font: 800 14px/1.4 var(--mono);
   letter-spacing: .08em;
   text-transform: uppercase;
 }
@@ -573,16 +573,16 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .text-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .final-prompt-label {
   display: block; margin: 0 0 6px 2px;
-  color: var(--muted); font-size: 12px; font-weight: 700;
+  color: var(--muted); font-size: 14px; font-weight: 700;
 }
 .prompt-shortcut-hint {
   margin: -6px 0 0 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .transform-status {
-  min-height: 20px; font-size: 13px; font-family: var(--mono); color: var(--muted);
+  min-height: 20px; font-size: 14px; font-family: var(--mono); color: var(--muted);
 }
 .transform-status:empty, .status:empty { display: none; }
 .transform-status.busy { color: var(--sun-ink); }
@@ -601,7 +601,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .turnstile-status {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
 }
 .turnstile-status.done { color: var(--sage-ink); }
@@ -624,7 +624,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 
 .controls { display: flex; flex-wrap: wrap; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field-label { font-size: 12px; color: var(--muted); padding-left: 2px; }
+.field-label { font-size: 14px; color: var(--muted); padding-left: 2px; }
 
 .seed-field { display: flex; flex-direction: column; gap: 8px; }
 .seed-mode {
@@ -633,7 +633,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 }
 .seed-mode-btn {
   flex: 1; min-height: 44px; padding: 9px 12px; border: 1px solid transparent; border-radius: 8px; cursor: pointer;
-  font-family: var(--font); font-size: 13px; font-weight: 700; color: var(--muted);
+  font-family: var(--font); font-size: 14px; font-weight: 700; color: var(--muted);
   background: transparent; white-space: nowrap;
   -webkit-appearance: none; appearance: none; touch-action: manipulation;
   transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
@@ -644,7 +644,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   background: linear-gradient(135deg, var(--accent-2), var(--accent-3));
   box-shadow: 0 6px 18px -8px rgba(194, 90, 51, 0.5);
 }
-.seed-mode-hint { font-size: 12px; color: var(--muted); line-height: 1.5; padding-left: 2px; margin: 0; }
+.seed-mode-hint { font-size: 14px; color: var(--muted); line-height: 1.5; padding-left: 2px; margin: 0; }
 
 /* ---------- 分段滑桿 ---------- */
 /* 有序的「程度」選擇。底層是原生 input[type=range]：拖曳、方向鍵、觸控都由瀏覽器提供，
@@ -656,7 +656,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   justify-content: space-between;
   gap: 8px;
 }
-.segmented-head strong { color: var(--text); font-size: 13px; }
+.segmented-head strong { color: var(--text); font-size: 14px; }
 .segmented-slider {
   /* thumb 尺寸只定義在這裡；填充長度由 --seg-index 推算，JS 只負責寫入索引。
      填充延伸到 thumb 的右緣（不是中心），所以起點是一整個 thumb 寬。 */
@@ -735,7 +735,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 }
 .seed-advanced { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 .seed-advanced summary {
-  font-size: 12px; color: var(--muted); cursor: pointer; list-style: none;
+  font-size: 14px; color: var(--muted); cursor: pointer; list-style: none;
   display: inline-flex; align-items: center; gap: 6px;
 }
 .seed-advanced summary::-webkit-details-marker { display: none; }
@@ -744,8 +744,8 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .seed-advanced summary:hover { color: var(--text); }
 .seed-advanced[open] summary { color: var(--text); }
 .seed-advanced > .text-input { margin-top: 8px; }
-.seed-advanced-hint { font-size: 11.5px; color: var(--muted); line-height: 1.5; margin: 6px 0 0; padding-left: 2px; }
-.model-license-hint { margin: 7px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.seed-advanced-hint { font-size: 14px; color: var(--muted); line-height: 1.5; margin: 6px 0 0; padding-left: 2px; }
+.model-license-hint { margin: 7px 0 0; color: var(--muted); font-size: 14px; line-height: 1.45; }
 
 .select-wrap { position: relative; }
 select {
@@ -785,7 +785,7 @@ select option { background: var(--surface); color: var(--text); }
 }
 .btn.download:hover { background: var(--bg-2); border-color: var(--line-2); transform: translateY(-2px); }
 .btn:disabled, .btn.is-disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
-.btn.mini { min-height: 44px; padding: 9px 12px; font-size: 12.5px; border-radius: var(--radius-sm); }
+.btn.mini { min-height: 44px; padding: 9px 12px; font-size: 14px; border-radius: var(--radius-sm); }
 .btn.danger {
   color: var(--danger-ink); background: var(--danger-soft); border-color: var(--danger-line);
 }
@@ -811,13 +811,13 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 /* 靈感 section 併入生成分頁後，#ideas hash 捲動時預留 sticky 分頁列高度 */
 #ideasSection { scroll-margin-top: 84px; }
 .ideas-title { font-size: 15px; font-weight: 700; color: var(--text); margin-bottom: 14px; }
-.ideas-title .hint { color: var(--muted); font-weight: 400; font-size: 13px; }
+.ideas-title .hint { color: var(--muted); font-weight: 400; font-size: 14px; }
 .idea-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
 .idea {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   padding: 16px 8px; min-height: 44px; border-radius: var(--radius-sm); cursor: pointer; text-align: center;
   border: 1px solid var(--line); background: var(--surface); color: var(--text);
-  font-family: var(--font); font-size: 12.5px; font-weight: 600;
+  font-family: var(--font); font-size: 14px; font-weight: 600;
   -webkit-appearance: none; appearance: none; touch-action: manipulation;
   transition: transform .18s var(--ease), border-color .18s var(--ease), background .18s var(--ease), box-shadow .18s var(--ease);
 }
@@ -867,7 +867,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .prompt-pack .idea {
   gap: 10px;
   padding: 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .prompt-pack .idea .idea-thumb {
   border-radius: calc(var(--radius-sm) - 4px);
@@ -901,9 +901,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 /* 真實範例圖：cover 填滿縮圖框，暖色漸層作為 lazy-load 期間的底。 */
 .example-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .example-body { display: grid; gap: 8px; padding: 14px; }
-.example-category { color: var(--accent-2); font: 700 11px/1.2 var(--mono); letter-spacing: 0.02em; }
-.example-body h3 { margin: 0; font-size: 15px; line-height: 1.25; }
-.example-body p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.example-category { color: var(--accent-2); font: 700 14px/1.2 var(--mono); letter-spacing: 0.02em; }
+.example-body h3 { margin: 0; font-size: 16px; line-height: 1.25; }
+.example-body p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .apply-example { justify-self: start; margin-top: 4px; }
 
 .visually-hidden {
@@ -932,7 +932,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-2);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 .stage {
@@ -1070,7 +1070,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   width: 100%;
   margin: 0 0 10px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.5;
   text-align: center;
 }
@@ -1204,7 +1204,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   gap: 7px;
   align-items: center;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
 }
 .history-filters .tutorial-check {
@@ -1226,7 +1226,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 .history-batch-bar[hidden] { display: none; }
 .history-batch-actions {
@@ -1307,7 +1307,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .history-prompt {
   margin: 0;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: 14px;
   line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -1346,7 +1346,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .history-actions .btn {
   flex: 1 1 auto;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: 14px;
 }
 .history-empty {
   grid-column: 1 / -1;
@@ -1364,7 +1364,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 #deleteProject[hidden] { display: none; }
 
 /* ---------- footer ---------- */
-.footer { text-align: center; font-size: 13px; color: var(--muted); line-height: 1.7; padding-top: 8px; }
+.footer { text-align: center; font-size: 14px; color: var(--muted); line-height: 1.7; padding-top: 8px; }
 .footer-meta { margin-top: 6px; font-family: var(--mono); opacity: 0.85; }
 .footer-links {
   display: inline-flex;
@@ -1442,13 +1442,13 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .history-detail-grid h3 {
   margin: 0 0 7px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   letter-spacing: 0.04em;
 }
 .history-detail-grid p {
   margin: 0;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.55;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
@@ -1465,7 +1465,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   color: var(--muted);
   cursor: pointer;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 14px;
   padding: 8px 10px;
 }
 .version-chip:hover, .version-chip:focus-visible {
@@ -1491,7 +1491,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   padding: 12px;
 }
 .policy-copy h3 { margin: 0 0 7px; color: var(--text); font-size: 14px; }
-.policy-copy p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 13px; }
+.policy-copy p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 14px; }
 .local-data-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1499,7 +1499,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   align-items: center;
   margin-top: 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .usage-dashboard {
@@ -1533,7 +1533,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .usage-metric span {
   display: block;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 14px;
   line-height: 1.35;
 }
 .usage-metric strong {
@@ -1557,7 +1557,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: var(--radius-sm);
   background: var(--sun-soft);
   color: var(--sun-ink);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
 .usage-columns {
@@ -1575,7 +1575,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .usage-card h3 {
   margin: 0 0 10px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 16px;
 }
 .usage-table {
   display: grid;
@@ -1593,7 +1593,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   background: var(--surface);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 13px;
 }
 .usage-row-head {
   color: var(--faint);
@@ -1615,7 +1615,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   background: var(--surface);
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 14px;
 }
 .usage-count {
   color: var(--danger);
@@ -1628,7 +1628,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: var(--radius-sm);
   color: var(--muted);
   background: var(--surface-2);
-  font-size: 13px;
+  font-size: 14px;
 }
 .tutorial-card { width: min(640px, 100%); }
 .tutorial-list {
@@ -1640,12 +1640,12 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .tutorial-list span { display: block; color: var(--muted); font-size: 14px; }
 .tutorial-check {
   display: inline-flex; align-items: center; gap: 9px;
-  color: var(--muted); font-size: 13px; line-height: 1.4; cursor: pointer;
+  color: var(--muted); font-size: 14px; line-height: 1.4; cursor: pointer;
 }
 .tutorial-check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .idea-form { display: grid; gap: 14px; }
 .form-grid { display: grid; grid-template-columns: minmax(92px, 0.35fr) minmax(0, 1fr); gap: 14px; }
-.form-field { display: grid; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.form-field { display: grid; gap: 7px; color: var(--muted); font-size: 14px; font-weight: 700; }
 .form-field input, .form-field textarea, .form-field select {
   width: 100%; border: 1px solid var(--line); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text);
@@ -1656,7 +1656,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .form-field-emoji input { text-align: center; font-size: 24px; padding: 8px 10px; }
-.form-status { min-height: 18px; color: var(--muted); font-family: var(--mono); font-size: 13px; }
+.form-status { min-height: 18px; color: var(--muted); font-family: var(--mono); font-size: 14px; }
 .form-status.fail { color: var(--danger); }
 .modal-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 2px; }
 .modal-actions-main { display: flex; justify-content: flex-end; gap: 10px; }
@@ -1700,6 +1700,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   }
 }
 @media (max-width: 760px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea { font-size: 16px !important; }
   .composer-foot { flex-direction: column; align-items: stretch; }
   .prompt-controls { align-items: stretch; }
   .advanced-controls { grid-template-columns: 1fr; }
@@ -1770,7 +1773,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
     width: 100%;
     min-width: 0;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 14px;
     line-height: 1.3;
     text-align: center;
     white-space: nowrap;
@@ -1799,7 +1802,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; gap: 12px; }
-  .pill { font-size: 11px; padding: 6px 11px; }
+  .pill { font-size: 14px; padding: 6px 11px; }
   .idea .emo { font-size: 22px; }
   .form-grid { grid-template-columns: 1fr; }
   .modal { padding: 18px; }
@@ -1814,7 +1817,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .preview-view-btn {
     min-height: 44px;
     padding-inline: 9px;
-    font-size: 11px;
+    font-size: 14px;
   }
   .generation-preview .stage { min-height: 320px; }
   .generation-preview .result-actions { max-height: none; }
@@ -1824,7 +1827,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .idea-grid { grid-template-columns: repeat(3, 1fr); }
   .prompt-pack .idea-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .example-grid { grid-template-columns: 1fr; }
-  .idea { padding: 13px 6px; font-size: 12px; }
+  .idea { padding: 13px 6px; font-size: 14px; }
   .stage { min-height: 260px; }
   .title { font-size: clamp(32px, 11vw, 48px); }
 }
@@ -1843,7 +1846,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
    所以窄螢幕的單欄覆蓋要寫在這裡，寫進上面的 980px 區塊會被這條蓋掉。 */
 .edit-workspace {
   display: grid;
-  grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
   align-items: stretch;
   gap: 16px;
 }
@@ -1884,7 +1887,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--muted);
-  font: 700 10px/1 var(--mono);
+  font: 700 14px/1 var(--mono);
 }
 .edit-reference-limit.has-files {
   border-color: var(--success);
@@ -1907,7 +1910,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   gap: 10px;
   margin: 0;
 }
-/* 雙欄版面下設定欄只有 390px，三張模式卡改成直向堆疊才讀得完文案。 */
+/* 雙欄版面下設定欄仍較窄，三張模式卡改成直向堆疊才讀得完文案。 */
 @media (min-width: 981px) {
   .edit-mode-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -1919,6 +1922,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--muted);
+  font-family: var(--font);
   text-align: left;
   padding: 12px;
   cursor: pointer;
@@ -1929,8 +1933,8 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   color: var(--accent);
   font: normal 800 17px/1 var(--mono);
 }
-.edit-mode-card strong { display: block; color: var(--text); margin-bottom: 5px; }
-.edit-mode-card span { display: block; font-size: 12px; line-height: 1.45; }
+.edit-mode-card strong { display: block; color: var(--text); margin-bottom: 5px; font-size: 15px; }
+.edit-mode-card span { display: block; font-size: 14px; line-height: 1.45; }
 .edit-mode-card:hover, .edit-mode-card:focus-visible, .edit-mode-card.is-active {
   border-color: var(--accent-line);
   background: var(--accent-soft);
@@ -1958,8 +1962,8 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   color: var(--accent);
   font-size: 20px;
 }
-.edit-drop strong { color: var(--text); font-size: 13px; }
-.edit-drop-text { max-width: 34ch; font-size: 11px; line-height: 1.45; }
+.edit-drop strong { color: var(--text); font-size: 14px; }
+.edit-drop-text { max-width: 34ch; font-size: 14px; line-height: 1.45; }
 .edit-thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .edit-thumb {
   position: relative;
@@ -1983,7 +1987,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: 8px;
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: 14px;
   padding: 5px 6px;
 }
 .edit-thumb-move {
@@ -2027,7 +2031,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   align-items: center;
   gap: 7px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 14px;
   white-space: nowrap;
 }
 .edit-preview-badge i {
@@ -2080,7 +2084,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   font-size: 18px;
 }
 .edit-empty-state strong { color: var(--text); font-size: 15px; }
-.edit-empty-state p { max-width: 34ch; margin: 0; font-size: 12px; line-height: 1.55; }
+.edit-empty-state p { max-width: 34ch; margin: 0; font-size: 14px; line-height: 1.55; }
 .edit-preview-actions {
   padding: 12px 16px;
   display: flex;
@@ -2092,7 +2096,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 .edit-preview-actions > span {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 14px;
 }
 /* 結果操作列現在有下載／對比／再改一次／複製指令，改成靠左換行排列 */
 .edit-preview-actions {
@@ -2105,8 +2109,8 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 /* 快速指令庫：對應生成分頁的「幫我想梗」，點一下只帶入文字、不消耗額度 */
 .edit-preset-block { margin-bottom: 14px; }
 .edit-preset-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-.edit-preset-head span { color: var(--accent-2); font-size: 12px; font-weight: 700; }
-.edit-preset-head small { color: var(--muted); font-size: 11px; }
+.edit-preset-head span { color: var(--accent-2); font-size: 14px; font-weight: 700; }
+.edit-preset-head small { color: var(--muted); font-size: 14px; }
 .edit-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .edit-preset,
 .edit-keep {
@@ -2115,7 +2119,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   border-radius: 999px;
   background: var(--surface);
   color: var(--muted);
-  font: 600 12px/1 var(--font);
+  font: 600 14px/1 var(--font);
   cursor: pointer;
   transition: background .16s var(--ease), border-color .16s var(--ease), color .16s var(--ease);
 }
@@ -2125,7 +2129,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   background: var(--accent-soft);
   color: var(--accent-2);
 }
-.edit-keep-head { display: block; color: var(--text); font-size: 12px; font-weight: 700; }
+.edit-keep-head { display: block; color: var(--text); font-size: 14px; font-weight: 700; }
 .edit-keep-group { display: flex; flex-wrap: wrap; gap: 6px; }
 .edit-keep.is-active {
   border-color: var(--sage-line);
@@ -2308,7 +2312,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   }
   .tab { min-width: 0; justify-content: center; padding: 9px 5px; gap: 4px; min-height: 44px; }
   .tab-label { display: none; }
-  .tab-mobile-label { display: inline; font-size: 12px; }
+  .tab-mobile-label { display: inline; font-size: 14px; }
   .tab-ico { font-size: 15px; }
   .tab-badge { min-width: 16px; height: 16px; padding-inline: 4px; margin-left: 0; font-size: 10px; }
 
@@ -2318,7 +2322,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
     display: inline-flex; align-items: center; justify-content: center;
     width: 44px; min-height: 44px; border-radius: 999px;
     border: 1px solid var(--accent-line); background: var(--accent-soft);
-    color: var(--text); font-weight: 800; cursor: pointer;
+    color: var(--text); font-size: 16px; font-weight: 800; cursor: pointer;
   }
   .title { margin-bottom: 4px; font-size: clamp(24px, 7.4vw, 30px); }
   .title br { display: none; }
@@ -2351,10 +2355,10 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .example-body { padding: 10px; gap: 6px; }
   .example-body p { display: none; }
 }
-/* 極窄螢幕仍維持四等分，只再縮小圖示與短標籤。 */
+/* 極窄螢幕仍維持四等分，只縮小圖示，不犧牲標籤可讀性。 */
 @media (max-width: 380px) {
   .tab { padding: 9px 3px; gap: 2px; }
-  .tab-mobile-label { font-size: 11px; }
+  .tab-mobile-label { font-size: 14px; }
   .tab-ico { font-size: 14px; }
 }
 
@@ -2375,7 +2379,7 @@ body[data-tab="usage"] #mobileGenerateBar { display: none !important; }
     border-radius: 999px;
     background: var(--surface);
     color: var(--muted);
-    font: 700 11px/1 var(--mono);
+    font: 700 14px/1 var(--mono);
   }
   .canvas-zoom-controls {
     display: inline-flex;
@@ -2394,7 +2398,7 @@ body[data-tab="usage"] #mobileGenerateBar { display: none !important; }
     border-right: 1px solid var(--line);
     background: transparent;
     color: var(--text);
-    font: 700 13px/1 var(--font);
+    font: 700 14px/1 var(--font);
     cursor: pointer;
   }
   .canvas-zoom-value { min-width: 64px; }
@@ -2411,12 +2415,12 @@ body[data-tab="usage"] #mobileGenerateBar { display: none !important; }
     border-top: 1px solid var(--line);
     background: var(--surface-2);
     color: var(--muted);
-    font: 600 11px/1.3 var(--mono);
+    font: 600 14px/1.3 var(--mono);
   }
   .canvas-state { display: inline-flex; align-items: center; gap: 7px; color: var(--text); }
   .canvas-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); }
   .canvas-status-spacer { flex: 1 1 auto; }
-  .canvas-status-shortcut { color: var(--faint); }
+  .canvas-status-shortcut { color: var(--muted); }
   .generation-preview .stage.is-canvas-interactive {
     overflow: hidden;
     cursor: grab;
