@@ -34,6 +34,7 @@ var R_EXTRAS = [
 
 var MAX_SEED = 2147483647;
 var WORKSPACE_STORAGE_KEY = 'fluxiGenerationWorkspace.v1';
+var WORKSPACE_LEGACY_DEFAULT_WIDTH = 390;
 var WORKSPACE_DEFAULT_WIDTH = 460;
 var WORKSPACE_MIN_WIDTH = 320;
 var WORKSPACE_MAX_WIDTH = 560;
@@ -664,13 +665,16 @@ function applyWorkspaceState(width, collapsed, shouldPersist){
 }
 function readWorkspaceState(){
   var parsed;
+  var storedWidth;
   try{
     parsed = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) || '{}');
   }catch(error){
     parsed = {};
   }
+  storedWidth = Number(parsed.width);
+  if(storedWidth === WORKSPACE_LEGACY_DEFAULT_WIDTH){ storedWidth = WORKSPACE_DEFAULT_WIDTH; }
   return {
-    width: clampWorkspaceWidth(parsed.width),
+    width: clampWorkspaceWidth(storedWidth),
     collapsed: !!parsed.collapsed
   };
 }

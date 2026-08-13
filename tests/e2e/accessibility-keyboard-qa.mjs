@@ -212,6 +212,11 @@ async function main() {
   const { server, url } = await startServer();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  await context.addInitScript(() => {
+    if (location.hostname === '127.0.0.1' && !localStorage.getItem('fluxiGenerationWorkspace.v1')) {
+      localStorage.setItem('fluxiGenerationWorkspace.v1', JSON.stringify({ width: 390, collapsed: false }));
+    }
+  });
   const page = await context.newPage();
   const errors = [];
   const promptText = '一隻柴犬在月球吃拉麵，PPT 插圖，明亮背景';
@@ -243,6 +248,7 @@ async function main() {
         topDelta: Math.abs(controls.top - preview.top),
       };
     });
+    ok('舊版 390px 預設欄寬自動升級為 460px', Math.round(workspaceLayout.controlsWidth) === 460, JSON.stringify(workspaceLayout));
     ok('桌面生成頁採左側控制、右側大預覽', workspaceLayout.previewWidth > workspaceLayout.controlsWidth && workspaceLayout.topDelta < 2, JSON.stringify(workspaceLayout));
 
     const brandLayout = await page.evaluate(() => {
