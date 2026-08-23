@@ -517,7 +517,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   border-radius: var(--radius);
   background: var(--surface-2);
 }
-.advanced-settings summary {
+.advanced-settings > summary {
   min-height: 44px;
   display: flex;
   align-items: center;
@@ -526,30 +526,81 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
   font-weight: 800;
   list-style: none;
 }
-.advanced-settings summary::-webkit-details-marker { display: none; }
-.advanced-settings summary::before {
+.advanced-settings > summary::-webkit-details-marker { display: none; }
+.advanced-settings > summary::before {
   content: "▸";
   display: inline-block;
   margin-right: 8px;
   color: var(--faint);
   transition: transform .15s var(--ease);
 }
-.advanced-settings[open] summary::before { transform: rotate(90deg); }
+.advanced-settings[open] > summary::before { transform: rotate(90deg); }
 .advanced-settings:not([open]) { padding-block: 10px; }
-.advanced-settings > * + * { margin-top: 12px; }
-/* 進階設定裡混了三種性質的東西（改提示詞／調生成行為／定輸出規格）。分組小標與
-   分隔線讓展開後掃得動，而不是一次噴一整片控制項。 */
+.advanced-settings > summary:focus-visible,
+.advanced-subsection > summary:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+.advanced-summary-copy,
+.advanced-subsection-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.advanced-summary-copy small,
+.advanced-subsection-copy small {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.advanced-settings-body {
+  display: grid;
+  margin-top: 6px;
+}
+.advanced-settings select { min-height: 44px; }
 .advanced-group > * + * { margin-top: 10px; }
-.advanced-group + .advanced-group {
-  padding-top: 14px;
+.advanced-output { padding: 6px 0 12px; }
+.advanced-output .controls { grid-template-columns: minmax(0, 1.45fr) minmax(116px, .55fr); }
+.advanced-subsection {
   border-top: 1px solid var(--line);
+}
+.advanced-subsection > summary {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  color: var(--text);
+  cursor: pointer;
+  list-style: none;
+}
+.advanced-subsection > summary::-webkit-details-marker { display: none; }
+.advanced-subsection > summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1;
+}
+.advanced-subsection[open] > summary::after { content: "−"; }
+.advanced-subsection-copy strong {
+  font-size: 15px;
+  line-height: 1.35;
+}
+.advanced-subsection-body { padding: 0 0 12px; }
+.advanced-subsection-body > * + * { margin-top: 12px; }
+.advanced-subsection-body .advanced-controls {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 .advanced-group-title {
   margin: 0;
-  color: var(--accent-2);
-  font: 800 14px/1.4 var(--mono);
-  letter-spacing: .08em;
-  text-transform: uppercase;
+  color: var(--text);
+  font: 800 15px/1.4 var(--font);
 }
 .hero-generate { min-width: 180px; }
 .field-wide { min-width: min(100%, 280px); }
@@ -625,6 +676,23 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .controls { display: flex; flex-wrap: wrap; gap: 12px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 14px; color: var(--muted); padding-left: 2px; }
+.field.vision-qa-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 10px;
+}
+.vision-qa-option .field-label { grid-column: 1 / -1; }
+.vision-qa-option input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--accent-2);
+}
+.vision-qa-option .seed-advanced-hint {
+  margin: 0;
+  padding-left: 0;
+}
 
 .seed-field { display: flex; flex-direction: column; gap: 8px; }
 .seed-mode {
@@ -735,7 +803,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 }
 .seed-advanced { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 .seed-advanced summary {
-  font-size: 14px; color: var(--muted); cursor: pointer; list-style: none;
+  min-height: 44px; font-size: 14px; color: var(--muted); cursor: pointer; list-style: none;
   display: inline-flex; align-items: center; gap: 6px;
 }
 .seed-advanced summary::-webkit-details-marker { display: none; }
@@ -1706,6 +1774,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .composer-foot { flex-direction: column; align-items: stretch; }
   .prompt-controls { align-items: stretch; }
   .advanced-controls { grid-template-columns: 1fr; }
+  .generation-controls .controls { grid-template-columns: 1fr; }
   .controls { width: 100%; }
   .field { flex: 1; min-width: 0; }
   .select-wrap { width: 100%; }

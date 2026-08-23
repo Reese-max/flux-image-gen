@@ -53,7 +53,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 ## 專案位置
 
 ```powershell
-D:\Users\Administrator\Desktop\圖片生成
+D:\Users\Administrator\Desktop\04_AI內容與產品\圖片生成
 ```
 
 ## 部署狀態
@@ -65,14 +65,14 @@ D:\Users\Administrator\Desktop\圖片生成
 ## 安裝
 
 ```powershell
-cd "D:\Users\Administrator\Desktop\圖片生成"
+cd "D:\Users\Administrator\Desktop\04_AI內容與產品\圖片生成"
 python -m pip install -r requirements.txt
 ```
 
 ## 啟動（Demo 模式）
 
 ```powershell
-cd "D:\Users\Administrator\Desktop\圖片生成"
+cd "D:\Users\Administrator\Desktop\04_AI內容與產品\圖片生成"
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload
 ```
 
@@ -231,7 +231,7 @@ Response：
 ## 測試
 
 ```powershell
-cd "D:\Users\Administrator\Desktop\圖片生成"
+cd "D:\Users\Administrator\Desktop\04_AI內容與產品\圖片生成"
 python -m pytest -q
 node --test tests\frontend\generation-settings.test.cjs tests\frontend\history-store.test.cjs
 ```

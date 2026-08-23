@@ -432,6 +432,7 @@ async function main() {
 
     await page.locator('#advancedSettings').evaluate((element) => {
       element.open = true;
+      document.querySelector('#advancedPromptSettings').open = true;
     });
     await page.fill('#effectPrompt', '更夢幻');
     await page.click('#applyEffect');

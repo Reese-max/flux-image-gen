@@ -134,7 +134,7 @@ WSL 必須使用 Node 20 或 22 LTS。腳本會先在 Windows 跑完整 verify �
 回滾會立即改變正式流量，執行前必須取得 owner 對目標 Version ID 與理由的明確確認。從 `cloudflare/` 執行專案鎖定的 Wrangler：
 
 ```powershell
-cd "D:\Users\Administrator\Desktop\圖片生成\cloudflare"
+cd "D:\Users\Administrator\Desktop\04_AI內容與產品\圖片生成\cloudflare"
 $wrangler = ".\node_modules\.bin\wrangler.cmd"
 $CurrentCommit = (git -C .. rev-parse HEAD).Trim()
 
@@ -158,7 +158,7 @@ $TargetVersion = "<已確認的 VERSION_ID>"
 ### 6.3 回滾後 health 與 assets smoke
 
 ```powershell
-cd "D:\Users\Administrator\Desktop\圖片生成"
+cd "D:\Users\Administrator\Desktop\04_AI內容與產品\圖片生成"
 python scripts\smoke_live_provider.py `
   --base-url https://flux-image-gen.irisx-tracker.workers.dev `
   --expect-mode live
