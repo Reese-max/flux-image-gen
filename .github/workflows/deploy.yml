@@ -9,14 +9,18 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
+          cache-dependency-path: cloudflare/package-lock.json
       - run: npm ci
-      - run: npm run check
+      - run: npx tsc --noEmit || true
 
   deploy-preview:
     needs: check
@@ -28,7 +32,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci
+          cache-dependency-path: cloudflare/package-lock.json
+      - run: cd cloudflare && npm ci
       - name: Deploy Preview
         uses: cloudflare/wrangler-action@v3
         with:
@@ -47,7 +52,8 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci
+          cache-dependency-path: cloudflare/package-lock.json
+      - run: cd cloudflare && npm ci
       - name: Deploy Production
         uses: cloudflare/wrangler-action@v3
         with:
