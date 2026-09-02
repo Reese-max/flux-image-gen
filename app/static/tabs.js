@@ -291,6 +291,8 @@
   (function initCanvasMetadata() {
     var size = document.getElementById('size');
     var model = document.getElementById('model');
+    var devSteps = document.getElementById('devSteps');
+    var devCfgScale = document.getElementById('devCfgScale');
     var seed = document.getElementById('seed');
     var seedRandom = document.getElementById('seedRandom');
     var seedLock = document.getElementById('seedLock');
@@ -316,9 +318,18 @@
       }
       return match ? match[1].replace('×', ' × ') : '自動尺寸';
     }
+    function qualityText() {
+      var steps = devSteps ? devSteps.value.trim() : '';
+      var cfg = devCfgScale ? devCfgScale.value.trim() : '';
+      if (!model || model.value !== 'dev') { return '快速草稿'; }
+      if (!steps && !cfg) { return '平衡'; }
+      if (steps === '10' && cfg === '3') { return '草稿'; }
+      if (steps === '45' && cfg === '4') { return '精緻'; }
+      return '自訂';
+    }
     function updateSettings() {
       var currentSize = sizeText();
-      var currentModel = model && model.value === 'dev' ? '高品質' : '快速草稿';
+      var currentModel = qualityText();
       var locked = seedLock && seedLock.getAttribute('aria-pressed') === 'true';
       var currentSeed = locked && seed && seed.value ? 'Seed ' + seed.value : (locked ? 'Seed 鎖定' : 'Seed 自動');
       if (sizeMeta) { sizeMeta.textContent = currentSize; }
@@ -346,11 +357,14 @@
 
     bindChange(size);
     bindChange(model);
+    bindChange(devSteps);
+    bindChange(devCfgScale);
     bindChange(seed);
     bindChange(seedRandom);
     bindChange(seedLock);
     bindChange(document.getElementById('customWidth'));
     bindChange(document.getElementById('customHeight'));
+    document.addEventListener('imagegen:quality-changed', updateSettings);
     updateSettings();
     updateState();
 
