@@ -1474,6 +1474,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
     '/static/elapsed-timer.js',
     '/static/prompt-enhancer.js',
     '/static/failure-advice.js',
+    '/static/download-utils.js',
     '/static/app.js',
     '/static/canvas-viewport.js',
     '/static/prompt-transform.js',

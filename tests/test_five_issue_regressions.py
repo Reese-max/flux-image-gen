@@ -8,6 +8,12 @@ def read(name: str) -> str:
     return (STATIC / name).read_text(encoding="utf-8")
 
 
+def test_fastapi_upload_dependency_is_declared():
+    requirements = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+
+    assert any(line.strip().lower().startswith("python-multipart") for line in requirements.splitlines())
+
+
 def test_downloads_never_attach_data_urls_directly_to_download_links():
     app_js = read("app.js")
     history_js = read("history-wall.js")

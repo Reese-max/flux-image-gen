@@ -142,3 +142,11 @@ def test_deployment_preflight_requires_release_blocker_items(tmp_path):
     assert result.returncode == 1
     payload = json.loads(result.stderr)
     assert "release acceptance checklist 缺少：Turnstile 真實驗證" in payload["errors"]
+
+
+def test_deploy_workflow_uses_the_repository_api_token_directly():
+    workflow = (ROOT / ".github" / "workflows" / "deploy.yml").read_text(encoding="utf-8")
+
+    assert workflow.count("secrets.CLOUDFLARE_API_TOKEN") == 2
+    assert "CF_REFRESH_TOKEN" not in workflow
+    assert "dash.cloudflare.com/oauth2/token" not in workflow
