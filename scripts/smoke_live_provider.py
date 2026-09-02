@@ -28,6 +28,12 @@ class SmokeFailure(RuntimeError):
     pass
 
 
+def configure_output_encoding() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+
+
 @dataclass
 class HttpResult:
     status: int
@@ -194,6 +200,7 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
+    configure_output_encoding()
     try:
         raise SystemExit(main(sys.argv[1:]))
     except SmokeFailure as error:

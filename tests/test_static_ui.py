@@ -358,7 +358,8 @@ def test_main_generation_accessibility_is_wired():
     styles = read_static("styles.css")
 
     assert 'id="provider-pill" class="pill" title="服務狀態" role="status" aria-live="polite" aria-atomic="true"' in html
-    assert 'id="demo-notice" class="demo-notice" role="status" aria-live="polite"' in html
+    assert 'id="demo-notice"' not in html
+    assert "function showDemoNotice(on)" in app_js
     assert 'id="plainPromptHelp" class="visually-hidden"' in html
     assert 'id="plainPrompt" rows="2" maxlength="2000" aria-describedby="plainPromptHelp status" aria-required="true"' in html
     assert 'id="promptStyle" aria-label="選擇圖片風格"' in html
@@ -489,8 +490,10 @@ def test_pwa_and_mobile_ui_are_wired():
     assert 'href="/manifest.webmanifest"' in html
     assert 'rel="apple-touch-icon"' in html
     assert 'id="mobileGenerateBar"' in html
-    assert 'id="pwaUpdateNotice"' in html
-    assert 'id="reloadPwa"' in html
+    assert 'id="pwaUpdateNotice"' not in html
+    assert "function createPwaUpdateNotice()" in app_js
+    assert "reload.id = 'reloadPwa'" in app_js
+    assert "dismiss.id = 'dismissPwa'" in app_js
     assert 'registerServiceWorker' in app_js
     assert 'showPwaUpdateNotice' in app_js
     assert 'reloadPwaVersion' in app_js
@@ -537,7 +540,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v24" in service_worker_js
+    assert "ai-image-generator-pwa-v25" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -1257,6 +1260,7 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
     assert {path.name for path in production_js_paths} == {
         "app.js",
         "canvas-viewport.js",
+        "download-utils.js",
         "elapsed-timer.js",
         "failure-advice.js",
         "generation-settings.js",

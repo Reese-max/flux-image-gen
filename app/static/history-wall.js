@@ -129,21 +129,21 @@
   }
 
   function downloadHistoryImage(record) {
-    var link = document.createElement('a');
     var sourceRecord = record || getSelectedRecord();
     var id = toText(sourceRecord && sourceRecord.id) || Date.now().toString(36);
     var image;
+    var filename;
     try {
       image = validateHistoryImageUrl(sourceRecord && sourceRecord.image);
+      filename = 'history_' + id + extensionFromImageData(image);
+      if (!root.ImageDownload || typeof root.ImageDownload.trigger !== 'function') {
+        throw new Error('下載功能尚未就緒');
+      }
+      root.ImageDownload.trigger(image, filename);
+      setAppStatus('已開始下載圖片', 'done');
     } catch (error) {
       setAppStatus('下載失敗：' + error.message, 'fail');
-      return;
     }
-    link.href = image;
-    link.download = 'history_' + id + extensionFromImageData(link.href);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   }
 
   function regenerateHistoryImage(record) {

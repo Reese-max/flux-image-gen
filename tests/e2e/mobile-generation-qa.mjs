@@ -371,7 +371,7 @@ async function main() {
     ok('生成完成後自動帶到結果並聚焦', resultVisibility.top >= 0 && resultVisibility.top < resultVisibility.viewportHeight && resultVisibility.focused, JSON.stringify(resultVisibility));
     ok('手機多張結果卡片可左右滑動', cardCount === 3 && gridMetrics.ariaLabel === '多張生成結果，可左右滑動挑選' && gridMetrics.scrollSnapType.indexOf('x') !== -1, JSON.stringify({ cardCount, gridMetrics }));
     ok('手機結果顯示保存提示', (saveHint || '').indexOf('長按圖片保存') !== -1, saveHint || '');
-    ok('手機下載按鈕可用', firstDownload.hrefPrefix.indexOf('data:image/png') === 0 && !!firstDownload.download, JSON.stringify(firstDownload));
+    ok('手機下載按鈕可用', firstDownload.hrefPrefix.indexOf('blob:') === 0 && !!firstDownload.download, JSON.stringify(firstDownload));
     ok('手機生成後歷史保存多張結果', historyCount >= 3, String(historyCount));
     ok('手機生成成功後主要 CTA 保持生成語意', /生成圖片/.test(mobileButtonText || '') && !/再生成|重試/.test(mobileButtonText || ''), mobileButtonText || '');
 

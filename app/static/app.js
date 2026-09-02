@@ -1,11 +1,19 @@
 (function(){
-  var ok = ('fetch' in window) && ('Promise' in window) && (typeof window.fetch === 'function');
-  if(!ok){
-    var banner = document.getElementById('oldbrowser');
-    var button = document.getElementById('go');
-    if(banner){ banner.style.display = 'block'; }
-    if(button){ button.disabled = true; button.textContent = '不支援'; }
+  var banner = document.getElementById('oldbrowser');
+  var button = document.getElementById('go');
+  var ok = ('fetch' in window) &&
+    ('Promise' in window) &&
+    ('Blob' in window) &&
+    ('Uint8Array' in window) &&
+    window.URL &&
+    (typeof window.fetch === 'function') &&
+    (typeof window.URL.createObjectURL === 'function');
+  if(ok){
+    if(banner && banner.parentNode){ banner.parentNode.removeChild(banner); }
+    return;
   }
+  if(banner){ banner.style.display = 'block'; }
+  if(button){ button.disabled = true; button.textContent = '不支援'; }
 })();
 
 var R_SUBJECTS = [
@@ -51,6 +59,8 @@ var generationState = 'idle';
 var turnstileState = { required: false, siteKey: '', widgetId: null, scriptLoading: false };
 var retryBlockedUntil = 0;
 var retryCountdownTimer = null;
+var toastTimer = null;
+var PWA_UPDATE_DISMISS_KEY = 'fluxiPwaUpdateDismissed.v1';
 
 var PROVIDER_STATUS_COPY = {
   checking: '正在檢查服務狀態',
@@ -368,6 +378,25 @@ function setStatus(text, cls){
   status.setAttribute('role', cls === 'fail' ? 'alert' : 'status');
   status.setAttribute('aria-live', cls === 'fail' ? 'assertive' : 'polite');
 }
+function showToast(message, kind){
+  var toast = el('appToast');
+  if(toastTimer){ window.clearTimeout(toastTimer); }
+  if(!toast){
+    toast = document.createElement('div');
+    toast.id = 'appToast';
+    toast.setAttribute('aria-atomic', 'true');
+    document.body.appendChild(toast);
+  }
+  toast.setAttribute('role', kind === 'fail' ? 'alert' : 'status');
+  toast.setAttribute('aria-live', kind === 'fail' ? 'assertive' : 'polite');
+  toast.className = 'app-toast' + (kind ? ' is-' + kind : '');
+  toast.textContent = message;
+  toast.hidden = false;
+  toastTimer = window.setTimeout(function(){
+    if(toast && toast.parentNode){ toast.parentNode.removeChild(toast); }
+    toastTimer = null;
+  }, 3600);
+}
 function setFieldInvalid(field, message){
   if(!field){ return; }
   if(message){
@@ -455,6 +484,7 @@ function applyUseCaseSize(){
 }
 function enableDownload(on){
   var dl = el('dl');
+  if(!dl){ return; }
   if(on){
     dl.hidden = false;
     dl.classList.remove('is-disabled');
@@ -463,11 +493,66 @@ function enableDownload(on){
     dl.hidden = true;
     dl.classList.add('is-disabled');
     dl.setAttribute('aria-disabled', 'true');
-    dl.removeAttribute('href');
+    if(window.ImageDownload && typeof window.ImageDownload.clearLink === 'function'){
+      window.ImageDownload.clearLink(dl);
+    }else{
+      dl.removeAttribute('href');
+    }
   }
+}
+function prepareImageDownload(link, image, filename){
+  if(!window.ImageDownload || typeof window.ImageDownload.prepareLink !== 'function'){
+    throw new Error('下載功能尚未就緒');
+  }
+  return window.ImageDownload.prepareLink(link, image, filename);
 }
 function randomPrompt(){
   return pick(R_SUBJECTS) + ' ' + pick(R_SETTINGS) + ', ' + pick(R_STYLES) + ', ' + pick(R_EXTRAS);
+}
+function pwaUpdateDismissed(){
+  try{
+    return window.sessionStorage.getItem(PWA_UPDATE_DISMISS_KEY) === '1';
+  }catch(error){
+    return false;
+  }
+}
+function createPwaUpdateNotice(){
+  var notice = document.createElement('div');
+  var message = document.createElement('span');
+  var reload = document.createElement('button');
+  var dismiss = document.createElement('button');
+  notice.id = 'pwaUpdateNotice';
+  notice.className = 'pwa-update-notice';
+  notice.setAttribute('role', 'status');
+  notice.setAttribute('aria-live', 'polite');
+  notice.setAttribute('aria-atomic', 'true');
+  message.textContent = '新版本已準備好。';
+  reload.id = 'reloadPwa';
+  reload.className = 'btn mini secondary';
+  reload.type = 'button';
+  reload.textContent = '重新整理';
+  dismiss.id = 'dismissPwa';
+  dismiss.className = 'btn mini secondary';
+  dismiss.type = 'button';
+  dismiss.textContent = '稍後';
+  reload.addEventListener('click', reloadPwaVersion);
+  dismiss.addEventListener('click', dismissPwaUpdate);
+  notice.appendChild(message);
+  notice.appendChild(reload);
+  notice.appendChild(dismiss);
+  document.body.appendChild(notice);
+  return notice;
+}
+function hidePwaUpdateNotice(remember){
+  var notice = el('pwaUpdateNotice');
+  if(remember){
+    try{ window.sessionStorage.setItem(PWA_UPDATE_DISMISS_KEY, '1'); }catch(error){}
+  }
+  if(notice && notice.parentNode){ notice.parentNode.removeChild(notice); }
+  pendingPwaRegistration = null;
+}
+function dismissPwaUpdate(){
+  hidePwaUpdateNotice(true);
 }
 function registerServiceWorker(){
   if(!('serviceWorker' in navigator)){ return; }
@@ -494,18 +579,24 @@ function registerServiceWorker(){
     if(!pwaUpdateRequested){ return; }
     if(pwaRefreshing){ return; }
     pwaRefreshing = true;
+    hidePwaUpdateNotice(false);
     window.location.reload();
   });
 }
 function showPwaUpdateNotice(registration){
-  var notice = el('pwaUpdateNotice');
+  var notice;
+  if(pwaUpdateDismissed()){ return; }
   pendingPwaRegistration = registration || null;
-  if(notice){ notice.hidden = false; }
+  notice = el('pwaUpdateNotice') || createPwaUpdateNotice();
+  notice.hidden = false;
 }
 function reloadPwaVersion(){
-  if(pendingPwaRegistration && pendingPwaRegistration.waiting){
+  var registration = pendingPwaRegistration;
+  hidePwaUpdateNotice(false);
+  try{ window.sessionStorage.removeItem(PWA_UPDATE_DISMISS_KEY); }catch(error){}
+  if(registration && registration.waiting){
     pwaUpdateRequested = true;
-    pendingPwaRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    registration.waiting.postMessage({ type: 'SKIP_WAITING' });
     return;
   }
   window.location.reload();
@@ -630,6 +721,9 @@ function applyQualityPreset(name){
   if(el('devSteps')){ el('devSteps').value = preset.steps; }
   if(el('devCfgScale')){ el('devCfgScale').value = preset.cfg; }
   updateQualityPresetUi();
+  document.dispatchEvent(new CustomEvent('imagegen:quality-changed', {
+    detail: { preset: name, steps: preset.steps, cfgScale: preset.cfg }
+  }));
 }
 function clampWorkspaceWidth(value){
   var width = Number(value);
@@ -1041,6 +1135,7 @@ function useComposition(){
 }
 function onSeedLockClick(){
   var seedField = el('seed');
+  var message;
   if(lastGeneration && isConcreteSeed(lastGeneration.seed)){
     if(lockCompositionSeed(lastGeneration.seed)){
       setStatus('已鎖定剛才那張的構圖，改描述後按生成就能微調', 'done');
@@ -1051,7 +1146,9 @@ function onSeedLockClick(){
     lockCompositionSeed(seedField.value);
     return;
   }
-  setStatus('先生成一張圖，才能鎖定它的構圖', 'warn');
+  message = '先生成一張圖，才能鎖定它的構圖';
+  setStatus(message, 'warn');
+  showToast(message, 'warn');
 }
 function onSeedManualInput(){
   var seedField = el('seed');
@@ -1148,8 +1245,17 @@ function renderBatchResults(stage, images, base){
     mainImage.width = typeof item.width === 'number' ? item.width : fallback.width;
     mainImage.height = typeof item.height === 'number' ? item.height : fallback.height;
     mainSeed.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
-    mainDownload.href = image;
-    mainDownload.download = slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image);
+    try{
+      prepareImageDownload(
+        mainDownload,
+        image,
+        slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image)
+      );
+      mainDownload.hidden = false;
+    }catch(downloadError){
+      mainDownload.hidden = true;
+      reportClientError(downloadError, { type: 'prepare_batch_download' });
+    }
     mainLock.onclick = function(){
       if(lockCompositionSeed(item.seed)){
         setStatus('已鎖定構圖（種子碼 ' + item.seed + '），改描述後生成就能微調', 'done');
@@ -1529,9 +1635,17 @@ function generate(options){
       stage.appendChild(img);
       stage.appendChild(createMobileSaveHint());
       revealResultStage(true);
-      dl.href = image;
-      dl.download = slugify(prompt) + '_' + timestamp() + extensionFromImageData(image);
-      enableDownload(true);
+      try{
+        prepareImageDownload(
+          dl,
+          image,
+          slugify(prompt) + '_' + timestamp() + extensionFromImageData(image)
+        );
+        enableDownload(true);
+      }catch(downloadError){
+        enableDownload(false);
+        reportClientError(downloadError, { type: 'prepare_download' });
+      }
       fallbackDimensions = getSizeDimensions(size);
       generatedRecord = {
         id: createHistoryRecordId(),
@@ -1678,7 +1792,40 @@ window.ModalA11y = {
 
 function showDemoNotice(on){
   var notice = el('demo-notice');
-  if(notice){ notice.hidden = !on; }
+  var shell;
+  var topbar;
+  var icon;
+  var message;
+  if(!on){
+    if(notice && notice.parentNode){ notice.parentNode.removeChild(notice); }
+    return;
+  }
+  if(!notice){
+    notice = document.createElement('div');
+    notice.id = 'demo-notice';
+    notice.className = 'demo-notice';
+    notice.setAttribute('role', 'status');
+    notice.setAttribute('aria-live', 'polite');
+    notice.setAttribute('aria-atomic', 'true');
+    icon = document.createElement('span');
+    icon.className = 'demo-ico';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '⚠️';
+    message = document.createElement('span');
+    message.textContent = '目前是展示模式，畫面上的產出為示意圖，尚未接上真實生成服務。';
+    notice.appendChild(icon);
+    notice.appendChild(message);
+    shell = document.querySelector('main.shell');
+    topbar = shell ? shell.querySelector('.topbar') : null;
+    if(shell && topbar && topbar.nextSibling){
+      shell.insertBefore(notice, topbar.nextSibling);
+    }else if(shell){
+      shell.insertBefore(notice, shell.firstChild);
+    }else{
+      document.body.appendChild(notice);
+    }
+  }
+  notice.hidden = false;
 }
 function providerDisplayName(provider){
   if(provider === 'workers-ai'){ return 'Workers AI'; }
@@ -1702,8 +1849,11 @@ function providerListFromHealth(data){
 function providerNoteFor(provider){
   if(provider === 'demo'){ return '（示範圖片，圖片服務連接後可產生正式圖片）'; }
   if(provider === 'workers-ai'){ return '（Workers AI FLUX）'; }
+  if(provider === 'pollinations'){ return '（Pollinations 備援）'; }
   if(provider === 'nvidia-fallback'){ return '（Workers AI 忙碌，已自動改用 NVIDIA FLUX 備援）'; }
-  return '（NVIDIA FLUX）';
+  if(provider === 'nvidia'){ return '（NVIDIA FLUX）'; }
+  if(provider){ return '（' + providerDisplayName(provider) + '）'; }
+  return '（圖片服務）';
 }
 function setSelectIfOptionExists(id, value){
   var field = el(id);
@@ -1818,7 +1968,6 @@ document.addEventListener('DOMContentLoaded', function(){
   el('go').addEventListener('click', generate);
   if(el('mobileGenerate')){ el('mobileGenerate').addEventListener('click', generate); }
   if(el('mobileGenerateBar')){ el('mobileGenerateBar').hidden = false; }
-  if(el('reloadPwa')){ el('reloadPwa').addEventListener('click', reloadPwaVersion); }
   if(el('regenerate')){ el('regenerate').addEventListener('click', regenerate); }
   if(el('copySettings')){ el('copySettings').addEventListener('click', copySettings); }
   if(el('copyPrompt')){ el('copyPrompt').addEventListener('click', copyPrompt); }

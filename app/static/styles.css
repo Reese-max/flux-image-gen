@@ -2443,3 +2443,37 @@ body[data-tab="usage"] #mobileGenerateBar { display: none !important; }
   .generation-preview .stage.is-panning { cursor: grabbing; user-select: none; }
   .generation-preview .stage.is-canvas-interactive img { transition: none; }
 }
+/* ---------- transient app feedback ---------- */
+.app-toast {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right, 0px));
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  z-index: 1400;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.app-toast.is-warn {
+  border-color: var(--sun-line);
+  background: var(--sun-soft);
+  color: var(--sun-ink);
+}
+.app-toast.is-fail {
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+}
+.app-toast.is-done {
+  border-color: var(--sage-line);
+  background: var(--sage-soft);
+  color: var(--sage-ink);
+}
+.app-toast[hidden] { display: none; }
