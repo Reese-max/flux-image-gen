@@ -597,12 +597,17 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
   const originalFetch = globalThis.fetch;
   let sawSignal = false;
   globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
+    const keepAlive = setTimeout(() => reject(new Error('mock timeout')), 1000);
     sawSignal = Boolean(init && init.signal);
     if (!init || !init.signal) {
+      clearTimeout(keepAlive);
       reject(new Error('missing Vision QA abort signal'));
       return;
     }
-    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    init.signal.addEventListener('abort', () => {
+      clearTimeout(keepAlive);
+      reject(init.signal.reason);
+    }, { once: true });
   });
   const env = fakeEnv({
     GEMINI_API_KEY: 'test-key',
@@ -929,12 +934,17 @@ test('POST /generate bounds a hung Turnstile verification before provider access
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   let sawSignal = false;
   globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
+    const keepAlive = setTimeout(() => reject(new Error('mock timeout')), 1000);
     sawSignal = Boolean(init.signal);
     if (!init.signal) {
+      clearTimeout(keepAlive);
       reject(new Error('missing Turnstile abort signal'));
       return;
     }
-    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    init.signal.addEventListener('abort', () => {
+      clearTimeout(keepAlive);
+      reject(init.signal.reason);
+    }, { once: true });
   });
 
   try {
