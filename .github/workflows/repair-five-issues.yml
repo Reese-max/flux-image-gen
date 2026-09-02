@@ -6,6 +6,8 @@ on:
       - feature/fix-five-ui-regressions
     paths:
       - .github/workflows/repair-five-issues.yml
+      - .github/repair_five_issues.py
+      - .github/patch_test_fixture.py
 
 permissions:
   contents: write
@@ -36,7 +38,9 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Apply fixes in issue order
-        run: python .github/repair_five_issues.py
+        run: |
+          python .github/repair_five_issues.py
+          python .github/patch_test_fixture.py
 
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
