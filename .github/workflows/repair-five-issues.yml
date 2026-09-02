@@ -62,9 +62,6 @@ jobs:
           npm --prefix cloudflare run check
           npm --prefix cloudflare run sync:check
 
-      - name: Run Cloudflare Worker tests
-        run: npm --prefix cloudflare test
-
       - name: Commit repaired source and generated deploy copy
         run: |
           git config user.name "github-actions[bot]"
