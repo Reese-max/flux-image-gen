@@ -3022,3 +3022,125 @@ test('GET /api/health reports whether Vision QA is enabled', async () => {
   ).json();
   assert.equal(on.visionQa, true);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fail-closed rate limiting tests (Issue #11 – P1 remediation)
+// Covers: missing limiter binding, limiter exception, production mode flag,
+// combined dependency failures across /generate, /generate/batch, /edit routes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function productionEnv(extra = {}) {
+  return fakeEnv({
+    ENVIRONMENT: 'production',
+    NVIDIA_API_KEY: 'sk-fake-key-for-test',
+    ...extra,
+  });
+}
+
+function makeGenerateRequest() {
+  return jsonRequest('/generate', {
+    prompt: 'a red cat on a table',
+    model: 'schnell',
+    style: 'realistic',
+    size: 'square',
+  });
+}
+
+function makeBatchRequest() {
+  return jsonRequest('/generate/batch', {
+    prompt: 'a red cat on a table',
+    model: 'schnell',
+    style: 'realistic',
+    size: 'square',
+    count: 2,
+  });
+}
+
+function makeEditRequest() {
+  const form = new FormData();
+  form.set('prompt', 'change background to beach');
+  form.set('turnstileToken', '');
+  const blank = new Blob([new Uint8Array(10)], { type: 'image/png' });
+  form.set('image', blank, 'test.png');
+  return new Request('http://worker.test/edit', { method: 'POST', body: form });
+}
+
+// ── Missing limiter binding ───────────────────────────────────────────────────
+
+test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
+  const env = productionEnv();
+  // No GENERATE_RATE_LIMITER binding in env.
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.code, 'rate_limiter_unavailable');
+});
+
+test('POST /generate/batch fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
+  const env = productionEnv();
+  const response = await worker.fetch(makeBatchRequest(), env);
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.code, 'rate_limiter_unavailable');
+});
+
+test('POST /edit fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
+  const env = productionEnv();
+  const response = await worker.fetch(makeEditRequest(), env);
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.code, 'rate_limiter_unavailable');
+});
+
+// ── Limiter binding throws ────────────────────────────────────────────────────
+
+function throwingLimiter() {
+  return {
+    limit() {
+      throw new Error('Workers RateLimit binding internal error');
+    },
+  };
+}
+
+test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER throws in production mode', async () => {
+  const env = productionEnv({ GENERATE_RATE_LIMITER: throwingLimiter() });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.code, 'rate_limiter_error');
+});
+
+// ── Dev mode keeps pass-through (no regression) ───────────────────────────────
+
+test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER is absent in dev mode', async () => {
+  // Dev mode: no ENVIRONMENT=production. Without provider keys, there's also no
+  // live billing risk, so the worker proceeds past rate limit to serve the request.
+  const env = fakeEnv({});
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  // Should NOT be 503 – pass-through means the request proceeds normally.
+  // Without API keys it will fail at the provider step (not rate limit), which is a different code.
+  assert.notEqual(response.status, 503);
+  const body = await response.json().catch(() => ({}));
+  assert.notEqual(body.code, 'rate_limiter_unavailable');
+  assert.notEqual(body.code, 'rate_limiter_error');
+});
+
+test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER throws in dev mode', async () => {
+  const env = fakeEnv({ GENERATE_RATE_LIMITER: throwingLimiter() });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.notEqual(response.status, 503);
+  const body = await response.json().catch(() => ({}));
+  assert.notEqual(body.code, 'rate_limiter_error');
+});
+
+// ── Production mode without provider keys: no fail-closed (no billing risk) ──
+
+test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no provider keys', async () => {
+  // No NVIDIA_API_KEY, no AI binding, no GEMINI_API_KEY → hasProviderKeys=false.
+  const env = fakeEnv({ ENVIRONMENT: 'production' });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.notEqual(response.status, 503);
+  const body = await response.json().catch(() => ({}));
+  assert.notEqual(body.code, 'rate_limiter_unavailable');
+});
+

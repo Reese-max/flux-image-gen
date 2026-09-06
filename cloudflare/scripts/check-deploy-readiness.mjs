@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -96,11 +96,43 @@ function wranglerInvocation(argv) {
   throw new Error('Usage: check-deploy-readiness.mjs [--wrangler-npx-version X.Y.Z]');
 }
 
-export function validateReadinessInputs({ gitStatus, secretListOutput }) {
+export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerTomlContent }) {
   assertCleanWorktree(gitStatus);
   const missing = findMissingSecrets(parseSecretNames(secretListOutput));
   if (missing.length > 0) {
     throw new Error(`Missing required production secrets: ${missing.join(', ')}`);
+  }
+  if (wranglerTomlContent != null) {
+    assertProductionAbuseControls(wranglerTomlContent);
+  }
+}
+
+/**
+ * Reject a production deployment configuration that has no abuse controls.
+ *
+ * A configuration is considered inadequate when ALL of the following are true:
+ *   1. ENVIRONMENT is not "production" (rate limiter won't fail-closed).
+ *   2. TURNSTILE_REQUIRED is not "true" (Turnstile gate is off).
+ *
+ * This prevents accidental public exposure where both layers are disabled.
+ */
+export function assertProductionAbuseControls(tomlContent) {
+  const content = String(tomlContent || '');
+  const environmentMatch = content.match(/^\s*ENVIRONMENT\s*=\s*"([^"]*)"/m);
+  const turnstileMatch = content.match(/^\s*TURNSTILE_REQUIRED\s*=\s*"([^"]*)"/m);
+
+  const environmentValue = (environmentMatch && environmentMatch[1]) || 'development';
+  const turnstileValue = (turnstileMatch && turnstileMatch[1]) || 'false';
+
+  const hasProductionMode = environmentValue.trim().toLowerCase() === 'production';
+  const hasTurnstile = turnstileValue.trim().toLowerCase() === 'true';
+
+  if (!hasProductionMode && !hasTurnstile) {
+    throw new Error(
+      'Production deployment rejected: ENVIRONMENT is not "production" (rate limiter will not fail-closed) ' +
+      'AND TURNSTILE_REQUIRED is not "true". At least one abuse control must be active. ' +
+      'Set ENVIRONMENT="production" in wrangler.toml or enable TURNSTILE_REQUIRED="true".',
+    );
   }
 }
 
@@ -143,6 +175,20 @@ function main() {
 
   try {
     validateReadinessInputs({ gitStatus: gitStatus.stdout, secretListOutput: secretList.stdout });
+  } catch (error) {
+    fail(error.message);
+  }
+
+  // Read wrangler.toml to verify abuse controls are configured.
+  let wranglerTomlContent;
+  try {
+    wranglerTomlContent = readFileSync(path.join(rootDir, 'wrangler.toml'), 'utf8');
+  } catch {
+    fail('Unable to read wrangler.toml for abuse-control verification.');
+  }
+
+  try {
+    assertProductionAbuseControls(wranglerTomlContent);
   } catch (error) {
     fail(error.message);
   }

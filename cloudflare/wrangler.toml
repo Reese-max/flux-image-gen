@@ -44,9 +44,17 @@ VISION_QA_ENABLED = "false"
 # Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
 # infrastructure (5xx/timeout). Never used on content filter / rate limit.
 POLLINATIONS_FALLBACK_ENABLED = "true"
-# Public Turnstile config. Public deployments should set TURNSTILE_REQUIRED to
-# "true", fill TURNSTILE_SITE_KEY, and set the secret with:
-#   npx wrangler secret put TURNSTILE_SECRET_KEY
+# Set ENVIRONMENT="production" to enable fail-closed rate limiting and tighten
+# abuse controls. Without this flag the Worker keeps the legacy pass-through
+# behaviour (no-op when limiter or Turnstile keys are missing), which is safe
+# for local dev but NOT for a public deployment with server-funded API keys.
+ENVIRONMENT = "development"
+# Public Turnstile config. Set TURNSTILE_REQUIRED to "true" and
+# TURNSTILE_SITE_KEY for any public deployment that can reach provider APIs.
+# If TURNSTILE_REQUIRED is "true" but TURNSTILE_SECRET_KEY is missing the
+# Worker already returns 503 (fail closed), so missing-secret misconfiguration
+# cannot open the gate. Set ENVIRONMENT="production" as well so the rate
+# limiter binding absence / error also fails closed.
 TURNSTILE_REQUIRED = "false"
 TURNSTILE_SITE_KEY = "0x4AAAAAAD2QELaSWsFTNJOV"
 # Cost/usage dashboard. Worker logs structured usage_event lines and exposes

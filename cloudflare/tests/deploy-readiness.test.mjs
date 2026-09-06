@@ -99,3 +99,46 @@ test('both real deployment paths invoke readiness before resolving the commit', 
   assert.match(wslScript, /BORROWED_WSL_CREDS_READY=yes/);
   assert.match(wslScript, /default\.toml.*\.bak-|\$\{WIN_CREDS\}\.bak-/);
 });
+
+
+import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness.mjs';
+
+
+test('assertProductionAbuseControls passes when ENVIRONMENT=production', () => {
+  assert.doesNotThrow(() =>
+    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"')
+  );
+});
+
+test('assertProductionAbuseControls passes when TURNSTILE_REQUIRED=true', () => {
+  assert.doesNotThrow(() =>
+    assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"')
+  );
+});
+
+test('assertProductionAbuseControls passes when both are enabled', () => {
+  assert.doesNotThrow(() =>
+    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"')
+  );
+});
+
+test('assertProductionAbuseControls rejects when neither abuse control is active', () => {
+  assert.throws(
+    () => assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"'),
+    /Production deployment rejected/,
+  );
+});
+
+test('assertProductionAbuseControls rejects when ENVIRONMENT is missing and TURNSTILE is false', () => {
+  assert.throws(
+    () => assertProductionAbuseControls('TURNSTILE_REQUIRED = "false"'),
+    /Production deployment rejected/,
+  );
+});
+
+test('assertProductionAbuseControls rejects when no vars set', () => {
+  assert.throws(
+    () => assertProductionAbuseControls(''),
+    /Production deployment rejected/,
+  );
+});

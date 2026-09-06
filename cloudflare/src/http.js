@@ -45,6 +45,35 @@ function envFlag(value) {
   return String(value || "").trim().toLowerCase() === "true";
 }
 
+/**
+ * Return true when the Worker is running in an explicit production deployment.
+ *
+ * Production mode is opt-in via ENVIRONMENT="production". Only in production
+ * does a missing / broken rate-limit binding trigger a fail-closed 503 rather
+ * than a no-op pass-through.  Local dev and staging keep the existing
+ * pass-through so tests and previews keep working without the binding.
+ *
+ * Why not auto-detect by Workers runtime signal? The runtime does not expose
+ * a stable "I am the production deployment" flag accessible from JS.
+ * Operator intent expressed through an env var is the correct mechanism.
+ */
+export function isProductionMode(env) {
+  return String((env && env.ENVIRONMENT) || "").trim().toLowerCase() === "production";
+}
+
+/**
+ * Return true when server-funded provider calls (NVIDIA / Workers AI / Gemini)
+ * are reachable from this env. Used by fail-closed logic: when the operator
+ * has live API keys, bypassing the rate limiter is a real cost/abuse risk.
+ */
+function hasProviderKeys(env) {
+  if (!env) return false;
+  if (String(env.NVIDIA_API_KEY || "").trim().length > 0) return true;
+  if (env.AI && typeof env.AI.run === "function") return true;
+  if (String(env.GEMINI_API_KEY || "").trim().length > 0) return true;
+  return false;
+}
+
 export function turnstileConfig(env) {
   const required = envFlag(env && env.TURNSTILE_REQUIRED);
   return {
@@ -205,19 +234,56 @@ export function sanitizeClientErrorReport(payload) {
   };
 }
 
-// Optional edge rate limiting. Active only when a Cloudflare Rate Limiting binding
-// named GENERATE_RATE_LIMITER is configured in wrangler.toml; otherwise this is a
-// no-op so local dev and un-provisioned deploys keep working. Rate limiting must
-// never fail the request itself, so any binding error is ignored.
-export async function checkRateLimit(request, limiter) {
-  if (!limiter || typeof limiter.limit !== "function") return null;
+// Edge rate limiting. Active when a Cloudflare Rate Limiting binding named
+// GENERATE_RATE_LIMITER is configured in wrangler.toml.
+//
+// Fail-closed policy (production mode only):
+//   When ENVIRONMENT="production" and provider API keys are present, a missing
+//   or broken rate-limit binding returns 503 Service Unavailable instead of
+//   silently allowing the request. This prevents server-funded workloads from
+//   running without a hard request gate due to misconfiguration or binding failure.
+//
+// Pass-through (local dev / staging):
+//   Without ENVIRONMENT="production", a missing limiter is still a no-op so
+//   local development and un-provisioned preview deployments keep working.
+export async function checkRateLimit(request, limiter, env) {
+  const inProduction = isProductionMode(env);
+
+  // Check if limiter binding is present.
+  if (!limiter || typeof limiter.limit !== "function") {
+    if (inProduction && hasProviderKeys(env)) {
+      // Fail closed: binding is required in production to protect provider quota.
+      return json(
+        {
+          error: "服務暫時維護中，請稍後再試",
+          code: "rate_limiter_unavailable",
+        },
+        503,
+      );
+    }
+    // Dev / staging: pass-through without the binding.
+    return null;
+  }
+
   const key = request.headers.get("cf-connecting-ip") || "anonymous";
   let outcome;
   try {
     outcome = await limiter.limit({ key });
   } catch {
+    if (inProduction && hasProviderKeys(env)) {
+      // Fail closed: binding error in production is treated as limiter unavailable.
+      return json(
+        {
+          error: "服務暫時維護中，請稍後再試",
+          code: "rate_limiter_error",
+        },
+        503,
+      );
+    }
+    // Dev / staging: swallow binding errors.
     return null;
   }
+
   if (outcome && outcome.success === false) {
     return json({ error: "叫用太頻繁，請稍後再試", code: "rate_limited", retry_after: 60 }, 429);
   }

@@ -170,7 +170,7 @@ async function handleClientError(request) {
 
 async function handleGenerate(request, env) {
   const started = Date.now();
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate",
@@ -302,7 +302,7 @@ async function handleGenerate(request, env) {
 
 async function handleGenerateBatch(request, env) {
   const started = Date.now();
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate_batch",
@@ -465,7 +465,7 @@ async function handleGenerateBatch(request, env) {
 
 async function handleEdit(request, env) {
   const started = Date.now();
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "edit",
@@ -580,7 +580,7 @@ async function handleGallerySave(request, env) {
   if (!bucket || typeof bucket.put !== "function") {
     return json({ error: "雲端圖庫尚未啟用", code: "gallery_disabled" }, 503);
   }
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) return limited;
 
   if (!(await verifyGalleryToken(env, request.headers.get("x-gallery-token")))) {
@@ -1016,7 +1016,7 @@ async function handlePromptTransform(request, env) {
   const route = "prompt_transform";
   const started = Date.now();
   // Each call can hit the Gemini API (separate paid quota); throttle like /generate.
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
       outcome: "error", statusCode: 429, errorCode: "rate_limited",
@@ -1097,7 +1097,7 @@ async function handlePromptComplete(request, env) {
   const route = "prompt_complete";
   const started = Date.now();
   // Gemma completion can consume paid quota; throttle like /prompt/transform.
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
       outcome: "error", statusCode: 429, errorCode: "rate_limited",
@@ -1163,7 +1163,7 @@ async function handlePromptEnhance(request, env) {
   const route = "prompt_enhance";
   const started = Date.now();
   // Effect optimisation hits Gemini; throttle like /prompt/transform.
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
       outcome: "error", statusCode: 429, errorCode: "rate_limited",
