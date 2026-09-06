@@ -2,79 +2,41 @@ name = "flux-image-gen"
 main = "src/index.js"
 compatibility_date = "2026-06-24"
 compatibility_flags = ["nodejs_compat"]
-
-# Exposes the active Cloudflare Worker version id/tag/timestamp to the Worker.
-# Keep the binding name stable; /api/health uses it for deployment traceability.
 [version_metadata]
 binding = "CF_VERSION_METADATA"
-
-# Persist structured Worker logs at a bounded sample rate. Traces stay disabled
-# until their volume/cost has been explicitly approved.
 [observability]
 enabled = true
 head_sampling_rate = 0.1
-
 [observability.logs]
 enabled = true
 head_sampling_rate = 0.1
 invocation_logs = true
-
-# Static SPA (index.html + /static/*) is served directly from ./public.
-# Non-asset routes (/generate, /health) fall through to the Worker in src/index.js.
 [assets]
 directory = "./public"
 binding = "ASSETS"
-
 [vars]
-# Public, non-secret config. Secret keys are set separately:
-#   npx wrangler secret put NVIDIA_API_KEY
-#   npx wrangler secret put GEMINI_API_KEY
-#   npx wrangler secret put TURNSTILE_SECRET_KEY
-#   npx wrangler secret put GALLERY_TOKEN_SECRET
-#   npx wrangler secret put GALLERY_ADMIN_TOKEN
-# Do not put GALLERY_ADMIN_TOKEN in [vars]; it gates GET /api/gallery for the
-# station/admin cloud gallery list and must stay server-side only.
+# This Worker configuration is the public/live policy. Local tests that construct
+# env objects without ENVIRONMENT remain explicitly non-production.
+ENVIRONMENT = "production"
 NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
-# Gemma models served via the Gemini API.
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
 GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
 GEMINI_VISION_MODEL = "gemini-2.5-flash"
-# Optional paid visual QA for agent mode. Keep false until budget is approved.
 VISION_QA_ENABLED = "false"
-# Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
-# infrastructure (5xx/timeout). Never used on content filter / rate limit.
 POLLINATIONS_FALLBACK_ENABLED = "true"
-# Public Turnstile config. Public deployments should set TURNSTILE_REQUIRED to
-# "true", fill TURNSTILE_SITE_KEY, and set the secret with:
-#   npx wrangler secret put TURNSTILE_SECRET_KEY
-TURNSTILE_REQUIRED = "false"
+# Fail closed if TURNSTILE_SECRET_KEY is absent; never silently disable the
+# public abuse-control layer because of a deployment/configuration mistake.
+TURNSTILE_REQUIRED = "true"
 TURNSTILE_SITE_KEY = "0x4AAAAAAD2QELaSWsFTNJOV"
-# Cost/usage dashboard. Worker logs structured usage_event lines and exposes
-# aggregated, prompt-free counters at GET /api/usage.
 USAGE_ESTIMATED_COST_USD_PER_IMAGE = "0.003"
-# Prompt／Vision 的實際價格取決於 token 與模型；0 代表只記嘗試次數，
-# 校準後可填入每次 provider attempt 的保守估值。
 USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST = "0"
 USAGE_ALERT_DAILY_GENERATIONS = "1000"
-
-# --- Edge rate limiting for /generate (per client IP) ---
-# The Worker enforces this binding before /generate, /generate/batch, /edit and
-# /gallery writes. If a local/dev env lacks the binding, the Worker treats it as
-# no-op so tests and previews still run.
 [[ratelimits]]
 name = "GENERATE_RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 12, period = 60 }
-
-# --- R2-backed cloud gallery (enabled 2026-06-28) ---
-# Worker reads env.IMAGE_BUCKET; binding name must stay IMAGE_BUCKET.
 [[r2_buckets]]
 binding = "IMAGE_BUCKET"
 bucket_name = "flux-image-gallery"
-
-# --- Workers AI: backs the "fast" model (FLUX.2 klein 4B) since 2026-07 ---
-# NVIDIA's hosted flux.1-schnell went dark (accepts requests, never responds),
-# so the fast tier runs on Workers AI instead. The Worker treats env.AI as
-# optional: without it, "schnell" falls back to the NVIDIA endpoint.
 [ai]
 binding = "AI"
