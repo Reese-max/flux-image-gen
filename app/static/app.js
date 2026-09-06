@@ -672,13 +672,22 @@ var QUALITY_PRESETS = {
   fine: { steps: '45', cfg: '4', hint: '步數拉高，細節更足，但較慢、較耗額度。' }
 };
 function currentQualityPreset(){
+  var modelEl = el('model');
   var stepsEl = el('devSteps');
   var cfgEl = el('devCfgScale');
   var s = stepsEl ? stepsEl.value.trim() : '';
   var c = cfgEl ? cfgEl.value.trim() : '';
   var names = Object.keys(QUALITY_PRESETS);
   for(var i = 0; i < names.length; i++){
-    if(s === QUALITY_PRESETS[names[i]].steps && c === QUALITY_PRESETS[names[i]].cfg){ return names[i]; }
+    if(s === QUALITY_PRESETS[names[i]].steps && c === QUALITY_PRESETS[names[i]].cfg){
+      if(names[i] === 'balanced' && modelEl && modelEl.value === 'schnell'){
+        return 'draft';
+      }
+      return names[i];
+    }
+  }
+  if(s === '' && c === '' && modelEl && modelEl.value === 'schnell'){
+    return 'draft';
   }
   return null;
 }
@@ -694,13 +703,20 @@ function updateQualityPresetUi(){
     hint.textContent = active ? QUALITY_PRESETS[active].hint
       : '自訂數值：steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。';
   }
+  if(typeof window.updateCanvasSettings === 'function'){
+    window.updateCanvasSettings();
+  }
 }
 function applyQualityPreset(name){
   var preset = QUALITY_PRESETS[name];
   if(!preset){ return; }
   if(el('devSteps')){ el('devSteps').value = preset.steps; }
   if(el('devCfgScale')){ el('devCfgScale').value = preset.cfg; }
+  if(el('model')){ el('model').value = 'dev'; }
   updateQualityPresetUi();
+  if(el('devSteps')){
+    try{ el('devSteps').dispatchEvent(new Event('input', { bubbles: true })); }catch(_){}
+  }
 }
 function clampWorkspaceWidth(value){
   var width = Number(value);
@@ -946,8 +962,15 @@ function setGenerationSettings(settings){
   if(Object.prototype.hasOwnProperty.call(source, 'width') && el('customWidth')){ el('customWidth').value = source.width || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'height') && el('customHeight')){ el('customHeight').value = source.height || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'seed') && el('seed')){ el('seed').value = String(source.seed || 0); }
+  if(Object.prototype.hasOwnProperty.call(source, 'steps') && el('devSteps')){
+    el('devSteps').value = source.steps != null && source.steps !== '' ? String(source.steps) : '';
+  }
+  if(Object.prototype.hasOwnProperty.call(source, 'cfgScale') && el('devCfgScale')){
+    el('devCfgScale').value = source.cfgScale != null && source.cfgScale !== '' ? String(source.cfgScale) : '';
+  }
   updateCustomSizeVisibility();
   updateDevTuningVisibility();
+  updateQualityPresetUi();
 }
 function setNextGenerationSourceRecord(id){
   pendingSourceRecordId = id || '';
@@ -1003,6 +1026,10 @@ function applyPromptEnhancement(){
   });
 }
 function progressCopy(model, seconds){
+  var preset = currentQualityPreset();
+  if(preset === 'draft' || model === 'schnell'){
+    return '⚡ 快速模型產圖中… 已用 ' + seconds + ' 秒';
+  }
   if(model === 'dev'){
     return '🎨 高品質模型產圖中… 已用 ' + seconds + ' 秒，通常會久一點';
   }
@@ -1954,7 +1981,12 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
   if(el('size')){ el('size').addEventListener('change', function(){ updateCustomSizeVisibility(); if(!generationInFlight){ setGenerationState('idle'); } }); }
-  if(el('model')){ el('model').addEventListener('change', function(){ updateDevTuningVisibility(); }); }
+  if(el('model')){
+    el('model').addEventListener('change', function(){
+      updateDevTuningVisibility();
+      updateQualityPresetUi();
+    });
+  }
   updateDevTuningVisibility();
   Array.prototype.forEach.call(document.querySelectorAll('.quality-preset-btn'), function(btn){
     btn.addEventListener('click', function(){ applyQualityPreset(btn.getAttribute('data-preset')); });

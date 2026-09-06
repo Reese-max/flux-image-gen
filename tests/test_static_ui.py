@@ -1327,3 +1327,21 @@ def test_optional_generation_controls_are_wired_to_the_backend():
     assert "visionQa: readVisionQa()" in app_js
     assert "steps: devTuning.steps" in app_js
     assert "cfgScale: devTuning.cfgScale" in app_js
+
+
+def test_canvas_statusbar_quality_syncs_with_presets():
+    html = read_static("index.html")
+    tabs_js = read_static("tabs.js")
+    app_js = read_static("app.js")
+    history_wall_js = read_static("history-wall.js")
+
+    assert '<span id="canvasModelMeta">平衡</span>' in html
+    assert "qualityText" in tabs_js
+    assert "window.updateCanvasSettings" in tabs_js
+    assert "devSteps" in tabs_js
+    assert "devCfgScale" in tabs_js
+    assert "quality-preset-btn" in tabs_js
+    assert "window.updateCanvasSettings()" in app_js
+    assert "source.steps" in app_js
+    assert "source.cfgScale" in app_js
+    assert "record.model === 'schnell'" in history_wall_js
