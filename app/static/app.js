@@ -51,6 +51,10 @@ var generationState = 'idle';
 var turnstileState = { required: false, siteKey: '', widgetId: null, scriptLoading: false };
 var retryBlockedUntil = 0;
 var retryCountdownTimer = null;
+var toastTimer = null;
+var toastHideTimer = null;
+var seedLockFeedbackTimer = null;
+var seedShakeTimer = null;
 
 var PROVIDER_STATUS_COPY = {
   checking: '正在檢查服務狀態',
@@ -432,6 +436,80 @@ function setStatus(text, cls){
   status.className = 'status' + (cls ? ' ' + cls : '');
   status.setAttribute('role', cls === 'fail' ? 'alert' : 'status');
   status.setAttribute('aria-live', cls === 'fail' ? 'assertive' : 'polite');
+}
+function showToast(message, type){
+  var toast = el('appToast');
+  if(!toast || !message){ return; }
+  if(toastTimer){ clearTimeout(toastTimer); toastTimer = null; }
+  if(toastHideTimer){ clearTimeout(toastHideTimer); toastHideTimer = null; }
+  toast.textContent = message;
+  toast.className = 'app-toast' + (type ? ' is-' + type : '');
+  toast.hidden = false;
+  toast.setAttribute('aria-hidden', 'false');
+  void toast.offsetWidth;
+  toast.classList.add('is-visible');
+  toastTimer = setTimeout(function(){
+    toast.classList.remove('is-visible');
+    toast.setAttribute('aria-hidden', 'true');
+    toastHideTimer = setTimeout(function(){
+      if(toast && !toast.classList.contains('is-visible')){
+        toast.hidden = true;
+      }
+      toastHideTimer = null;
+    }, 250);
+    toastTimer = null;
+  }, 3500);
+}
+function showSeedLockFeedback(message){
+  var msg = message || '先生成一張圖，才能鎖定它的構圖';
+  var lockBtn = el('seedLock');
+  var tooltip = el('seedLockTooltip');
+  var hint = el('seedModeHint');
+
+  setStatus(msg, 'warn');
+  showToast(msg, 'warn');
+
+  if(lockBtn){
+    lockBtn.classList.remove('is-shake');
+    void lockBtn.offsetWidth;
+    lockBtn.classList.add('is-shake');
+    if(seedShakeTimer){ clearTimeout(seedShakeTimer); }
+    seedShakeTimer = setTimeout(function(){
+      if(lockBtn){ lockBtn.classList.remove('is-shake'); }
+      seedShakeTimer = null;
+    }, 400);
+  }
+
+  if(hint){
+    hint.textContent = '⚠️ ' + msg;
+    hint.classList.add('is-warn');
+  }
+
+  if(tooltip){
+    tooltip.textContent = msg;
+    tooltip.hidden = false;
+    tooltip.setAttribute('aria-hidden', 'false');
+    void tooltip.offsetWidth;
+    tooltip.classList.add('is-visible');
+  }
+
+  if(seedLockFeedbackTimer){ clearTimeout(seedLockFeedbackTimer); }
+  seedLockFeedbackTimer = setTimeout(function(){
+    if(tooltip){
+      tooltip.classList.remove('is-visible');
+      tooltip.setAttribute('aria-hidden', 'true');
+      setTimeout(function(){
+        if(tooltip && !tooltip.classList.contains('is-visible')){
+          tooltip.hidden = true;
+        }
+      }, 200);
+    }
+    if(hint){
+      hint.classList.remove('is-warn');
+      updateSeedModeUi();
+    }
+    seedLockFeedbackTimer = null;
+  }, 3200);
 }
 function setFieldInvalid(field, message){
   if(!field){ return; }
@@ -853,6 +931,7 @@ function updateSeedModeUi(){
   var randomBtn = el('seedRandom');
   var lockBtn = el('seedLock');
   var hint = el('seedModeHint');
+  var tooltip = el('seedLockTooltip');
   var seedField = el('seed');
   var locked = seedMode === 'lock';
   if(randomBtn){
@@ -864,11 +943,17 @@ function updateSeedModeUi(){
     lockBtn.setAttribute('aria-pressed', locked ? 'true' : 'false');
   }
   if(hint){
+    hint.classList.remove('is-warn');
     if(locked){
       hint.textContent = '已鎖定構圖（種子碼 ' + (seedField && seedField.value ? seedField.value : '—') + '），改描述後再生成就能微調。';
     }else{
       hint.textContent = '每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。';
     }
+  }
+  if(tooltip && locked){
+    tooltip.classList.remove('is-visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+    tooltip.hidden = true;
   }
 }
 function setSeedMode(mode){
@@ -879,6 +964,7 @@ function lockCompositionSeed(seedValue){
   var seedField = el('seed');
   if(!isConcreteSeed(seedValue)){
     setStatus('這張圖沒有可鎖定的種子碼（隨機產生的舊圖無法重現），請先生成一張新圖再鎖定', 'warn');
+    showToast('這張圖沒有可鎖定的種子碼，請先生成新圖', 'warn');
     return false;
   }
   if(seedField){ seedField.value = String(seedValue); }
@@ -1114,6 +1200,7 @@ function regenerate(){
 function lockCompositionFromRecord(record){
   if(!record){
     setStatus('找不到可鎖定構圖的圖片', 'warn');
+    showToast('找不到可鎖定構圖的圖片', 'warn');
     return false;
   }
   setGenerationSettings({
@@ -1125,6 +1212,7 @@ function lockCompositionFromRecord(record){
   });
   if(lockCompositionSeed(record.seed)){
     setStatus('已鎖定這張的構圖，改描述後按生成就能微調', 'done');
+    showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
     scrollToComposerAndFocus();
     return true;
   }
@@ -1132,7 +1220,8 @@ function lockCompositionFromRecord(record){
 }
 function useComposition(){
   if(!lastGeneration){
-    setStatus('尚無可鎖定構圖的圖片', 'warn');
+    setStatus('尚無可鎖定構圖的圖片，請先生成一張圖', 'warn');
+    showToast('尚無可鎖定構圖的圖片，請先生成一張圖', 'warn');
     return;
   }
   lockCompositionFromRecord(lastGeneration);
@@ -1142,14 +1231,16 @@ function onSeedLockClick(){
   if(lastGeneration && isConcreteSeed(lastGeneration.seed)){
     if(lockCompositionSeed(lastGeneration.seed)){
       setStatus('已鎖定剛才那張的構圖，改描述後按生成就能微調', 'done');
+      showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
     }
     return;
   }
   if(seedField && isConcreteSeed(seedField.value)){
     lockCompositionSeed(seedField.value);
+    showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
     return;
   }
-  setStatus('先生成一張圖，才能鎖定它的構圖', 'warn');
+  showSeedLockFeedback('先生成一張圖，才能鎖定它的構圖');
 }
 function onSeedManualInput(){
   var seedField = el('seed');
@@ -1252,6 +1343,7 @@ function renderBatchResults(stage, images, base){
     mainLock.onclick = function(){
       if(lockCompositionSeed(item.seed)){
         setStatus('已鎖定構圖（種子碼 ' + item.seed + '），改描述後生成就能微調', 'done');
+        showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
       }
     };
     for(j = 0; j < thumbButtons.length; j += 1){
@@ -1764,8 +1856,12 @@ window.ImageGenApp = {
   getLastGeneration: getLastGeneration,
   setNextGenerationSourceRecord: setNextGenerationSourceRecord,
   lockCompositionFromRecord: lockCompositionFromRecord,
+  useComposition: useComposition,
+  onSeedLockClick: onSeedLockClick,
   copyText: copyText,
   setStatus: setStatus,
+  showToast: showToast,
+  showSeedLockFeedback: showSeedLockFeedback,
   refreshProvider: refreshProvider,
   getProviderHealth: getProviderHealth,
   dataUrlToBlob: dataUrlToBlob,

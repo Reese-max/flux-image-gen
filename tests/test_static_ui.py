@@ -1355,3 +1355,20 @@ def test_provider_completion_note_syncs_with_pollinations_and_providers():
     assert "providerNoteFor: providerNoteFor" in app_js
     assert "providerDisplayName: providerDisplayName" in app_js
     assert "toText(sourceRecord.provider)" in history_wall_js
+
+
+def test_seed_lock_feedback_and_toast_elements_are_wired():
+    html = read_static("index.html")
+    styles_css = read_static("styles.css")
+    app_js = read_static("app.js")
+
+    assert 'id="appToast"' in html
+    assert 'id="seedLockTooltip"' in html
+    assert ".seed-lock-tooltip" in styles_css
+    assert ".app-toast" in styles_css
+    assert ".seed-mode-btn.is-shake" in styles_css
+    assert "function showToast" in app_js
+    assert "function showSeedLockFeedback" in app_js
+    assert "showToast: showToast" in app_js
+    assert "showSeedLockFeedback: showSeedLockFeedback" in app_js
+
