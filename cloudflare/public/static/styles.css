@@ -1105,6 +1105,22 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .pwa-update-notice[hidden] {
   display: none;
 }
+.pwa-update-dismiss {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  line-height: 1.4;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.pwa-update-dismiss:hover, .pwa-update-dismiss:focus-visible {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--line-2);
+}
 
 .history-wall {
   padding: clamp(16px, 3.5vw, 22px);

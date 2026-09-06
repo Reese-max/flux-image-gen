@@ -46,7 +46,7 @@
   </div>
 
   <main class="shell">
-    <div id="oldbrowser" class="oldbrowser" role="alert">⚠️ 偵測到你的瀏覽器較舊，部分功能可能無法運作。建議改用最新版 Chrome、Edge、Firefox 或 Safari。</div>
+    <div id="oldbrowser" class="oldbrowser" role="alert" aria-hidden="true" hidden>⚠️ 偵測到你的瀏覽器較舊，部分功能可能無法運作。建議改用最新版 Chrome、Edge、Firefox 或 Safari。</div>
 
     <header class="topbar">
       <div class="brand">
@@ -63,7 +63,7 @@
       </div>
     </header>
 
-    <div id="demo-notice" class="demo-notice" role="status" aria-live="polite" hidden>
+    <div id="demo-notice" class="demo-notice" role="status" aria-live="polite" aria-hidden="true" hidden>
       <span class="demo-ico" aria-hidden="true">⚠️</span>
       <span>目前是<b>展示模式</b>，畫面上的產出為示意圖，尚未接上真實生成服務。</span>
     </div>
@@ -807,9 +807,10 @@
       </div>
     </div>
 
-    <div id="pwaUpdateNotice" class="pwa-update-notice" role="status" aria-live="polite" aria-atomic="true" hidden>
+    <div id="pwaUpdateNotice" class="pwa-update-notice" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true" hidden>
       <span>新版本已準備好。</span>
       <button id="reloadPwa" class="btn mini secondary" type="button">重新整理</button>
+      <button id="dismissPwaUpdate" class="pwa-update-dismiss" type="button" aria-label="稍後更新">稍後</button>
     </div>
 
     <div id="mobileGenerateBar" class="mobile-generate-bar" role="region" aria-label="手機固定生成列" hidden>
