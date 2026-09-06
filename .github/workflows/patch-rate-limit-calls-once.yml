@@ -14,7 +14,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: Patch only exact limiter calls
+      - name: Patch exact limiter calls
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -22,15 +22,14 @@ jobs:
           s=p.read_text()
           old='checkRateLimit(request, env.GENERATE_RATE_LIMITER)'
           n=s.count(old)
-          assert n >= 1, n
-          s=s.replace(old, 'checkRateLimit(request, env.GENERATE_RATE_LIMITER, env)')
-          p.write_text(s)
-          print('patched', n)
+          assert n == 7, n
+          p.write_text(s.replace(old, 'checkRateLimit(request, env.GENERATE_RATE_LIMITER, env)'))
           PY
-          test "$(git diff --name-only)" = "cloudflare/src/index.js"
-      - name: Commit branch-only patch
+          git diff --exit-code -- . ':!cloudflare/src/index.js' || true
+      - name: Commit only the intended source file
         run: |
-          git add cloudflare/src/index.js
+          git add -- cloudflare/src/index.js
+          test "$(git diff --cached --name-only)" = "cloudflare/src/index.js"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'fix(abuse): pass environment policy to limiter guard'
