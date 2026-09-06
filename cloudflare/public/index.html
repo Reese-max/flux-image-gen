@@ -178,7 +178,8 @@
             <span class="field-label">畫面變化</span>
             <div class="seed-mode" role="group" aria-label="構圖模式">
               <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
-              <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
+              <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false" aria-describedby="seedModeHint">🔒 鎖定這張構圖</button>
+              <div id="seedLockTooltip" class="seed-lock-tooltip" role="tooltip" aria-hidden="true" hidden>先生成一張圖，才能鎖定它的構圖</div>
             </div>
             <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
             <input id="seed" type="hidden">
@@ -816,6 +817,8 @@
       <button id="mobileGenerate" class="btn primary" type="button" aria-describedby="mobileGenerateSummary status">🎨 生成圖片</button>
     </div>
   </main>
+
+  <div id="appToast" class="app-toast" role="alert" aria-live="assertive" aria-hidden="true" hidden></div>
 
   <script src="/static/tabs.js"></script>
   <script src="/static/generation-settings.js"></script>
