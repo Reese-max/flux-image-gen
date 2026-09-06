@@ -189,6 +189,10 @@
   function resetResult() {
     stage.innerHTML = STAGE_PLACEHOLDER;
     setPreviewState('idle', '等待執行');
+    if (dlLink && dlLink._blobUrl) {
+      try { URL.revokeObjectURL(dlLink._blobUrl); } catch (_) {}
+      dlLink._blobUrl = null;
+    }
     dlLink.classList.add('is-disabled');
     dlLink.setAttribute('aria-disabled', 'true');
     dlLink.removeAttribute('href');
@@ -387,14 +391,50 @@
   });
   setEditMode('general');
 
+  function dataUrlToBlob(dataUrl) {
+    if (typeof dataUrl !== 'string' || dataUrl.indexOf('data:') !== 0) {
+      return null;
+    }
+    var commaIdx = dataUrl.indexOf(',');
+    if (commaIdx === -1) { return null; }
+    var meta = dataUrl.slice(0, commaIdx);
+    var raw = dataUrl.slice(commaIdx + 1);
+    var mimeMatch = meta.match(/data:([^;]+)/);
+    var mime = (mimeMatch && mimeMatch[1]) || 'image/png';
+    var isBase64 = meta.indexOf(';base64') !== -1;
+    try {
+      var binary = isBase64 ? atob(raw) : decodeURIComponent(raw);
+      var len = binary.length;
+      var bytes = new Uint8Array(len);
+      for (var i = 0; i < len; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mime });
+    } catch (_) {
+      return null;
+    }
+  }
+
   function showResult(dataUrl) {
+    var blob;
     stage.innerHTML = '';
     var im = document.createElement('img');
     im.src = dataUrl;
     im.alt = 'AI 改圖結果';
     im.className = 'stage-img';
     stage.appendChild(im);
-    dlLink.href = dataUrl;
+    if (dlLink._blobUrl) {
+      try { URL.revokeObjectURL(dlLink._blobUrl); } catch (_) {}
+      dlLink._blobUrl = null;
+    }
+    blob = dataUrlToBlob(dataUrl);
+    if (blob && typeof URL.createObjectURL === 'function') {
+      dlLink._blobUrl = URL.createObjectURL(blob);
+      dlLink.href = dlLink._blobUrl;
+    } else {
+      dlLink.href = dataUrl;
+    }
+    dlLink.download = 'edit_' + Date.now().toString(36) + (dataUrl.indexOf('data:image/jpeg') === 0 ? '.jpg' : '.png');
     dlLink.classList.remove('is-disabled');
     dlLink.removeAttribute('aria-disabled');
     setPreviewState('done', '完成');

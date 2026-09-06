@@ -74,7 +74,11 @@ function isUpToDate(expected, destPath) {
   if (!statSync(destPath, { throwIfNoEntry: false })?.isFile()) {
     return false;
   }
-  return expected.equals(readFileSync(destPath));
+  const destContent = readFileSync(destPath);
+  if (expected.equals(destContent)) {
+    return true;
+  }
+  return expected.toString('utf8').replace(/\r\n/g, '\n') === destContent.toString('utf8').replace(/\r\n/g, '\n');
 }
 
 function relative(absolutePath) {

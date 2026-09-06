@@ -17,12 +17,14 @@ const frontendTests = readdirSync(path.join(rootDir, 'tests', 'frontend'))
   .filter((name) => name.endsWith('.test.cjs'))
   .map((name) => `tests/frontend/${name}`);
 
+const py = process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
+
 const steps = [
-  { name: 'Product prompt test set', command: 'python scripts\\validate_test_prompts.py', cwd: rootDir },
-  { name: 'Error scenario matrix', command: 'python scripts\\validate_error_scenarios.py', cwd: rootDir },
-  { name: 'Public bundle secret scan', command: 'python scripts\\scan_public_secrets.py', cwd: rootDir },
-  { name: 'Cloudflare deployment preflight', command: 'python scripts\\check_deployment_preflight.py', cwd: rootDir },
-  { name: 'Python tests (pytest)', command: 'python -m pytest -q', cwd: rootDir },
+  { name: 'Product prompt test set', command: `${py} scripts/validate_test_prompts.py`, cwd: rootDir },
+  { name: 'Error scenario matrix', command: `${py} scripts/validate_error_scenarios.py`, cwd: rootDir },
+  { name: 'Public bundle secret scan', command: `${py} scripts/scan_public_secrets.py`, cwd: rootDir },
+  { name: 'Cloudflare deployment preflight', command: `${py} scripts/check_deployment_preflight.py`, cwd: rootDir },
+  { name: 'Python tests (pytest)', command: `${py} -m pytest -q`, cwd: rootDir },
   { name: 'Frontend JS tests (node --test)', command: `node --test ${frontendTests.join(' ')}`, cwd: rootDir },
   { name: 'Browser E2E network interruption QA', command: 'npm run qa:network', cwd: cloudflareDir },
   { name: 'Browser E2E mobile generation QA', command: 'npm run qa:mobile', cwd: cloudflareDir },

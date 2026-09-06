@@ -17,6 +17,17 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 VALID_PROVIDER_STATUS = {"checking", "demo", "ready", "degraded", "offline", "error"}
 VALID_MODES = {"demo", "live"}
 SAFE_PROMPT = "一隻柴犬在月球吃拉麵，PPT 插圖，明亮背景"
