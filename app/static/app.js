@@ -1,10 +1,27 @@
 (function(){
-  var ok = ('fetch' in window) && ('Promise' in window) && (typeof window.fetch === 'function');
+  var ok = ('fetch' in window) && (typeof window.fetch === 'function') &&
+    ('Promise' in window) &&
+    ('Blob' in window) &&
+    Boolean(window.URL) && (typeof window.URL.createObjectURL === 'function') &&
+    ('CustomEvent' in window) &&
+    Boolean(document.querySelector) &&
+    ('JSON' in window) &&
+    ('Uint8Array' in window);
+  var banner = document.getElementById('oldbrowser');
   if(!ok){
-    var banner = document.getElementById('oldbrowser');
     var button = document.getElementById('go');
-    if(banner){ banner.style.display = 'block'; }
+    if(banner){
+      banner.hidden = false;
+      banner.removeAttribute('aria-hidden');
+      banner.style.display = 'block';
+    }
     if(button){ button.disabled = true; button.textContent = '不支援'; }
+  }else if(banner){
+    if(typeof banner.remove === 'function'){
+      banner.remove();
+    }else if(banner.parentNode){
+      banner.parentNode.removeChild(banner);
+    }
   }
 })();
 
@@ -646,15 +663,53 @@ function registerServiceWorker(){
     window.location.reload();
   });
 }
+var PWA_DISMISSED_KEY = 'fluxi_pwa_update_dismissed';
+
 function showPwaUpdateNotice(registration){
   var notice = el('pwaUpdateNotice');
   pendingPwaRegistration = registration || null;
-  if(notice){ notice.hidden = false; }
+  try{
+    if(window.sessionStorage && window.sessionStorage.getItem(PWA_DISMISSED_KEY) === 'true'){
+      return;
+    }
+  }catch(e){}
+  if(notice){
+    notice.hidden = false;
+    notice.removeAttribute('aria-hidden');
+  }
+}
+function dismissPwaUpdateNotice(){
+  var notice = el('pwaUpdateNotice');
+  if(notice){
+    notice.hidden = true;
+    notice.setAttribute('aria-hidden', 'true');
+  }
+  try{
+    if(window.sessionStorage){
+      window.sessionStorage.setItem(PWA_DISMISSED_KEY, 'true');
+    }
+  }catch(e){}
 }
 function reloadPwaVersion(){
+  var notice = el('pwaUpdateNotice');
+  if(notice){
+    notice.hidden = true;
+    notice.setAttribute('aria-hidden', 'true');
+  }
+  try{
+    if(window.sessionStorage){
+      window.sessionStorage.removeItem(PWA_DISMISSED_KEY);
+    }
+  }catch(e){}
   if(pendingPwaRegistration && pendingPwaRegistration.waiting){
     pwaUpdateRequested = true;
     pendingPwaRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    setTimeout(function(){
+      if(!pwaRefreshing){
+        pwaRefreshing = true;
+        window.location.reload();
+      }
+    }, 500);
     return;
   }
   window.location.reload();
@@ -1862,6 +1917,10 @@ window.ImageGenApp = {
   setStatus: setStatus,
   showToast: showToast,
   showSeedLockFeedback: showSeedLockFeedback,
+  showDemoNotice: showDemoNotice,
+  showPwaUpdateNotice: showPwaUpdateNotice,
+  dismissPwaUpdateNotice: dismissPwaUpdateNotice,
+  reloadPwaVersion: reloadPwaVersion,
   refreshProvider: refreshProvider,
   getProviderHealth: getProviderHealth,
   dataUrlToBlob: dataUrlToBlob,
@@ -1877,9 +1936,30 @@ window.ModalA11y = {
   focusFirst: focusModalElement
 };
 
+var demoNoticeElement = null;
+
 function showDemoNotice(on){
-  var notice = el('demo-notice');
-  if(notice){ notice.hidden = !on; }
+  var notice = el('demo-notice') || demoNoticeElement;
+  if(!notice){ return; }
+  demoNoticeElement = notice;
+  if(!on){
+    notice.hidden = true;
+    notice.setAttribute('aria-hidden', 'true');
+    if(notice.parentNode){
+      notice.parentNode.removeChild(notice);
+    }
+  }else{
+    notice.hidden = false;
+    notice.removeAttribute('aria-hidden');
+    if(!notice.parentNode){
+      var hero = document.querySelector('.hero');
+      if(hero && hero.parentNode){
+        hero.parentNode.insertBefore(notice, hero);
+      }else{
+        document.body.appendChild(notice);
+      }
+    }
+  }
 }
 function providerDisplayName(provider){
   if(provider === 'workers-ai'){ return 'Workers AI'; }
@@ -2036,6 +2116,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if(el('mobileGenerate')){ el('mobileGenerate').addEventListener('click', generate); }
   if(el('mobileGenerateBar')){ el('mobileGenerateBar').hidden = false; }
   if(el('reloadPwa')){ el('reloadPwa').addEventListener('click', reloadPwaVersion); }
+  if(el('dismissPwaUpdate')){ el('dismissPwaUpdate').addEventListener('click', dismissPwaUpdateNotice); }
   if(el('regenerate')){ el('regenerate').addEventListener('click', regenerate); }
   if(el('copySettings')){ el('copySettings').addEventListener('click', copySettings); }
   if(el('copyPrompt')){ el('copyPrompt').addEventListener('click', copyPrompt); }

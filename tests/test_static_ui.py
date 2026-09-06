@@ -1372,3 +1372,18 @@ def test_seed_lock_feedback_and_toast_elements_are_wired():
     assert "showToast: showToast" in app_js
     assert "showSeedLockFeedback: showSeedLockFeedback" in app_js
 
+
+def test_dom_notices_cleanup_and_pwa_dismiss_are_wired():
+    html = read_static("index.html")
+    styles_css = read_static("styles.css")
+    app_js = read_static("app.js")
+
+    assert 'id="oldbrowser" class="oldbrowser" role="alert" aria-hidden="true" hidden' in html
+    assert 'id="dismissPwaUpdate" class="pwa-update-dismiss"' in html
+    assert ".pwa-update-dismiss" in styles_css
+    assert "function dismissPwaUpdateNotice" in app_js
+    assert "fluxi_pwa_update_dismissed" in app_js
+    assert "dismissPwaUpdateNotice: dismissPwaUpdateNotice" in app_js
+    assert "showDemoNotice: showDemoNotice" in app_js
+
+
