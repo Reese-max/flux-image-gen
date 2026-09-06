@@ -602,7 +602,11 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
       reject(new Error('missing Vision QA abort signal'));
       return;
     }
-    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    const timer = setTimeout(() => {}, 2000);
+    init.signal.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(init.signal.reason);
+    }, { once: true });
   });
   const env = fakeEnv({
     GEMINI_API_KEY: 'test-key',
@@ -934,7 +938,11 @@ test('POST /generate bounds a hung Turnstile verification before provider access
       reject(new Error('missing Turnstile abort signal'));
       return;
     }
-    init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    const timer = setTimeout(() => {}, 2000);
+    init.signal.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(init.signal.reason);
+    }, { once: true });
   });
 
   try {
