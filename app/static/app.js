@@ -351,6 +351,71 @@ function extensionFromImageData(image){
   if(image.indexOf('data:image/gif') === 0){ return '.gif'; }
   return '.png';
 }
+function dataUrlToBlob(dataUrl){
+  if(typeof dataUrl !== 'string' || dataUrl.indexOf('data:') !== 0){ return null; }
+  var commaIdx = dataUrl.indexOf(',');
+  if(commaIdx === -1){ return null; }
+  var meta = dataUrl.slice(0, commaIdx);
+  var raw = dataUrl.slice(commaIdx + 1);
+  var mimeMatch = meta.match(/data:([^;]+)/);
+  var mime = (mimeMatch && mimeMatch[1]) || 'image/png';
+  var isBase64 = meta.indexOf(';base64') !== -1;
+  try{
+    var binary = isBase64 ? atob(raw) : decodeURIComponent(raw);
+    var len = binary.length;
+    var bytes = new Uint8Array(len);
+    for(var i = 0; i < len; i += 1){
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+  }catch(_){
+    return null;
+  }
+}
+function createDownloadUrl(imageSrc, targetAnchor){
+  if(!imageSrc){ return ''; }
+  if(imageSrc.indexOf('data:') === 0 && window.Blob && window.URL && typeof window.URL.createObjectURL === 'function'){
+    var blob = dataUrlToBlob(imageSrc);
+    if(blob){
+      var blobUrl = URL.createObjectURL(blob);
+      if(targetAnchor){
+        if(targetAnchor._blobUrl){
+          try{ URL.revokeObjectURL(targetAnchor._blobUrl); }catch(_){}
+        }
+        targetAnchor._blobUrl = blobUrl;
+      }
+      return blobUrl;
+    }
+  }
+  return imageSrc;
+}
+function triggerDownload(urlOrDataUrl, filename){
+  var ext = extensionFromImageData(urlOrDataUrl);
+  var name = filename || ('image' + ext);
+  if(name.indexOf('.') === -1){ name += ext; }
+  var blob = dataUrlToBlob(urlOrDataUrl);
+  if(blob && window.URL && typeof window.URL.createObjectURL === 'function'){
+    var blobUrl = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function(){
+      if(link.parentNode){ link.parentNode.removeChild(link); }
+      try{ URL.revokeObjectURL(blobUrl); }catch(_){}
+    }, 30000);
+    return;
+  }
+  var fallbackLink = document.createElement('a');
+  fallbackLink.href = urlOrDataUrl;
+  fallbackLink.download = name;
+  document.body.appendChild(fallbackLink);
+  fallbackLink.click();
+  setTimeout(function(){
+    if(fallbackLink.parentNode){ fallbackLink.parentNode.removeChild(fallbackLink); }
+  }, 2000);
+}
 function validateImageUrl(image){
   if(typeof image !== 'string'){
     throw new Error('後端回傳的圖片網址格式不正確');
@@ -455,11 +520,17 @@ function applyUseCaseSize(){
 }
 function enableDownload(on){
   var dl = el('dl');
+  if(!dl){ return; }
   if(on){
     dl.hidden = false;
     dl.classList.remove('is-disabled');
     dl.setAttribute('aria-disabled', 'false');
   }else{
+    if(dl._blobUrl){
+      try{ URL.revokeObjectURL(dl._blobUrl); }catch(_){}
+      dl._blobUrl = null;
+    }
+    delete dl.dataset.rawImageData;
     dl.hidden = true;
     dl.classList.add('is-disabled');
     dl.setAttribute('aria-disabled', 'true');
@@ -1148,7 +1219,8 @@ function renderBatchResults(stage, images, base){
     mainImage.width = typeof item.width === 'number' ? item.width : fallback.width;
     mainImage.height = typeof item.height === 'number' ? item.height : fallback.height;
     mainSeed.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
-    mainDownload.href = image;
+    mainDownload.dataset.rawImageData = image;
+    mainDownload.href = createDownloadUrl(image, mainDownload);
     mainDownload.download = slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image);
     mainLock.onclick = function(){
       if(lockCompositionSeed(item.seed)){
@@ -1529,7 +1601,8 @@ function generate(options){
       stage.appendChild(img);
       stage.appendChild(createMobileSaveHint());
       revealResultStage(true);
-      dl.href = image;
+      dl.dataset.rawImageData = image;
+      dl.href = createDownloadUrl(image, dl);
       dl.download = slugify(prompt) + '_' + timestamp() + extensionFromImageData(image);
       enableDownload(true);
       fallbackDimensions = getSizeDimensions(size);
@@ -1668,6 +1741,9 @@ window.ImageGenApp = {
   setStatus: setStatus,
   refreshProvider: refreshProvider,
   getProviderHealth: getProviderHealth,
+  dataUrlToBlob: dataUrlToBlob,
+  createDownloadUrl: createDownloadUrl,
+  triggerDownload: triggerDownload,
   el: el
 };
 window.ModalA11y = {
@@ -1816,6 +1892,20 @@ document.addEventListener('DOMContentLoaded', function(){
   setGenerationState('idle');
   refreshProvider();
   el('go').addEventListener('click', generate);
+  if(el('dl')){
+    el('dl').addEventListener('click', function(event){
+      var dl = el('dl');
+      if(dl.classList.contains('is-disabled') || dl.getAttribute('aria-disabled') === 'true'){
+        event.preventDefault();
+        return;
+      }
+      var targetData = dl.dataset.rawImageData;
+      if(targetData && targetData.indexOf('data:') === 0){
+        event.preventDefault();
+        triggerDownload(targetData, dl.download || 'flux.png');
+      }
+    });
+  }
   if(el('mobileGenerate')){ el('mobileGenerate').addEventListener('click', generate); }
   if(el('mobileGenerateBar')){ el('mobileGenerateBar').hidden = false; }
   if(el('reloadPwa')){ el('reloadPwa').addEventListener('click', reloadPwaVersion); }

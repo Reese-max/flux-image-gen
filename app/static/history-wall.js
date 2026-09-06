@@ -128,22 +128,72 @@
     return '';
   }
 
+  function dataUrlToBlob(dataUrl) {
+    if (typeof dataUrl !== 'string' || dataUrl.indexOf('data:') !== 0) {
+      return null;
+    }
+    var commaIdx = dataUrl.indexOf(',');
+    if (commaIdx === -1) { return null; }
+    var meta = dataUrl.slice(0, commaIdx);
+    var raw = dataUrl.slice(commaIdx + 1);
+    var mimeMatch = meta.match(/data:([^;]+)/);
+    var mime = (mimeMatch && mimeMatch[1]) || 'image/png';
+    var isBase64 = meta.indexOf(';base64') !== -1;
+    try {
+      var binary = isBase64 ? atob(raw) : decodeURIComponent(raw);
+      var len = binary.length;
+      var bytes = new Uint8Array(len);
+      for (var i = 0; i < len; i += 1) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mime });
+    } catch (_) {
+      return null;
+    }
+  }
+
   function downloadHistoryImage(record) {
-    var link = document.createElement('a');
     var sourceRecord = record || getSelectedRecord();
     var id = toText(sourceRecord && sourceRecord.id) || Date.now().toString(36);
     var image;
+    var ext;
+    var filename;
+    var blob;
+    var link;
+    var blobUrl;
     try {
       image = validateHistoryImageUrl(sourceRecord && sourceRecord.image);
     } catch (error) {
       setAppStatus('下載失敗：' + error.message, 'fail');
       return;
     }
+    ext = extensionFromImageData(image);
+    filename = 'history_' + id + ext;
+    blob = dataUrlToBlob(image);
+    link = document.createElement('a');
+    if (blob && root.URL && typeof root.URL.createObjectURL === 'function') {
+      blobUrl = root.URL.createObjectURL(blob);
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      setTimeout(function () {
+        if (link.parentNode) {
+          link.parentNode.removeChild(link);
+        }
+        try { root.URL.revokeObjectURL(blobUrl); } catch (_) {}
+      }, 30000);
+      return;
+    }
     link.href = image;
-    link.download = 'history_' + id + extensionFromImageData(link.href);
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
-    document.body.removeChild(link);
+    setTimeout(function () {
+      if (link.parentNode) {
+        link.parentNode.removeChild(link);
+      }
+    }, 2000);
   }
 
   function regenerateHistoryImage(record) {
