@@ -286,7 +286,10 @@
     var cfg = record.cfgScale;
     var hasSteps = steps !== null && steps !== undefined && steps !== '';
     var hasCfg = cfg !== null && cfg !== undefined && cfg !== '';
-    if (!hasSteps && !hasCfg) { return '平衡'; }
+    if (!hasSteps && !hasCfg) {
+      if (record.model === 'schnell') { return '草稿'; }
+      return '平衡';
+    }
     var s = Number(steps);
     var c = Number(cfg);
     if (s === 10 && c === 3) { return '草稿'; }
@@ -825,6 +828,8 @@
       size: toText(record && record.size) || 'square',
       width: record && record.width,
       height: record && record.height,
+      steps: record && record.steps,
+      cfgScale: record && record.cfgScale,
       seed: 0
     });
     closeHistoryDetail();

@@ -294,6 +294,8 @@
     var seed = document.getElementById('seed');
     var seedRandom = document.getElementById('seedRandom');
     var seedLock = document.getElementById('seedLock');
+    var devSteps = document.getElementById('devSteps');
+    var devCfgScale = document.getElementById('devCfgScale');
     var stage = document.getElementById('stage');
     var status = document.getElementById('status');
     var sizeMeta = document.getElementById('canvasSizeMeta');
@@ -316,16 +318,28 @@
       }
       return match ? match[1].replace('×', ' × ') : '自動尺寸';
     }
+    function qualityText() {
+      var s = devSteps ? devSteps.value.trim() : '';
+      var c = devCfgScale ? devCfgScale.value.trim() : '';
+      if (s === '10' && c === '3') { return '草稿'; }
+      if (s === '45' && c === '4') { return '精緻'; }
+      if (s === '' && c === '') {
+        if (model && model.value === 'schnell') { return '草稿'; }
+        return '平衡';
+      }
+      return '自訂';
+    }
     function updateSettings() {
       var currentSize = sizeText();
-      var currentModel = model && model.value === 'dev' ? '高品質' : '快速草稿';
+      var currentQuality = qualityText();
       var locked = seedLock && seedLock.getAttribute('aria-pressed') === 'true';
       var currentSeed = locked && seed && seed.value ? 'Seed ' + seed.value : (locked ? 'Seed 鎖定' : 'Seed 自動');
       if (sizeMeta) { sizeMeta.textContent = currentSize; }
       if (presetChip) { presetChip.textContent = currentSize; }
-      if (modelMeta) { modelMeta.textContent = currentModel; }
+      if (modelMeta) { modelMeta.textContent = currentQuality; }
       if (seedMeta) { seedMeta.textContent = currentSeed; }
     }
+    window.updateCanvasSettings = updateSettings;
     function updateState() {
       var busy = stage && stage.getAttribute('aria-busy') === 'true';
       var text = status ? status.textContent : '';
@@ -349,8 +363,14 @@
     bindChange(seed);
     bindChange(seedRandom);
     bindChange(seedLock);
+    bindChange(devSteps);
+    bindChange(devCfgScale);
     bindChange(document.getElementById('customWidth'));
     bindChange(document.getElementById('customHeight'));
+    var presetButtons = document.querySelectorAll('.quality-preset-btn');
+    Array.prototype.forEach.call(presetButtons, function (btn) {
+      bindChange(btn);
+    });
     updateSettings();
     updateState();
 
@@ -367,6 +387,9 @@
       if (seedLock) {
         new MutationObserver(updateSettings).observe(seedLock, { attributes: true, attributeFilter: ['aria-pressed'] });
       }
+      Array.prototype.forEach.call(presetButtons, function (btn) {
+        new MutationObserver(updateSettings).observe(btn, { attributes: true, attributeFilter: ['aria-pressed', 'class'] });
+      });
     }
   })();
 })();
