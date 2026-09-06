@@ -318,6 +318,7 @@
     searchable = [
       toText(sourceRecord.prompt),
       toText(sourceRecord.providerPrompt),
+      toText(sourceRecord.provider),
       toText(sourceRecord.cloudShareUrl),
       toText(sourceRecord.cloudDeleteUrl),
       tagText

@@ -1771,6 +1771,8 @@ window.ImageGenApp = {
   dataUrlToBlob: dataUrlToBlob,
   createDownloadUrl: createDownloadUrl,
   triggerDownload: triggerDownload,
+  providerNoteFor: providerNoteFor,
+  providerDisplayName: providerDisplayName,
   el: el
 };
 window.ModalA11y = {
@@ -1805,8 +1807,10 @@ function providerListFromHealth(data){
 function providerNoteFor(provider){
   if(provider === 'demo'){ return '（示範圖片，圖片服務連接後可產生正式圖片）'; }
   if(provider === 'workers-ai'){ return '（Workers AI FLUX）'; }
+  if(provider === 'pollinations'){ return '（Pollinations FLUX）'; }
   if(provider === 'nvidia-fallback'){ return '（Workers AI 忙碌，已自動改用 NVIDIA FLUX 備援）'; }
-  return '（NVIDIA FLUX）';
+  if(provider === 'nvidia'){ return '（NVIDIA FLUX）'; }
+  return provider ? '（' + providerDisplayName(provider) + '）' : '（NVIDIA FLUX）';
 }
 function setSelectIfOptionExists(id, value){
   var field = el(id);
