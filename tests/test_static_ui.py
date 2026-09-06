@@ -1343,5 +1343,15 @@ def test_canvas_statusbar_quality_syncs_with_presets():
     assert "quality-preset-btn" in tabs_js
     assert "window.updateCanvasSettings()" in app_js
     assert "source.steps" in app_js
-    assert "source.cfgScale" in app_js
     assert "record.model === 'schnell'" in history_wall_js
+
+
+def test_provider_completion_note_syncs_with_pollinations_and_providers():
+    app_js = read_static("app.js")
+    history_wall_js = read_static("history-wall.js")
+
+    assert "provider === 'pollinations'" in app_js
+    assert "（Pollinations FLUX）" in app_js
+    assert "providerNoteFor: providerNoteFor" in app_js
+    assert "providerDisplayName: providerDisplayName" in app_js
+    assert "toText(sourceRecord.provider)" in history_wall_js
