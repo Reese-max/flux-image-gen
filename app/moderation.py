@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 
@@ -40,8 +41,23 @@ def moderate_prompt(prompt: str) -> ModerationDecision:
     )
 
 
+_INVISIBLE_CHARS = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff]")
+_SIMPLIFIED_TO_TRADITIONAL = str.maketrans(
+    {
+        "证": "證",
+        "护": "護",
+        "驾": "駕",
+        "驶": "駛",
+        "国": "國",
+    }
+)
+
+
 def _normalize(value: str) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    text = _INVISIBLE_CHARS.sub("", text)
+    text = text.translate(_SIMPLIFIED_TO_TRADITIONAL)
+    return re.sub(r"\s+", " ", text).strip().lower()
 
 
 def _has_any(text: str, terms: tuple[str, ...]) -> bool:
@@ -102,6 +118,7 @@ def _detect_high_risk_category(text: str) -> str:
         "居留證",
         "居留卡",
         "健保卡",
+        "駕駛證",
         "identity card",
         "identification card",
         "id card",
@@ -110,6 +127,11 @@ def _detect_high_risk_category(text: str) -> str:
         "passport",
         "driver's license",
         "drivers license",
+        "driver license",
+        "driver's licence",
+        "drivers licence",
+        "driver licence",
+        "driving license",
         "driving licence",
         "residence permit",
     )

@@ -1268,6 +1268,8 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
     production_js_paths = sorted(path for path in STATIC_DIR.glob("*.js"))
     assert {path.name for path in production_js_paths} == {
         "app.js",
+        "c2pa-web.js",
+        "c2pa-worker.js",
         "canvas-viewport.js",
         "elapsed-timer.js",
         "failure-advice.js",
@@ -1286,7 +1288,12 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
             "usage-dashboard.js",
         }
 
+    # The C2PA browser runtime is an official third-party bundle and is intentionally
+    # modern JavaScript.  Keep it in the required static set, but apply the app-shell
+    # ES5 compatibility gate only to the project-owned scripts.
     for path in production_js_paths:
+        if path.name in {"c2pa-web.js", "c2pa-worker.js"}:
+            continue
         source = path.read_text(encoding="utf-8")
         for forbidden in [
             "async function",

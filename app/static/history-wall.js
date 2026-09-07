@@ -16,6 +16,17 @@
     return String(value).trim();
   }
 
+  function safeMetadataValue(value, kind) {
+    var helper = root.ProvenanceReceipt;
+    if (helper && typeof helper.sanitizeMetadataValue === 'function') {
+      return helper.sanitizeMetadataValue(value, kind);
+    }
+    var text = toText(value);
+    if (!text || /[?#\\]/.test(text) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(text)) { return ''; }
+    if (/(?:api[_-]?key|token|secret|password|bearer|authorization|signature|signed)/i.test(text)) { return ''; }
+    return text.slice(0, 512);
+  }
+
   function clearNode(node) {
     while (node && node.firstChild) {
       node.removeChild(node.firstChild);
@@ -435,7 +446,8 @@
     parts.push('尺寸：' + (toText(record.size) || 'square'));
     parts.push('Seed：' + String(record.seed || 0));
     if (record.width && record.height) { parts.push('解析度：' + record.width + '×' + record.height); }
-    if (record.provider) { parts.push('Provider：' + toText(record.provider)); }
+    var provider = safeMetadataValue(record.provider, 'provider');
+    if (provider) { parts.push('Provider：' + provider); }
     if (record.mode) { parts.push('模式：' + (record.mode === 'agent' ? '智慧體' : '一般')); }
     if (record.recommended) { parts.push('推薦圖'); }
     parts.push('版本：v' + String(record.versionNumber || 1));
@@ -474,7 +486,7 @@
     lines.push('本產品 receipt：' + receiptStatusLabel(verification && verification.status));
     if (receipt.receipt_hash) { lines.push('Receipt hash：' + receipt.receipt_hash); }
     if (receipt.output_sha256) { lines.push('Output SHA-256：' + receipt.output_sha256); }
-    lines.push('Content Credentials：' + credentialStatusLabel(receipt.credential_status));
+    lines.push('Content Credentials：' + credentialStatusLabel(verification && verification.credential_status ? verification.credential_status : 'unsupported'));
     if (receipt.operation === 'edit') { lines.push('流程：AI 編輯；來源圖 hash 已保存。'); }
     lines.push('缺少 credential 不代表是真人圖片；receipt 只描述本產品記錄的來源。');
     return lines.join('\n');
@@ -490,7 +502,7 @@
       }
     }, function () {
       if (selectedRecordId === toText(sourceRecord.id)) {
-        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, { status: 'unavailable' }));
+        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, { status: 'unavailable', credential_status: 'unsupported' }));
       }
     });
   }
@@ -791,10 +803,18 @@
     lines.push('尺寸：' + (toText(sourceRecord.size) || 'square'));
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
-    if (sourceRecord.provider) { lines.push('Provider：' + toText(sourceRecord.provider)); }
+    var provider = safeMetadataValue(sourceRecord.provider, 'provider');
+    if (provider) { lines.push('Provider：' + provider); }
     if (sourceRecord.provenanceReceipt) {
       lines.push('Provenance receipt：' + (toText(sourceRecord.provenanceReceipt.receipt_hash) || 'unavailable'));
-      lines.push('Content Credentials：' + credentialStatusLabel(sourceRecord.provenanceReceipt.credential_status));
+      // A serialized receipt carries only a claim. The detail verifier is the
+      // authority for a credential label; share text therefore stays
+      // unverified until the in-memory C2PA validator has marked the receipt.
+      lines.push('Content Credentials：' + credentialStatusLabel(
+        sourceRecord.provenanceReceipt.credential_status === 'verified' && sourceRecord.provenanceReceipt.__flux_c2pa_validation_v1 === true
+          ? 'verified'
+          : 'unsupported'
+      ));
     }
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }

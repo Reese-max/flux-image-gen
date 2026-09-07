@@ -26,6 +26,27 @@ export function decodeImageDataUrl(dataUrl) {
 
 export function sanitizeGalleryMeta(meta) {
   const out = {};
+  const safeIdentifier = (value, fallback = "") => {
+    const text = String(value ?? "").trim();
+    if (!text || text.length > 512) return fallback;
+    if (/[?#\\]/.test(text) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(text)) return fallback;
+    if (/(?:api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|bearer|authorization|cookie|delete[_-]?token|signature|signed|private[_-]?key)/i.test(text)) return fallback;
+    return text;
+  };
+  const safeModel = (value) => {
+    const text = safeIdentifier(value);
+    return /^@?[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,511}$/.test(text) ? text : "";
+  };
+  const safePublicPrompt = (value) => {
+    const text = String(value ?? "");
+    if (!text || /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|bearer|authorization|cookie|delete[_-]?token|turnstile)/i.test(text)) return "";
+    if (/[?#\\]/.test(text) || /(?:https?:|data:|javascript:|\/\/)/i.test(text)) return "";
+    return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").slice(0, 500);
+  };
+  const safeEnum = (value, allowed) => {
+    const text = safeIdentifier(value);
+    return allowed.has(text) ? text : "";
+  };
   if (meta && typeof meta === "object") {
     const promptPublic = meta.promptPublic === true || meta.promptPublic === "true";
     out.promptPublic = promptPublic ? "true" : "false";
@@ -34,11 +55,20 @@ export function sanitizeGalleryMeta(meta) {
     out.metadataStorage = "r2-json";
     for (const field of ["title", "model", "size", "seed", "mode", "style", "styleLabel", "useCase", "useCaseLabel"]) {
       if (meta[field] !== undefined && meta[field] !== null) {
-        out[field] = String(meta[field]).slice(0, 500);
+        let value = "";
+        if (field === "model") value = safeModel(meta[field]);
+        else if (field === "mode") value = safeEnum(meta[field], new Set(["normal", "agent"]));
+        else if (field === "seed") value = /^\d{1,16}$/.test(String(meta[field]).trim()) ? String(meta[field]).trim() : "";
+        else if (field === "size") value = /^[A-Za-z0-9_-]{1,96}$/.test(String(meta[field]).trim()) ? String(meta[field]).trim() : "";
+        else value = safeIdentifier(meta[field]);
+        if (value) out[field] = value.slice(0, 500);
       }
     }
     if (promptPublic && meta.prompt !== undefined && meta.prompt !== null) {
-      out.prompt = String(meta.prompt).slice(0, 500);
+      // Public prompt text is opt-in, but still remove control characters and
+      // cap it before it reaches the R2 JSON/share page.
+      const prompt = safePublicPrompt(meta.prompt);
+      if (prompt) out.prompt = prompt;
     }
   }
   return out;

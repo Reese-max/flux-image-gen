@@ -103,11 +103,35 @@ test('credential statuses stay explicit and invalid values fail closed', () => {
   const helper = loadScripts(false).ProvenanceReceipt;
   const statuses = ['verified', 'present_untrusted', 'invalid', 'absent', 'unknown_after_transform', 'unsupported'];
   statuses.forEach((status) => {
-    const receipt = helper.normalizeReceipt({ record_id: 'record-' + status, operation: 'generate', credential_status: status });
-    assert.equal(receipt.credential_status, status);
+    const receipt = helper.normalizeReceipt({ record_id: 'record-' + status, operation: 'generate', receipt_schema_version: 2, credential_status: status });
+    assert.equal(receipt.credential_status, 'unsupported');
+    assert.equal(receipt.credential_claim_status, status);
   });
   assert.equal(helper.normalizeReceipt({ record_id: 'record-invalid', operation: 'generate', credential_status: 'human_made' }).credential_status, 'unsupported');
   assert.equal(helper.normalizeReceipt({ record_id: 'edit-invalid', operation: 'edit', credential_status: 'human_made' }).credential_status, 'unknown_after_transform');
+});
+
+test('a real validator marker survives receipt normalization and integrity verification', async () => {
+  const context = loadScripts(false);
+  const helper = context.ProvenanceReceipt;
+  const validation = { status: 'verified' };
+  Object.defineProperty(validation, '__flux_c2pa_validation_v1', { value: true, enumerable: false });
+  const record = {
+    id: 'validated-record',
+    image: 'data:image/png;base64,aGVsbG8=',
+    prompt: 'validated fixture',
+    providerPrompt: 'validated fixture',
+    provider: 'demo',
+  };
+  const receipt = await helper.buildReceipt(record, null, validation);
+  const normalized = helper.normalizeReceipt(receipt);
+  const verification = await helper.verifyRecord({ ...record, provenanceReceipt: receipt });
+
+  assert.equal(receipt.credential_status, 'verified');
+  assert.equal(normalized.credential_status, 'verified');
+  assert.equal(verification.status, 'valid');
+  assert.equal(verification.receipt_hash_valid, true);
+  assert.equal(verification.output_hash_valid, true);
 });
 
 test('history export/import roundtrip keeps only the versioned receipt allowlist', async () => {
@@ -132,7 +156,7 @@ test('history export/import roundtrip keeps only the versioned receipt allowlist
   const roundTrip = store.parseRecords(JSON.stringify(store.exportRecordCollection([normalized])));
 
   assert.equal(roundTrip.length, 1);
-  assert.equal(roundTrip[0].provenanceReceipt.receipt_schema_version, 1);
+  assert.equal(roundTrip[0].provenanceReceipt.receipt_schema_version, 2);
   assert.equal(roundTrip[0].provenanceReceipt.record_id, 'record-1');
   assert.equal(Object.prototype.hasOwnProperty.call(roundTrip[0].provenanceReceipt, 'secret'), false);
   assert.equal(Object.prototype.hasOwnProperty.call(roundTrip[0].provenanceReceipt, 'prompt'), false);

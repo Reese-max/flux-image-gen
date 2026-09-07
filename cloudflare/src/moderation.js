@@ -3,8 +3,20 @@ import { HttpError } from "./http.js";
 export const PROMPT_BLOCK_MESSAGE =
   "這段描述屬於高風險內容，無法生成圖片。請改成安全、非侵害性且不涉及詐欺或偽造的描述。";
 
+const INVISIBLE_CHARS = /[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g;
+const SIMPLIFIED_TO_TRADITIONAL = {
+  "证": "證",
+  "护": "護",
+  "驾": "駕",
+  "驶": "駛",
+  "国": "國",
+};
+
 function normalize(value) {
-  return String(value || "").split(/\s+/).filter(Boolean).join(" ").toLowerCase();
+  let text = String(value || "");
+  if (typeof text.normalize === "function") text = text.normalize("NFKC");
+  text = text.replace(INVISIBLE_CHARS, "").replace(/[证护驾驶国]/g, (character) => SIMPLIFIED_TO_TRADITIONAL[character]);
+  return text.split(/\s+/).filter(Boolean).join(" ").toLowerCase();
 }
 
 function hasAny(text, terms) {
@@ -19,7 +31,7 @@ export function detectHighRiskPromptCategory(prompt) {
   const minors = ["未成年", "兒童", "小孩", "國中生", "高中生", "幼女", "幼童", "child", "minor", "teen"];
   const gore = ["血腥", "肢解", "斬首", "酷刑", "處決", "虐殺", "gore", "decapitation", "dismember", "torture"];
   const fakeDocs = ["假身分證", "假身份證", "偽造身分證", "偽造身份證", "偽造護照", "假護照", "偽造駕照", "假駕照", "fake id", "fake passport", "counterfeit passport"];
-  const identityDocuments = ["身分證", "身份證", "國民身分證", "國民身份證", "護照", "駕照", "駕駛執照", "居留證", "居留卡", "健保卡", "identity card", "identification card", "id card", "national id", "official id", "passport", "driver's license", "drivers license", "driving licence", "residence permit"];
+  const identityDocuments = ["身分證", "身份證", "國民身分證", "國民身份證", "護照", "駕照", "駕駛執照", "駕駛證", "居留證", "居留卡", "健保卡", "identity card", "identification card", "id card", "national id", "official id", "passport", "driver's license", "drivers license", "driver license", "driver's licence", "drivers licence", "driver licence", "driving license", "driving licence", "residence permit"];
   const fraud = ["詐騙廣告", "釣魚網站", "偽造發票", "假付款", "投資詐騙", "盜刷", "phishing", "scam ad", "fake invoice"];
   const privacy = ["公開個資", "人肉搜索", "洩漏地址", "洩露地址", "偷窺", "偷拍", "doxx", "doxxing", "leak address"];
   const political = ["政治人物", "總統", "候選人", "立委", "市長", "president", "candidate", "politician"];

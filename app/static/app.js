@@ -58,6 +58,10 @@ var generationInFlight = false;
 var lastGeneration = null;
 var seedMode = 'random';
 var pendingSourceRecordId = '';
+// Older history records may contain a custom size even though the current
+// compact UI no longer renders custom dimension controls. Keep that snapshot
+// in memory for the next request instead of silently selecting square.
+var legacyGenerationSizeOverride = null;
 var pendingPwaRegistration = null;
 var pwaRefreshing = false;
 var pwaUpdateRequested = false;
@@ -762,13 +766,13 @@ function normalizeSizePreset(size){
   if(size === 'portrait'){ return 'ig_story'; }
   return size || 'ig_post';
 }
-function getSizeDimensions(size){
+function getSizeDimensions(size, width, height){
   var preset = normalizeSizePreset(size);
   var customWidth;
   var customHeight;
   if(preset === 'custom'){
-    customWidth = el('customWidth') ? Number(el('customWidth').value) : 1024;
-    customHeight = el('customHeight') ? Number(el('customHeight').value) : 1024;
+    customWidth = width != null ? Number(width) : (el('customWidth') ? Number(el('customWidth').value) : (legacyGenerationSizeOverride ? Number(legacyGenerationSizeOverride.width) : 1024));
+    customHeight = height != null ? Number(height) : (el('customHeight') ? Number(el('customHeight').value) : (legacyGenerationSizeOverride ? Number(legacyGenerationSizeOverride.height) : 1024));
     return {width: customWidth || 1024, height: customHeight || 1024};
   }
   if(preset === 'ppt_16_9' || preset === 'youtube_thumb'){ return {width: 1344, height: 768}; }
@@ -1066,16 +1070,24 @@ function readGenerationSettings(){
   var userPrompt = el('plainPrompt') ? el('plainPrompt').value : '';
   var providerPrompt = el('prompt') ? el('prompt').value : '';
   var promptForRecord = userPrompt || providerPrompt;
-  return GenerationSettings.serializeSettings({
+  var size = legacyGenerationSizeOverride ? legacyGenerationSizeOverride.size : (el('size') ? el('size').value : '');
+  var customWidth = el('customWidth') ? el('customWidth').value : '';
+  var customHeight = el('customHeight') ? el('customHeight').value : '';
+  if(!customWidth && legacyGenerationSizeOverride){ customWidth = legacyGenerationSizeOverride.width; }
+  if(!customHeight && legacyGenerationSizeOverride){ customHeight = legacyGenerationSizeOverride.height; }
+  var serialized = {
     prompt: promptForRecord,
     providerPrompt: providerPrompt,
     avoid: el('avoid') ? el('avoid').value : '',
     model: el('model').value,
-    size: el('size').value,
+    size: size,
     width: el('customWidth') ? el('customWidth').value : '',
     height: el('customHeight') ? el('customHeight').value : '',
     seed: computeSeedForGeneration()
-  });
+  };
+  if(!serialized.width){ serialized.width = customWidth; }
+  if(!serialized.height){ serialized.height = customHeight; }
+  return GenerationSettings.serializeSettings(serialized);
 }
 function clearAutoProviderPrompt(){
   var promptField = el('prompt');
@@ -1099,7 +1111,17 @@ function setGenerationSettings(settings){
   }
   if(Object.prototype.hasOwnProperty.call(source, 'avoid') && el('avoid')){ el('avoid').value = source.avoid || ''; }
   if(Object.prototype.hasOwnProperty.call(source, 'model')){ el('model').value = source.model || 'schnell'; }
-  if(Object.prototype.hasOwnProperty.call(source, 'size')){ el('size').value = normalizeSizePreset(source.size); }
+  if(Object.prototype.hasOwnProperty.call(source, 'size')){
+    var requestedSize = normalizeSizePreset(source.size);
+    var requestedWidth = Number(source.width);
+    var requestedHeight = Number(source.height);
+    if(requestedSize === 'custom' && isFinite(requestedWidth) && isFinite(requestedHeight) && requestedWidth > 0 && requestedHeight > 0){
+      legacyGenerationSizeOverride = { size: 'custom', width: requestedWidth, height: requestedHeight };
+    }else{
+      legacyGenerationSizeOverride = null;
+      if(el('size')){ el('size').value = requestedSize; }
+    }
+  }
   if(Object.prototype.hasOwnProperty.call(source, 'width') && el('customWidth')){ el('customWidth').value = source.width || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'height') && el('customHeight')){ el('customHeight').value = source.height || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'seed') && el('seed')){ el('seed').value = String(source.seed || 0); }
@@ -1389,7 +1411,7 @@ function renderBatchResults(stage, images, base){
   function selectImage(index){
     var item = images[index];
     var image = validateImageUrl(item.image);
-    var fallback = getSizeDimensions(base.size);
+    var fallback = getSizeDimensions(base.size, base.width, base.height);
     var j;
     lastGeneration = shallowClone(records[index]);
     mainImage.src = image;
@@ -1457,7 +1479,7 @@ function renderBatchResults(stage, images, base){
     var thumb = document.createElement('button');
     var img = document.createElement('img');
     var label = document.createElement('span');
-    var fallback = getSizeDimensions(base.size);
+    var fallback = getSizeDimensions(base.size, base.width, base.height);
     var record;
 
     card.className = 'batch-card';
@@ -1494,7 +1516,7 @@ function renderBatchResults(stage, images, base){
       width: typeof item.width === 'number' ? item.width : fallback.width,
       height: typeof item.height === 'number' ? item.height : fallback.height,
       provider: typeof item.provider === 'string' ? item.provider : '',
-      sourceRecordId: toText(base.sourceRecordId),
+      sourceRecordId: base && base.sourceRecordId !== null && base.sourceRecordId !== undefined ? String(base.sourceRecordId).trim() : '',
       mode: 'normal'
     };
     records.push(record);
@@ -1720,7 +1742,7 @@ function generate(options){
           return;
         }
         batchSummary = '已生成 ' + images.length + ' 張' + (batchErrors.length ? '，' + batchErrors.length + ' 張失敗' : '');
-        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size, steps: devTuning.steps, cfgScale: devTuning.cfgScale, sourceRecordId: pendingSourceRecordId });
+        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size, width: settings.width, height: settings.height, steps: devTuning.steps, cfgScale: devTuning.cfgScale, sourceRecordId: pendingSourceRecordId });
         revealResultStage(true);
         setResultActionsVisible(false);
         pendingSourceRecordId = '';
@@ -1784,7 +1806,7 @@ function generate(options){
       dl.href = createDownloadUrl(image, dl);
       dl.download = slugify(prompt) + '_' + timestamp() + extensionFromImageData(image);
       enableDownload(true);
-      fallbackDimensions = getSizeDimensions(size);
+      fallbackDimensions = getSizeDimensions(size, settings.width, settings.height);
       generatedRecord = {
         id: createHistoryRecordId(),
         image: image,
@@ -2167,7 +2189,7 @@ document.addEventListener('DOMContentLoaded', function(){
       updateMobileGenerateSummary();
     });
   }
-  if(el('size')){ el('size').addEventListener('change', function(){ updateCustomSizeVisibility(); if(!generationInFlight){ setGenerationState('idle'); } }); }
+  if(el('size')){ el('size').addEventListener('change', function(){ legacyGenerationSizeOverride = null; updateCustomSizeVisibility(); if(!generationInFlight){ setGenerationState('idle'); } }); }
   if(el('model')){
     el('model').addEventListener('change', function(){
       updateDevTuningVisibility();
