@@ -966,6 +966,19 @@ async function handleSharePage(env, id) {
   const styleLabel = String(metadata.styleLabel || metadata.style || "未記錄");
   const useCaseLabel = String(metadata.useCaseLabel || metadata.useCase || "未記錄");
   const mode = String(metadata.mode || "normal") === "agent" ? "智慧體模式" : "一般模式";
+  const provenance = metadata.provenance && typeof metadata.provenance === "object" ? metadata.provenance : {};
+  const provenanceReceiptHash = /^[a-f0-9]{64}$/.test(String(provenance.receiptHash || "")) ? String(provenance.receiptHash) : "";
+  const provenanceOutputSha256 = /^[a-f0-9]{64}$/.test(String(provenance.outputSha256 || "")) ? String(provenance.outputSha256) : "";
+  const provenanceOperation = provenance.operation === "edit" || provenance.operation === "generate" ? provenance.operation : "";
+  const provenanceInputHashScope = provenance.inputHashScope === "original_upload" || provenance.inputHashScope === "provider_input"
+    ? provenance.inputHashScope
+    : "";
+  // The Worker stores only a sanitized claim. A public page cannot validate
+  // C2PA against the browser's current image bytes, so it must never present
+  // an imported `verified` value as a trust decision.
+  const provenanceCredentialLabel = provenanceReceiptHash
+    ? "需在收到圖片後重新驗證"
+    : "未提供";
   const imageUrl = `/gallery/${encodeURIComponent(id)}`;
   const robots = payload.visibility === "public" ? "index,follow" : "noindex,nofollow";
   const templateUrl = shareTemplateUrl(promptPublic ? prompt : "", metadata);
@@ -1013,6 +1026,17 @@ async function handleSharePage(env, id) {
         <span>Seed：${escapeHtml(seed)}</span>
         <span>Prompt：${promptPublic ? "公開" : "隱藏"}</span>
       </div>
+    </section>
+    <section class="card">
+      <h2>Provenance</h2>
+      <div class="meta">
+        <span>Receipt：${provenanceReceiptHash ? "已提供" : "未提供"}</span>
+        <span>Content Credentials：${escapeHtml(provenanceCredentialLabel)}</span>
+        ${provenanceOperation ? `<span>流程：${escapeHtml(provenanceOperation === "edit" ? "AI 編輯" : "生成")}</span>` : ""}
+        ${provenanceInputHashScope ? `<span>Input hash：${escapeHtml(provenanceInputHashScope)}</span>` : ""}
+      </div>
+      ${provenanceReceiptHash ? `<p>Receipt hash：<code>${escapeHtml(provenanceReceiptHash)}</code></p>` : ""}
+      ${provenanceOutputSha256 ? `<p>Output SHA-256：<code>${escapeHtml(provenanceOutputSha256)}</code></p>` : ""}
     </section>
     <section class="card">
       <h2>Prompt</h2>

@@ -797,6 +797,8 @@
     var sourceRecord = normalizeRecordForUi(record);
     var lines = [];
     var cloudShareUrl;
+    var verification = arguments.length > 2 ? arguments[2] : null;
+    var credentialStatus = verification && toText(verification.credential_status) ? verification.credential_status : 'unsupported';
     if (!sourceRecord) { return ''; }
     lines.push('AI 圖片作品');
     lines.push('畫質：' + qualityLabel(sourceRecord));
@@ -807,14 +809,9 @@
     if (provider) { lines.push('Provider：' + provider); }
     if (sourceRecord.provenanceReceipt) {
       lines.push('Provenance receipt：' + (toText(sourceRecord.provenanceReceipt.receipt_hash) || 'unavailable'));
-      // A serialized receipt carries only a claim. The detail verifier is the
-      // authority for a credential label; share text therefore stays
-      // unverified until the in-memory C2PA validator has marked the receipt.
-      lines.push('Content Credentials：' + credentialStatusLabel(
-        sourceRecord.provenanceReceipt.credential_status === 'verified' && sourceRecord.provenanceReceipt.__flux_c2pa_validation_v1 === true
-          ? 'verified'
-          : 'unsupported'
-      ));
+      // A serialized receipt carries only a claim. Only the current-image
+      // verification result supplied by verifyRecord may appear in share text.
+      lines.push('Content Credentials：' + credentialStatusLabel(credentialStatus));
     }
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
@@ -828,14 +825,23 @@
   function copyHistoryShareText() {
     var record = getSelectedRecord();
     var hidePrompt = !!(el('hidePromptInShare') && el('hidePromptInShare').checked);
+    var verifier = root.ProvenanceReceipt && root.ProvenanceReceipt.verifyRecord;
     if (!record) {
       setAppStatus('尚無可分享的作品', 'warn');
-      return;
+      return Promise.resolve(false);
     }
-    copyWithApp(buildShareText(record, hidePrompt)).then(function () {
+    // Revalidate the exact current image before copying a credential status.
+    // Imported/localStorage claims and receipt fields are never sufficient.
+    return Promise.resolve(typeof verifier === 'function' ? verifier(record) : { credential_status: 'unsupported' }).catch(function () {
+      return { credential_status: 'unsupported' };
+    }).then(function (verification) {
+      return copyWithApp(buildShareText(record, hidePrompt, verification));
+    }).then(function () {
       setAppStatus('已複製分享文案', 'done');
+      return true;
     }).catch(function (error) {
       setAppStatus('複製失敗：' + error.message, 'fail');
+      return false;
     });
   }
 

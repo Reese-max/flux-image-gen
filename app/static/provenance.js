@@ -13,7 +13,6 @@
   var MAX_PROMPT = 10000;
   var MAX_ID = 160;
   var HASH_RE = /^[a-f0-9]{64}$/;
-  var VALIDATION_MARKER = '__flux_c2pa_validation_v1';
   var CREDENTIAL_STATUSES = {
     verified: true,
     present_untrusted: true,
@@ -28,6 +27,11 @@
   };
   var C2PA_PROMPT_HASH_MODE = 'full_canonical_utf8_v1';
   var c2paPromises = {};
+  // Validation results are runtime capabilities, never receipt data. Keep
+  // their identity private so JSON import/export cannot manufacture a trusted
+  // result by copying a marker field.
+  var validationWeakMap = typeof WeakMap === 'function' ? new WeakMap() : null;
+  var validationList = [];
 
   function toText(value) {
     if (value === null || value === undefined) { return ''; }
@@ -141,33 +145,44 @@
     return CREDENTIAL_STATUSES[toText(value)] === true;
   }
 
-  function markValidated(value) {
+  function rememberValidation(value, input, blob, inputHash) {
+    var proof;
+    var i;
     if (!value || typeof value !== 'object') { return value; }
-    try {
-      Object.defineProperty(value, VALIDATION_MARKER, {
-        value: true,
-        enumerable: false,
-        configurable: false
-      });
-    } catch (error) {
-      // Old browsers may reject a non-extensible object. Such a result is
-      // intentionally not treated as a trusted validator result.
+    proof = { input: input, blob: blob || null, input_hash: inputHash || '' };
+    if (validationWeakMap) {
+      validationWeakMap.set(value, proof);
+      return value;
     }
+    for (i = 0; i < validationList.length; i += 1) {
+      if (validationList[i].value === value) {
+        validationList[i].proof = proof;
+        return value;
+      }
+    }
+    validationList.push({ value: value, proof: proof });
+    // Bound the legacy fallback so a long lived page cannot retain every
+    // historical result when WeakMap is unavailable.
+    if (validationList.length > 32) { validationList.shift(); }
     return value;
   }
 
-  function hasValidationMarker(value) {
-    return !!(value && value[VALIDATION_MARKER] === true);
+  function validationProof(value) {
+    var i;
+    if (!value || typeof value !== 'object') { return null; }
+    if (validationWeakMap) { return validationWeakMap.get(value) || null; }
+    for (i = 0; i < validationList.length; i += 1) {
+      if (validationList[i].value === value) { return validationList[i].proof; }
+    }
+    return null;
   }
 
-  function normalizeCredentialStatus(value, operation, validation) {
-    var validatedStatus = validation && (validation.status || validation.credential_status);
-    if (hasValidationMarker(validation) && isCredentialStatus(validatedStatus)) {
-      return validatedStatus;
-    }
-    // A value read from JSON/localStorage is only an imported claim. It may
-    // be retained in credential_claim_status, but it cannot mint a verified
-    // badge (or any other fresh validator result).
+  function normalizeCredentialStatus(value, operation) {
+    var status = normalizeClaimStatus(value);
+    // This is the immutable canonical receipt field. Runtime validator output
+    // is supplied by inspectCredential/verifyRecord separately; normalizing a
+    // persisted receipt must never rewrite this field and invalidate its hash.
+    if (status) { return status; }
     return operation === 'edit' ? 'unknown_after_transform' : 'unsupported';
   }
 
@@ -238,7 +253,6 @@
     recordId = sanitizeMetadataValue(source.record_id, 'id');
     if (!recordId) { return null; }
     version = Number(source.receipt_schema_version) === 2 ? 2 : 1;
-    validation = hasValidationMarker(validation) ? validation : (hasValidationMarker(source) ? source : null);
     claim = normalizeClaimStatus(source.credential_claim_status || source.credential_status);
     transform = normalizeTransform(source.transform, operation);
     if (version === 1) { delete transform.stages; }
@@ -264,7 +278,7 @@
       version_group_id: sanitizeMetadataValue(source.version_group_id, 'id'),
       version_number: normalizeVersionNumber(source.version_number),
       app_build_version: sanitizeMetadataValue(source.app_build_version, 'build'),
-      credential_status: normalizeCredentialStatus(source.credential_status, operation, validation),
+      credential_status: normalizeCredentialStatus(source.credential_status, operation),
       transform: transform,
       receipt_hash: normalizeHash(source.receipt_hash)
     };
@@ -277,7 +291,6 @@
       receipt.input_hash_scope = toText(source.input_hash_scope) === 'original_upload' ? 'original_upload' : 'provider_input';
       receipt.credential_claim_status = claim;
     }
-    if (hasValidationMarker(validation)) { markValidated(receipt); }
     return receipt;
   }
 
@@ -400,6 +413,28 @@
     return hashBlobDetailed(blob).then(function (result) { return result.hash; });
   }
 
+  function hashInputDetailed(input) {
+    if (input && typeof input.arrayBuffer === 'function') {
+      return hashBlobDetailed(input);
+    }
+    return hashDataUrlDetailed(input);
+  }
+
+  function validationMatchesInput(validation, input) {
+    var proof = validationProof(validation);
+    if (!proof) { return Promise.resolve(false); }
+    if (proof.input === input) { return Promise.resolve(true); }
+    if (typeof proof.input === 'string' && typeof input === 'string' && toText(proof.input) === toText(input)) {
+      return Promise.resolve(true);
+    }
+    if (!proof.input_hash) { return Promise.resolve(false); }
+    return hashInputDetailed(input).then(function (result) {
+      return !!(result.available && result.hash === proof.input_hash);
+    }, function () {
+      return false;
+    });
+  }
+
   function hashBlobs(blobs) {
     var source = Array.isArray(blobs) ? blobs : [];
     return Promise.all(source.slice(0, 4).map(hashBlob));
@@ -477,31 +512,34 @@
       input_hash_scope: 'provider_input',
       receipt_hash: ''
     };
-    if (operation === 'edit' && !hasValidationMarker(credentialVerification)) {
-      baseReceipt.credential_status = 'unknown_after_transform';
-    }
-    if (hasValidationMarker(credentialVerification)) {
-      baseReceipt.credential_status = operation === 'edit' && credentialVerification.status === 'unsupported'
-        ? 'unknown_after_transform'
-        : credentialVerification.status;
-    }
-    return Promise.all([
-      digestBytesDetailed(utf8Bytes(prompt)),
-      digestBytesDetailed(utf8Bytes(userPrompt)),
-      hashDataUrlDetailed(source.image)
-    ]).then(function (results) {
-      var promptResult = results[0];
-      var userPromptResult = results[1];
-      var outputResult = results[2];
-      var receipt;
-      baseReceipt.prompt_sha256 = normalizeHash(promptResult.hash) || normalizeHash(source.promptSha256);
-      baseReceipt.user_prompt_sha256 = normalizeHash(userPromptResult.hash) || normalizeHash(source.userPromptSha256);
-      baseReceipt.output_sha256 = normalizeHash(outputResult.hash) || normalizeHash(source.outputSha256);
-      receipt = normalizeReceipt(baseReceipt, credentialVerification);
-      return digestBytesDetailed(utf8Bytes(JSON.stringify(withoutReceiptHash(receipt)))).then(function (receiptResult) {
-        receipt.receipt_hash = normalizeHash(receiptResult.hash);
-        if (hasValidationMarker(credentialVerification)) { markValidated(receipt); }
-        return receipt;
+    return validationMatchesInput(credentialVerification, source.image).then(function (validationIsForImage) {
+      if (validationIsForImage && isCredentialStatus(credentialVerification.status)) {
+        baseReceipt.credential_status = operation === 'edit' && credentialVerification.status === 'unsupported'
+          ? 'unknown_after_transform'
+          : credentialVerification.status;
+      } else if (operation === 'edit') {
+        baseReceipt.credential_status = 'unknown_after_transform';
+      }
+      return Promise.all([
+        digestBytesDetailed(utf8Bytes(prompt)),
+        digestBytesDetailed(utf8Bytes(userPrompt)),
+        hashDataUrlDetailed(source.image)
+      ]).then(function (results) {
+        var promptResult = results[0];
+        var userPromptResult = results[1];
+        var outputResult = results[2];
+        var receipt;
+        baseReceipt.prompt_sha256 = normalizeHash(promptResult.hash) || normalizeHash(source.promptSha256);
+        baseReceipt.user_prompt_sha256 = normalizeHash(userPromptResult.hash) || normalizeHash(source.userPromptSha256);
+        baseReceipt.output_sha256 = normalizeHash(outputResult.hash) || normalizeHash(source.outputSha256);
+        // Normalize once to establish the immutable canonical payload. Later
+        // reload/import paths must hash this same shape, including its claim
+        // status, while current-image validation remains a separate result.
+        receipt = normalizeReceipt(baseReceipt);
+        return digestBytesDetailed(utf8Bytes(JSON.stringify(withoutReceiptHash(receipt)))).then(function (receiptResult) {
+          receipt.receipt_hash = normalizeHash(receiptResult.hash);
+          return receipt;
+        });
       });
     });
   }
@@ -512,18 +550,18 @@
     if (!BlobCtor) { return Promise.resolve({ blob: null, reason: 'blob_unavailable' }); }
     if (input && typeof input.arrayBuffer === 'function') {
       return Promise.resolve(input).then(function (blob) {
-        return { blob: blob, reason: '' };
+        return { blob: blob, input: input, reason: '' };
       });
     }
-    if (typeof input !== 'string') { return Promise.resolve({ blob: null, reason: 'unsupported_input' }); }
+    if (typeof input !== 'string') { return Promise.resolve({ blob: null, input: input, reason: 'unsupported_input' }); }
     parsed = dataUrlBytes(input);
     if (!parsed) {
-      return Promise.resolve({ blob: null, reason: /^https?:\/\//i.test(input) ? 'remote_url' : 'image_bytes_unavailable' });
+      return Promise.resolve({ blob: null, input: input, reason: /^https?:\/\//i.test(input) ? 'remote_url' : 'image_bytes_unavailable' });
     }
     try {
-      return Promise.resolve({ blob: new BlobCtor([parsed.bytes], { type: parsed.mime }), reason: '' });
+      return Promise.resolve({ blob: new BlobCtor([parsed.bytes], { type: parsed.mime }), input: input, reason: '' });
     } catch (error) {
-      return Promise.resolve({ blob: null, reason: 'blob_unavailable' });
+      return Promise.resolve({ blob: null, input: input, reason: 'blob_unavailable' });
     }
   }
 
@@ -653,37 +691,43 @@
     var requested = !!(settings && settings.verify && settings.verify.verifyTrust === true);
     return c2paBlobFromInput(input).then(function (prepared) {
       if (!prepared.blob) {
-        return markValidated({ status: 'unsupported', reason: prepared.reason });
+        return rememberValidation({ status: 'unsupported', reason: prepared.reason }, prepared.input, null, '');
       }
-      return getC2pa(settings).then(function (sdk) {
-        var reader;
-        return Promise.resolve().then(function () {
-          return sdk.reader.fromBlob(prepared.blob.type || 'application/octet-stream', prepared.blob);
-        }).then(function (createdReader) {
-          reader = createdReader;
-          if (!reader) { return markValidated({ status: 'absent', reason: 'no_manifest' }); }
-          return reader.manifestStore().then(function (store) {
-            var status = credentialStatusFromStore(store, settings);
-            var result = {
-              status: status,
-              reason: status === 'verified' ? 'trusted_c2pa_manifest' : 'c2pa_manifest',
-              validation_state: toText(store && store.validation_state),
-              trust_requested: requested
-            };
-            return Promise.resolve(reader.free && reader.free()).then(function () {
-              return markValidated(result);
+      return hashBlobDetailed(prepared.blob).then(function (inputHash) {
+        var exactInputHash = inputHash.available ? inputHash.hash : '';
+        var remember = function (result) {
+          return rememberValidation(result, prepared.input, prepared.blob, exactInputHash);
+        };
+        return getC2pa(settings).then(function (sdk) {
+          var reader;
+          return Promise.resolve().then(function () {
+            return sdk.reader.fromBlob(prepared.blob.type || 'application/octet-stream', prepared.blob);
+          }).then(function (createdReader) {
+            reader = createdReader;
+            if (!reader) { return remember({ status: 'absent', reason: 'no_manifest' }); }
+            return reader.manifestStore().then(function (store) {
+              var status = credentialStatusFromStore(store, settings);
+              var result = {
+                status: status,
+                reason: status === 'verified' ? 'trusted_c2pa_manifest' : 'c2pa_manifest',
+                validation_state: toText(store && store.validation_state),
+                trust_requested: requested
+              };
+              return Promise.resolve(reader.free && reader.free()).then(function () {
+                return remember(result);
+              });
             });
+          }).catch(function (error) {
+            if (reader && typeof reader.free === 'function') {
+              return Promise.resolve(reader.free()).catch(function () {}).then(function () {
+                return remember({ status: classifyC2paError(error), reason: 'c2pa_reader_error' });
+              });
+            }
+            return remember({ status: classifyC2paError(error), reason: 'c2pa_reader_error' });
           });
         }).catch(function (error) {
-          if (reader && typeof reader.free === 'function') {
-            return Promise.resolve(reader.free()).catch(function () {}).then(function () {
-              return markValidated({ status: classifyC2paError(error), reason: 'c2pa_reader_error' });
-            });
-          }
-          return markValidated({ status: classifyC2paError(error), reason: 'c2pa_reader_error' });
+          return remember({ status: 'unsupported', reason: /SDK unavailable/i.test(toText(error && error.message)) ? 'sdk_unavailable' : 'c2pa_runtime_unavailable' });
         });
-      }).catch(function (error) {
-        return markValidated({ status: 'unsupported', reason: /SDK unavailable/i.test(toText(error && error.message)) ? 'sdk_unavailable' : 'c2pa_runtime_unavailable' });
       });
     });
   }

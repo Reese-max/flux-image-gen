@@ -246,6 +246,8 @@
     var receipt;
     var i;
     var item;
+    var claimedStatus;
+    var canonicalStatus;
     if (helper && typeof helper.normalizeReceipt === 'function') {
       return helper.normalizeReceipt(value);
     }
@@ -265,6 +267,10 @@
         if (item && ids.indexOf(item) === -1) { ids.push(item); }
       }
     }
+    claimedStatus = toText(source.credential_status);
+    canonicalStatus = /^(?:verified|present_untrusted|invalid|absent|unknown_after_transform|unsupported)$/.test(claimedStatus)
+      ? claimedStatus
+      : (operation === 'edit' ? 'unknown_after_transform' : 'unsupported');
     receipt = {
       schema: 'ProvenanceReceipt',
       receipt_schema_version: 1,
@@ -287,7 +293,10 @@
       version_group_id: sanitizeMetadataValue(source.version_group_id, 'id'),
       version_number: normalizeVersionNumber(source.version_number),
       app_build_version: sanitizeMetadataValue(source.app_build_version, 'build'),
-      credential_status: operation === 'edit' ? 'unknown_after_transform' : 'unsupported',
+      // Keep the persisted canonical status stable so its receipt_hash can be
+      // checked after reload. Current-image C2PA verification is separate and
+      // is never inferred from this imported value.
+      credential_status: canonicalStatus,
       transform: {
         kind: toText(source.transform && source.transform.kind).slice(0, 96) || (operation === 'edit' ? 'ai_edit' : 'none'),
         applied: !!(source.transform && source.transform.applied),

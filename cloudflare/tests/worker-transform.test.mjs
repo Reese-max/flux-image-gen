@@ -2211,6 +2211,14 @@ test('GET /share/:id hides prompts by default and only renders public prompts', 
         styleLabel: '電影感',
         useCase: 'ppt',
         useCaseLabel: '簡報插圖',
+        provenance: {
+          receipt_hash: 'a'.repeat(64),
+          output_sha256: 'b'.repeat(64),
+          operation: 'generate',
+          input_hash_scope: 'provider_input',
+          credential_status: 'verified',
+          secret: 'should-never-render',
+        },
       },
     }),
     galleryEnv(publicBucket)
@@ -2235,6 +2243,11 @@ test('GET /share/:id hides prompts by default and only renders public prompts', 
   assert.match(publicHtml, /風格：電影感/);
   assert.match(publicHtml, /用途：簡報插圖/);
   assert.match(publicHtml, /Prompt：公開/);
+  assert.match(publicHtml, /Content Credentials：需在收到圖片後重新驗證/);
+  assert.match(publicHtml, new RegExp(`Receipt hash：<code>${'a'.repeat(64)}<\\/code>`));
+  assert.match(publicHtml, /Input hash：provider_input/);
+  assert.doesNotMatch(publicHtml, /Content Credentials：已驗證/);
+  assert.doesNotMatch(publicHtml, /should-never-render/);
   assert.match(publicHtml, /index,follow/);
 });
 

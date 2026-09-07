@@ -15,6 +15,7 @@ function loadScripts(includeHistoryStore) {
     crypto,
     TextEncoder,
     Uint8Array,
+    Blob,
     Promise,
     atob,
     btoa,
@@ -26,6 +27,16 @@ function loadScripts(includeHistoryStore) {
   if (includeHistoryStore) {
     vm.runInContext(fs.readFileSync(historyStorePath, 'utf8'), context, { filename: historyStorePath });
   }
+  return context;
+}
+
+function loadHistoryWallScripts() {
+  const context = loadScripts(true);
+  context.document = {
+    addEventListener() {},
+    getElementById() { return null; },
+  };
+  vm.runInContext(fs.readFileSync(historyWallPath, 'utf8'), context, { filename: historyWallPath });
   return context;
 }
 
@@ -104,34 +115,118 @@ test('credential statuses stay explicit and invalid values fail closed', () => {
   const statuses = ['verified', 'present_untrusted', 'invalid', 'absent', 'unknown_after_transform', 'unsupported'];
   statuses.forEach((status) => {
     const receipt = helper.normalizeReceipt({ record_id: 'record-' + status, operation: 'generate', receipt_schema_version: 2, credential_status: status });
-    assert.equal(receipt.credential_status, 'unsupported');
+    assert.equal(receipt.credential_status, status);
     assert.equal(receipt.credential_claim_status, status);
   });
   assert.equal(helper.normalizeReceipt({ record_id: 'record-invalid', operation: 'generate', credential_status: 'human_made' }).credential_status, 'unsupported');
   assert.equal(helper.normalizeReceipt({ record_id: 'edit-invalid', operation: 'edit', credential_status: 'human_made' }).credential_status, 'unknown_after_transform');
 });
 
-test('a real validator marker survives receipt normalization and integrity verification', async () => {
+test('canonical receipt status and hash survive JSON reload', async () => {
   const context = loadScripts(false);
   const helper = context.ProvenanceReceipt;
-  const validation = { status: 'verified' };
-  Object.defineProperty(validation, '__flux_c2pa_validation_v1', { value: true, enumerable: false });
   const record = {
-    id: 'validated-record',
+    id: 'reload-record',
     image: 'data:image/png;base64,aGVsbG8=',
-    prompt: 'validated fixture',
-    providerPrompt: 'validated fixture',
+    prompt: 'reload fixture',
+    providerPrompt: 'reload fixture',
     provider: 'demo',
   };
-  const receipt = await helper.buildReceipt(record, null, validation);
-  const normalized = helper.normalizeReceipt(receipt);
-  const verification = await helper.verifyRecord({ ...record, provenanceReceipt: receipt });
+  const receipt = await helper.buildReceipt(record);
+  const reloaded = JSON.parse(JSON.stringify(receipt));
+  const normalized = helper.normalizeReceipt(reloaded);
+  const verification = await helper.verifyRecord({ ...record, provenanceReceipt: reloaded });
 
-  assert.equal(receipt.credential_status, 'verified');
-  assert.equal(normalized.credential_status, 'verified');
+  assert.equal(receipt.credential_status, 'unsupported');
+  assert.equal(normalized.credential_status, 'unsupported');
   assert.equal(verification.status, 'valid');
   assert.equal(verification.receipt_hash_valid, true);
   assert.equal(verification.output_hash_valid, true);
+});
+
+test('JSON marker and copied validator result cannot mint trust', async () => {
+  const context = loadScripts(false);
+  const helper = context.ProvenanceReceipt;
+  const record = {
+    id: 'forged-marker-record',
+    image: 'data:image/png;base64,aGVsbG8=',
+    prompt: 'forged marker fixture',
+    providerPrompt: 'forged marker fixture',
+    provider: 'demo',
+  };
+  const forged = { status: 'verified', __flux_c2pa_validation_v1: true };
+  const receipt = await helper.buildReceipt(record, null, forged);
+  const copied = { ...forged };
+  const copiedReceipt = await helper.buildReceipt({ ...record, id: 'copied-result' }, null, copied);
+
+  assert.equal(receipt.credential_status, 'unsupported');
+  assert.equal(copiedReceipt.credential_status, 'unsupported');
+  assert.equal(Object.prototype.hasOwnProperty.call(receipt, '__flux_c2pa_validation_v1'), false);
+});
+
+test('copy-share text uses current verification instead of an imported marker', async () => {
+  const context = loadHistoryWallScripts();
+  const helper = context.ProvenanceReceipt;
+  const record = {
+    id: 'forged-share-record',
+    image: 'data:image/png;base64,aGVsbG8=',
+    prompt: 'private prompt',
+    providerPrompt: 'private provider prompt',
+    provenanceReceipt: {
+      record_id: 'forged-share-record',
+      receipt_schema_version: 2,
+      credential_status: 'verified',
+      __flux_c2pa_validation_v1: true,
+    },
+  };
+  const share = context.ImageHistoryWall.buildShareText(record, true);
+
+  assert.match(share, /Content Credentials：尚未支援檢查/);
+  assert.doesNotMatch(share, /Content Credentials：已驗證/);
+  assert.doesNotMatch(share, /private prompt/);
+});
+
+test('validator trust is private and bound to the exact image bytes', async () => {
+  const context = loadScripts(false);
+  const helper = context.ProvenanceReceipt;
+  const signed = 'data:image/png;base64,aGVsbG8=';
+  const other = 'data:image/png;base64,d29ybGQ=';
+  context.FluxC2paWeb = {
+    createC2pa: async () => ({
+      reader: {
+        fromBlob: async () => ({
+          manifestStore: async () => ({
+            validation_state: 'Valid',
+            validation_status: [],
+            validation_results: {
+              activeManifest: {
+                success: [{ code: 'signingCredential.trusted', url: 'urn:c2pa.signature' }],
+                failure: [],
+              },
+            },
+          }),
+          free: async () => {},
+        }),
+      },
+    }),
+  };
+  const validation = await helper.inspectCredential(signed, {
+    settings: { verify: { verifyTrust: true }, cawgTrust: { verifyTrustList: false } },
+  });
+  const trusted = await helper.buildReceipt({
+    id: 'trusted-exact', image: signed, prompt: 'trusted', providerPrompt: 'trusted', provider: 'demo',
+  }, null, validation);
+  const wrongImage = await helper.buildReceipt({
+    id: 'trusted-wrong-image', image: other, prompt: 'trusted', providerPrompt: 'trusted', provider: 'demo',
+  }, null, validation);
+  const copied = await helper.buildReceipt({
+    id: 'trusted-copied', image: signed, prompt: 'trusted', providerPrompt: 'trusted', provider: 'demo',
+  }, null, JSON.parse(JSON.stringify(validation)));
+
+  assert.equal(validation.status, 'verified');
+  assert.equal(trusted.credential_status, 'verified');
+  assert.equal(wrongImage.credential_status, 'unsupported');
+  assert.equal(copied.credential_status, 'unsupported');
 });
 
 test('history export/import roundtrip keeps only the versioned receipt allowlist', async () => {

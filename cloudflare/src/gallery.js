@@ -26,6 +26,31 @@ export function decodeImageDataUrl(dataUrl) {
 
 export function sanitizeGalleryMeta(meta) {
   const out = {};
+  const safeHash = (value) => {
+    const text = String(value ?? "").trim().toLowerCase();
+    return /^[a-f0-9]{64}$/.test(text) ? text : "";
+  };
+  const sanitizeProvenance = (value) => {
+    const source = value && typeof value === "object" ? value : {};
+    const provenance = {};
+    const receiptHash = safeHash(source.receiptHash ?? source.receipt_hash);
+    const outputSha256 = safeHash(source.outputSha256 ?? source.output_sha256);
+    const operation = String(source.operation ?? "").trim();
+    const inputHashScope = String(source.inputHashScope ?? source.input_hash_scope ?? "").trim();
+    const credentialStatus = String(source.credentialStatus ?? source.credential_status ?? "").trim();
+    if (receiptHash) provenance.receiptHash = receiptHash;
+    if (outputSha256) provenance.outputSha256 = outputSha256;
+    if (operation === "generate" || operation === "edit") provenance.operation = operation;
+    if (inputHashScope === "provider_input" || inputHashScope === "original_upload") {
+      provenance.inputHashScope = inputHashScope;
+    }
+    if (/^(?:verified|present_untrusted|invalid|absent|unknown_after_transform|unsupported)$/.test(credentialStatus)) {
+      // Retain this as a claim for diagnostics; the share page deliberately
+      // never renders it as a trusted result without validating image bytes.
+      provenance.credentialClaimStatus = credentialStatus;
+    }
+    return provenance;
+  };
   const safeIdentifier = (value, fallback = "") => {
     const text = String(value ?? "").trim();
     if (!text || text.length > 512) return fallback;
@@ -70,6 +95,8 @@ export function sanitizeGalleryMeta(meta) {
       const prompt = safePublicPrompt(meta.prompt);
       if (prompt) out.prompt = prompt;
     }
+    const provenance = sanitizeProvenance(meta.provenance);
+    if (Object.keys(provenance).length) out.provenance = provenance;
   }
   return out;
 }
