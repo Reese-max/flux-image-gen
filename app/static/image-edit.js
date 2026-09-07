@@ -76,9 +76,9 @@
 
   // 把 /edit 回應映射成 { image, error }：成功回圖，否則回後端 error 或通用 HTTP 訊息。
   function mapEditResponse(ok, status, data) {
-    if (ok && data && data.image) { return { image: data.image, error: null }; }
+    if (ok && data && data.image) { return { image: data.image, error: null, data: data }; }
     var msg = (data && data.error) ? data.error : ('改圖失敗（HTTP ' + status + '）');
-    return { image: null, error: msg };
+    return { image: null, error: msg, data: data || {} };
   }
 
   var EDIT_PROVIDER_UNAVAILABLE_MESSAGE = '此環境尚未啟用 Workers AI 改圖；仍可先整理參考圖與指令，啟用後再送出。';
@@ -440,8 +440,46 @@
     setPreviewState('done', '完成');
   }
 
+  function makeHistoryRecordId() {
+    if (root.crypto && typeof root.crypto.randomUUID === 'function') {
+      return root.crypto.randomUUID();
+    }
+    return 'edit-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+  }
+
+  function dispatchEditHistoryRecord(data, image, prompt, finalPrompt, inputHashes) {
+    var source = data || {};
+    var detail;
+    if (typeof document.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') { return; }
+    detail = {
+      id: makeHistoryRecordId(),
+      image: image,
+      thumbnail: image,
+      prompt: prompt,
+      providerPrompt: finalPrompt,
+      avoid: '',
+      model: typeof source.model === 'string' ? source.model : 'edit',
+      size: 'edit',
+      steps: null,
+      cfgScale: null,
+      seed: 0,
+      width: typeof source.width === 'number' ? source.width : 0,
+      height: typeof source.height === 'number' ? source.height : 0,
+      provider: typeof source.provider === 'string' ? source.provider : '',
+      mode: editMode,
+      operation: 'edit',
+      inputImageSha256: Array.isArray(inputHashes) ? inputHashes : [],
+      providerModelRevision: typeof source.providerModelRevision === 'string' ? source.providerModelRevision : '',
+      credentialStatus: typeof source.credentialStatus === 'string' ? source.credentialStatus : '',
+      appBuildVersion: typeof source.appBuildVersion === 'string' ? source.appBuildVersion : '',
+      sourceRecordId: ''
+    };
+    document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: detail }));
+  }
+
   goBtn.addEventListener('click', function () {
     var elapsedTimer;
+    var inputBlobs;
     if (providerAvailable === false) {
       setStatus(EDIT_PROVIDER_UNAVAILABLE_MESSAGE, 'fail');
       setPreviewState('error', '服務不可用');
@@ -486,7 +524,8 @@
       background: productBackground ? productBackground.value : '',
       lighting: productLighting ? productLighting.value : ''
     });
-    var fd = buildEditFormData(finalPrompt, selected.map(function (s) { return s.blob; }), token);
+    inputBlobs = selected.map(function (s) { return s.blob; });
+    var fd = buildEditFormData(finalPrompt, inputBlobs, token);
 
     fetch('/edit', { method: 'POST', body: fd })
       .then(function (resp) {
@@ -499,6 +538,15 @@
         if (mapped.image) {
           showResult(mapped.image);
           setStatus('完成 ✓ · 耗時 ' + elapsedTimer.stop() + ' 秒', 'done');
+          if (root.ProvenanceReceipt && typeof root.ProvenanceReceipt.hashBlobs === 'function') {
+            root.ProvenanceReceipt.hashBlobs(inputBlobs).then(function (inputHashes) {
+              dispatchEditHistoryRecord(mapped.data, mapped.image, prompt, finalPrompt, inputHashes);
+            }, function () {
+              dispatchEditHistoryRecord(mapped.data, mapped.image, prompt, finalPrompt, []);
+            });
+          } else {
+            dispatchEditHistoryRecord(mapped.data, mapped.image, prompt, finalPrompt, []);
+          }
         } else {
           setStatus('改圖失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + mapped.error, 'fail');
           setPreviewState('error', '改圖失敗');

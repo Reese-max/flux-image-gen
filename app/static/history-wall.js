@@ -2,6 +2,7 @@
   'use strict';
 
   var records = [];
+  var recordWriteChain = Promise.resolve();
   var selectedRecordId = '';
   var selectedRecordIds = {};
   var filters = { query: '', model: '', size: '', dateFrom: '', dateTo: '', favoritesOnly: false, cloudOnly: false };
@@ -442,6 +443,58 @@
     return parts.join(' · ');
   }
 
+  function credentialStatusLabel(status) {
+    var labels = {
+      verified: '已驗證',
+      present_untrusted: '存在但未受信任',
+      invalid: '無效',
+      absent: '未發現',
+      unknown_after_transform: '轉換後未知',
+      unsupported: '尚未支援檢查'
+    };
+    return labels[toText(status)] || '未知';
+  }
+
+  function receiptStatusLabel(status) {
+    var labels = {
+      valid: '有效，圖片與 receipt 相符',
+      modified: '已修改或 receipt 不相符',
+      unavailable: '無法在此瀏覽器重新計算',
+      absent: '尚未建立'
+    };
+    return labels[toText(status)] || '尚未驗證';
+  }
+
+  function formatProvenanceStatus(record, verification) {
+    var receipt = record && record.provenanceReceipt;
+    var lines = [];
+    if (!receipt) {
+      return '本產品 receipt：尚未建立。Content Credentials：未提供檢查結果；缺少 credential 不代表是真人圖片。';
+    }
+    lines.push('本產品 receipt：' + receiptStatusLabel(verification && verification.status));
+    if (receipt.receipt_hash) { lines.push('Receipt hash：' + receipt.receipt_hash); }
+    if (receipt.output_sha256) { lines.push('Output SHA-256：' + receipt.output_sha256); }
+    lines.push('Content Credentials：' + credentialStatusLabel(receipt.credential_status));
+    if (receipt.operation === 'edit') { lines.push('流程：AI 編輯；來源圖 hash 已保存。'); }
+    lines.push('缺少 credential 不代表是真人圖片；receipt 只描述本產品記錄的來源。');
+    return lines.join('\n');
+  }
+
+  function refreshProvenanceStatus(record) {
+    var sourceRecord = normalizeRecordForUi(record);
+    var verifier = root.ProvenanceReceipt && root.ProvenanceReceipt.verifyRecord;
+    if (!sourceRecord || !verifier) { return; }
+    Promise.resolve(verifier(sourceRecord)).then(function (verification) {
+      if (selectedRecordId === toText(sourceRecord.id)) {
+        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, verification));
+      }
+    }, function () {
+      if (selectedRecordId === toText(sourceRecord.id)) {
+        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, { status: 'unavailable' }));
+      }
+    });
+  }
+
   function formatQaReport(record) {
     var report = record && record.qaReport;
     var parts = [];
@@ -680,6 +733,7 @@
     setDetailText('historyDetailProviderPrompt', sourceRecord.providerPrompt);
     setDetailText('historyDetailMeta', formatHistoryMeta(sourceRecord));
     setDetailText('historyDetailQaReport', formatQaReport(sourceRecord));
+    setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, null));
     renderCloudLinks(sourceRecord);
     if (tagEditor) {
       tagEditor.value = getRecordTags(sourceRecord).join(', ');
@@ -690,6 +744,7 @@
     } else {
       modal.hidden = false;
     }
+    refreshProvenanceStatus(sourceRecord);
   }
 
   function closeHistoryDetail() {
@@ -737,6 +792,10 @@
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
     if (sourceRecord.provider) { lines.push('Provider：' + toText(sourceRecord.provider)); }
+    if (sourceRecord.provenanceReceipt) {
+      lines.push('Provenance receipt：' + (toText(sourceRecord.provenanceReceipt.receipt_hash) || 'unavailable'));
+      lines.push('Content Credentials：' + credentialStatusLabel(sourceRecord.provenanceReceipt.credential_status));
+    }
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
     if (!hidePrompt) {
@@ -1138,22 +1197,40 @@
   }
 
   function addGeneratedRecord(event) {
-    var nextRecords;
     if (!root.ImageHistoryStore || !event || !event.detail) { return; }
-    nextRecords = safeStore('歷史記錄儲存失敗', function () {
+    // Batch results dispatch several events in one turn. Serializing the
+    // async hash work keeps each event's parent lookup and localStorage write
+    // based on the latest history instead of racing and dropping records.
+    recordWriteChain = recordWriteChain.then(function () {
       var sourceRecordId = toText(event.detail.sourceRecordId);
       var parentRecord = sourceRecordId ? root.ImageHistoryStore.findRecordById(records, sourceRecordId) : null;
       var recordToAdd = event.detail;
       var addedRecords;
+      var attach;
       if (sourceRecordId && parentRecord && typeof root.ImageHistoryStore.createVersionRecord === 'function') {
         recordToAdd = root.ImageHistoryStore.createVersionRecord(records, parentRecord, event.detail);
       }
-      addedRecords = root.ImageHistoryStore.addRecord(records, recordToAdd);
-      return root.ImageHistoryStore.saveRecords(addedRecords);
-    }, null);
-    if (!nextRecords) { return; }
-    records = nextRecords;
-    renderHistoryWall();
+      if (!toText(recordToAdd.id)) {
+        // Batch event payloads intentionally omit ids. Reserve the id before
+        // hashing so the receipt and persisted record refer to the same item.
+        var identity = root.ImageHistoryStore.normalizeRecord(recordToAdd);
+        recordToAdd = copyRecord(recordToAdd);
+        recordToAdd.id = identity.id;
+      }
+      attach = root.ProvenanceReceipt && typeof root.ProvenanceReceipt.attachRecord === 'function'
+        ? root.ProvenanceReceipt.attachRecord(recordToAdd, parentRecord)
+        : Promise.resolve(recordToAdd);
+      return Promise.resolve(attach).then(function (attachedRecord) {
+        addedRecords = root.ImageHistoryStore.addRecord(records, attachedRecord);
+        return root.ImageHistoryStore.saveRecords(addedRecords);
+      });
+    }).then(function (nextRecords) {
+      if (!nextRecords) { return; }
+      records = nextRecords;
+      renderHistoryWall();
+    }, function (error) {
+      setAppStatus('歷史記錄儲存失敗：' + (error && error.message ? error.message : '未知錯誤'), 'fail');
+    });
   }
 
   function reloadHistoryAfterRecordUpdate(event) {

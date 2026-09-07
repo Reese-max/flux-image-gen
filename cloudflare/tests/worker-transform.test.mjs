@@ -1505,6 +1505,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
     '/static/app.js',
     '/static/canvas-viewport.js',
     '/static/prompt-transform.js',
+    '/static/provenance.js',
     '/static/history-store.js',
     '/static/history-wall.js',
     '/static/tutorial.js',
@@ -1540,6 +1541,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="copySettings"/);
   assert.match(html, /id="regenerate"/);
   assert.match(html, /id="tutorialModal"/);
+  assert.match(html, /id="historyProvenanceStatus"/);
   assert.match(html, /id="usageDashboard"/);
   assert.match(html, /<link rel="stylesheet" href="\/static\/styles\.css">/);
   assert.deepEqual(new Set(scriptSrcs), new Set(expectedScripts));

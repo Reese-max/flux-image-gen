@@ -537,7 +537,8 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v24" in service_worker_js
+    assert "ai-image-generator-pwa-v25" in service_worker_js
+    assert "'/static/provenance.js'" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -630,6 +631,7 @@ def test_prompt_transform_ui_is_wired():
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html
     assert 'src="/static/prompt-transform.js"' in html
+    assert 'src="/static/provenance.js"' in html
     assert "fetch('/prompt/transform'" in transform_js
     assert "fetch('/prompt/complete'" in transform_js
     assert "plainPrompt" in transform_js
@@ -685,6 +687,7 @@ def test_iteration_ux_ui_is_wired():
     assert 'src="/static/history-wall.js"' in html
     assert 'src="/static/tutorial.js"' in html
     assert html.index('src="/static/generation-settings.js"') < html.index('src="/static/app.js"')
+    assert html.index('src="/static/provenance.js"') < html.index('src="/static/history-store.js"')
     assert html.index('src="/static/history-store.js"') < html.index('src="/static/history-wall.js"')
     assert html.index('src="/static/history-wall.js"') < html.index('src="/static/tutorial.js"')
     assert ".advanced-controls" in styles
@@ -705,6 +708,7 @@ def test_iteration_ux_ui_is_wired():
 
 
 def test_iteration_ux_scripts_integrate_with_app():
+    html = read_static("index.html")
     app_js = read_static("app.js")
     history_wall_js = read_static("history-wall.js")
 
@@ -724,6 +728,8 @@ def test_iteration_ux_scripts_integrate_with_app():
     assert "innerHTML" not in history_wall_js
     assert "safeStore" in history_wall_js
     assert "歷史記錄讀取失敗" in history_wall_js
+    assert "ProvenanceReceipt.verifyRecord" in history_wall_js
+    assert 'id="historyProvenanceStatus"' in html
     assert "validateHistoryImageUrl" in history_wall_js
     assert "generationInFlight" in app_js
     assert "shallowClone(generatedRecord)" in app_js
@@ -814,6 +820,9 @@ def test_reference_image_modes_and_edit_stubs_are_wired():
     assert "角色一致模式需要至少一張標成「角色」的參考圖" in image_edit_js
     assert "產品照模式需要至少一張標成「產品」的參考圖" in image_edit_js
     assert "composeEditPrompt(prompt, selected" in image_edit_js
+    assert "dispatchEditHistoryRecord" in image_edit_js
+    assert "operation: 'edit'" in image_edit_js
+    assert "inputImageSha256" in image_edit_js
 
     assert ".edit-mode-grid" in styles
     assert ".edit-mode-card" in styles
@@ -1270,6 +1279,7 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
             "prompt-enhancer.js",
             "prompt-pack.js",
             "prompt-transform.js",
+            "provenance.js",
             "service-worker.js",
             "tabs.js",
             "tutorial.js",

@@ -212,6 +212,73 @@
     return null;
   }
 
+  // Keep provenance receipts strict when importing old/local JSON. The
+  // dedicated ProvenanceReceipt helper performs the full normalization in the
+  // browser; this fallback keeps history-store safe when tested or loaded on
+  // its own.
+  function normalizeProvenanceReceipt(value) {
+    var helper = root.ProvenanceReceipt;
+    var source = value && typeof value === 'object' ? value : null;
+    var operation;
+    var hashes;
+    var ids;
+    var receipt;
+    var i;
+    var item;
+    if (helper && typeof helper.normalizeReceipt === 'function') {
+      return helper.normalizeReceipt(value);
+    }
+    if (!source || !toText(source.record_id)) { return null; }
+    operation = toText(source.operation) === 'edit' ? 'edit' : 'generate';
+    hashes = [];
+    ids = [];
+    if (Array.isArray(source.input_image_hashes)) {
+      for (i = 0; i < source.input_image_hashes.length && hashes.length < 4; i += 1) {
+        item = toText(source.input_image_hashes[i]).toLowerCase();
+        if (/^[a-f0-9]{64}$/.test(item) && hashes.indexOf(item) === -1) { hashes.push(item); }
+      }
+    }
+    if (Array.isArray(source.source_record_ids)) {
+      for (i = 0; i < source.source_record_ids.length && ids.length < 4; i += 1) {
+        item = toText(source.source_record_ids[i]).slice(0, 160);
+        if (item && ids.indexOf(item) === -1) { ids.push(item); }
+      }
+    }
+    receipt = {
+      schema: 'ProvenanceReceipt',
+      receipt_schema_version: 1,
+      record_id: toText(source.record_id).slice(0, 160),
+      operation: operation,
+      source_record_ids: ids,
+      input_image_hashes: hashes,
+      provider: toText(source.provider).slice(0, 512),
+      model: toText(source.model).slice(0, 512),
+      provider_model_revision: toText(source.provider_model_revision).slice(0, 512),
+      seed: normalizeSeed(source.seed),
+      size: toText(source.size).slice(0, 96),
+      steps: typeof source.steps === 'number' && isFinite(source.steps) ? source.steps : null,
+      cfg_scale: typeof source.cfg_scale === 'number' && isFinite(source.cfg_scale) ? source.cfg_scale : null,
+      mode: toText(source.mode) || 'normal',
+      prompt_sha256: /^[a-f0-9]{64}$/i.test(toText(source.prompt_sha256)) ? toText(source.prompt_sha256).toLowerCase() : '',
+      created_at: toText(source.created_at).slice(0, 80),
+      output_sha256: /^[a-f0-9]{64}$/i.test(toText(source.output_sha256)) ? toText(source.output_sha256).toLowerCase() : '',
+      parent_receipt_hash: /^[a-f0-9]{64}$/i.test(toText(source.parent_receipt_hash)) ? toText(source.parent_receipt_hash).toLowerCase() : '',
+      version_group_id: toText(source.version_group_id).slice(0, 160),
+      version_number: normalizeVersionNumber(source.version_number),
+      app_build_version: toText(source.app_build_version).slice(0, 512),
+      credential_status: ['verified', 'present_untrusted', 'invalid', 'absent', 'unknown_after_transform', 'unsupported'].indexOf(toText(source.credential_status)) !== -1
+        ? toText(source.credential_status)
+        : (operation === 'edit' ? 'unknown_after_transform' : 'unsupported'),
+      transform: {
+        kind: toText(source.transform && source.transform.kind).slice(0, 96) || (operation === 'edit' ? 'ai_edit' : 'none'),
+        applied: !!(source.transform && source.transform.applied),
+        credential_effect: toText(source.transform && source.transform.credential_effect).slice(0, 64) || (operation === 'edit' ? 'unknown_after_transform' : 'unchanged')
+      },
+      receipt_hash: /^[a-f0-9]{64}$/i.test(toText(source.receipt_hash)) ? toText(source.receipt_hash).toLowerCase() : ''
+    };
+    return receipt;
+  }
+
   function normalizeRecord(raw, makeId) {
     var source = raw || {};
     var imageUrl = toText(source.imageUrl);
@@ -221,6 +288,8 @@
     var negativePrompt = toText(source.negativePrompt) || toText(source.avoid);
     var id = toText(source.id);
     var idFactory = typeof makeId === 'function' ? makeId : defaultMakeId;
+    var provenanceReceipt;
+    var normalized;
 
     if (!image) {
       throw new Error('缺少圖片資料');
@@ -232,7 +301,7 @@
       id = toText(idFactory());
     }
 
-    return {
+    normalized = {
       id: id,
       schemaVersion: RECORD_SCHEMA_VERSION,
       userPrompt: prompt,
@@ -271,6 +340,11 @@
       versionNumber: normalizeVersionNumber(source.versionNumber),
       createdAt: toText(source.createdAt) || new Date().toISOString()
     };
+    provenanceReceipt = normalizeProvenanceReceipt(source.provenanceReceipt);
+    if (provenanceReceipt) {
+      normalized.provenanceReceipt = provenanceReceipt;
+    }
+    return normalized;
   }
 
   function findRecordById(records, id) {
