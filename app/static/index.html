@@ -515,7 +515,10 @@
           <div class="ideas-title">◷ 歷史記錄牆<span class="hint">（存在這台瀏覽器）</span></div>
           <p class="custom-ideas-copy">保留最近生成的圖片，可重新下載、複製提示詞或再生。</p>
         </div>
-        <button id="clearHistory" class="btn mini secondary" type="button" hidden disabled>清空歷史</button>
+        <div class="history-head-actions">
+          <button id="exportAllHistoryJson" class="btn mini secondary" type="button" hidden disabled>匯出全部備份</button>
+          <button id="clearHistory" class="btn mini secondary" type="button" hidden disabled>清空歷史</button>
+        </div>
       </div>
       <div id="historyFilters" class="history-filters" role="group" aria-label="歷史篩選" hidden>
         <input id="historySearch" class="text-input" type="search" aria-label="搜尋歷史作品" placeholder="搜尋描述或標籤">

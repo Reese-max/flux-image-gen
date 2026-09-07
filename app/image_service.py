@@ -675,8 +675,12 @@ def _random_seed() -> int:
 
 
 async def generate_batch(
-    request: GenerationRequest, count: int, settings: Settings | None = None
-) -> list[GenerationResult]:
+    request: GenerationRequest,
+    count: int,
+    settings: Settings | None = None,
+    *,
+    return_exceptions: bool = False,
+) -> list[GenerationResult | BaseException]:
     """Generate ``count`` variations of a prompt. The first image honours an
     explicit seed (so users can vary a locked composition); the rest get fresh
     random seeds so the batch shows genuine variety."""
@@ -693,11 +697,21 @@ async def generate_batch(
         for index in range(count)
     ]
     tasks = [replace(effective_request, seed=seed) for seed in seeds]
-    return list(
+    # A provider failure belongs to one variation. Keep the other settled
+    # results so the HTTP caller can return a usable partial batch instead of
+    # cancelling the whole fan-out. The default still raises the first failure
+    # for existing service callers; the route opts into the settled contract.
+    settled = list(
         await asyncio.gather(
-            *(_generate_one_with_fallback(provider, task, settings) for task in tasks)
+            *(_generate_one_with_fallback(provider, task, settings) for task in tasks),
+            return_exceptions=True,
         )
     )
+    if not return_exceptions:
+        for outcome in settled:
+            if isinstance(outcome, BaseException):
+                raise outcome
+    return settled
 
 
 def validate_edit_images(images: tuple[bytes, ...]) -> tuple[bytes, ...]:

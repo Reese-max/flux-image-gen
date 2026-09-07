@@ -1245,9 +1245,14 @@ function regenerate(){
   setSeedMode('random');
   setGenerationSettings({
     prompt: lastGeneration.prompt,
+    providerPrompt: lastGeneration.providerPrompt,
     avoid: lastGeneration.avoid,
     model: lastGeneration.model,
     size: lastGeneration.size,
+    width: lastGeneration.width,
+    height: lastGeneration.height,
+    steps: lastGeneration.steps,
+    cfgScale: lastGeneration.cfgScale,
     seed: ''
   });
   generate();
@@ -1489,7 +1494,7 @@ function renderBatchResults(stage, images, base){
       width: typeof item.width === 'number' ? item.width : fallback.width,
       height: typeof item.height === 'number' ? item.height : fallback.height,
       provider: typeof item.provider === 'string' ? item.provider : '',
-      sourceRecordId: '',
+      sourceRecordId: toText(base.sourceRecordId),
       mode: 'normal'
     };
     records.push(record);
@@ -1715,7 +1720,7 @@ function generate(options){
           return;
         }
         batchSummary = '已生成 ' + images.length + ' 張' + (batchErrors.length ? '，' + batchErrors.length + ' 張失敗' : '');
-        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size, steps: devTuning.steps, cfgScale: devTuning.cfgScale });
+        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size, steps: devTuning.steps, cfgScale: devTuning.cfgScale, sourceRecordId: pendingSourceRecordId });
         revealResultStage(true);
         setResultActionsVisible(false);
         pendingSourceRecordId = '';
@@ -1907,6 +1912,7 @@ window.ImageGenApp = {
   setPromptForReview: setPromptForReview,
   applyInspiration: applyInspiration,
   setGenerationSettings: setGenerationSettings,
+  setSeedMode: setSeedMode,
   applyExampleGalleryPrompt: applyExampleGalleryPrompt,
   getLastGeneration: getLastGeneration,
   setNextGenerationSourceRecord: setNextGenerationSourceRecord,

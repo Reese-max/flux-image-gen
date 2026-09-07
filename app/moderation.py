@@ -76,7 +76,9 @@ def _detect_high_risk_category(text: str) -> str:
     )
     fake_docs = (
         "假身分證",
+        "假身份證",
         "偽造身分證",
+        "偽造身份證",
         "偽造護照",
         "假護照",
         "偽造駕照",
@@ -84,6 +86,32 @@ def _detect_high_risk_category(text: str) -> str:
         "fake id",
         "fake passport",
         "counterfeit passport",
+    )
+    # Identity documents are high-risk even when the request avoids the words
+    # "fake" or "counterfeit". Official-looking fields (name/number/front/back)
+    # make the intent unambiguous, while the document terms alone remain a
+    # fail-closed safety boundary for this public image generator.
+    identity_documents = (
+        "身分證",
+        "身份證",
+        "國民身分證",
+        "國民身份證",
+        "護照",
+        "駕照",
+        "駕駛執照",
+        "居留證",
+        "居留卡",
+        "健保卡",
+        "identity card",
+        "identification card",
+        "id card",
+        "national id",
+        "official id",
+        "passport",
+        "driver's license",
+        "drivers license",
+        "driving licence",
+        "residence permit",
     )
     fraud = (
         "詐騙廣告",
@@ -117,7 +145,7 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    if _has_any(text, fake_docs):
+    if _has_any(text, fake_docs) or _has_any(text, identity_documents):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"

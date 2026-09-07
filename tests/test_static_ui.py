@@ -564,6 +564,7 @@ def test_history_regenerate_restores_complete_settings_before_visible_generation
     body = regenerate.group(1)
     for setting in ["providerPrompt:", "width:", "height:"]:
         assert setting in body
+    assert "setSeedMode('random')" in body
     assert "switchToGenerateTab()" in body
     assert "if (!switchToGenerateTab()) { return; }" in body
     assert body.index("switchToGenerateTab()") < body.index("setNextGenerationSourceRecord")
@@ -728,6 +729,8 @@ def test_iteration_ux_scripts_integrate_with_app():
     assert "shallowClone(generatedRecord)" in app_js
     assert "detail: shallowClone(generatedRecord)" in app_js
     assert "thumbnail: typeof data.thumbnail === 'string' ? data.thumbnail : image" in app_js
+    assert "exportAllHistoryJson" in history_wall_js
+    assert 'id="exportAllHistoryJson"' in read_static("index.html")
 
 
 def test_cloud_save_feature_is_removed():

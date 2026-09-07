@@ -359,6 +359,7 @@
     var toolbar = el('historyBatchBar');
     var filters = el('historyFilters');
     var clearHistoryButton = el('clearHistory');
+    var exportAllButton = el('exportAllHistoryJson');
     var countNode = el('historySelectionCount');
     var deleteButton = el('deleteSelectedHistory');
     var clearButton = el('clearHistorySelection');
@@ -372,6 +373,10 @@
     if (clearHistoryButton) {
       clearHistoryButton.hidden = records.length === 0;
       clearHistoryButton.disabled = records.length === 0;
+    }
+    if (exportAllButton) {
+      exportAllButton.hidden = records.length === 0;
+      exportAllButton.disabled = records.length === 0;
     }
     if (countNode) {
       countNode.textContent = count ? '已選取 ' + String(count) + ' 筆歷史作品' : '尚未選取作品';
@@ -759,18 +764,39 @@
     return (toText(value) || 'history').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'history';
   }
 
-  function exportHistoryJson() {
-    var record = getSelectedRecord();
-    var normalized;
+  function downloadJsonPayload(payload, filename) {
     var blob;
     var url;
     var link;
+    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
+      return false;
+    }
+    blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    url = root.URL.createObjectURL(blob);
+    link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    try {
+      document.body.appendChild(link);
+      link.click();
+    } finally {
+      if (link.parentNode) {
+        link.parentNode.removeChild(link);
+      }
+      // Keep the object URL alive until the browser has consumed the download.
+      // Revoking it in the same task cancels downloads in Chromium.
+      setTimeout(function () {
+        try { root.URL.revokeObjectURL(url); } catch (_) {}
+      }, 30000);
+    }
+    return true;
+  }
+
+  function exportHistoryJson() {
+    var record = getSelectedRecord();
+    var normalized;
     if (!record) {
       setAppStatus('尚無可匯出的作品', 'warn');
-      return;
-    }
-    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
-      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
       return;
     }
     normalized = normalizeRecordForUi(record);
@@ -782,21 +808,31 @@
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
-    blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
-    url = root.URL.createObjectURL(blob);
-    link = document.createElement('a');
-    link.href = url;
-    link.download = 'history_' + safeFilePart(normalized.id) + '.json';
-    try {
-      document.body.appendChild(link);
-      link.click();
-    } finally {
-      if (link.parentNode) {
-        link.parentNode.removeChild(link);
-      }
-      root.URL.revokeObjectURL(url);
+    if (!downloadJsonPayload(normalized, 'history_' + safeFilePart(normalized.id) + '.json')) {
+      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
+      return;
     }
     setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+  }
+
+  function exportAllHistoryJson() {
+    var normalized;
+    if (!records.length) {
+      setAppStatus('尚無可匯出的歷史作品', 'warn');
+      return;
+    }
+    normalized = root.ImageHistoryStore && typeof root.ImageHistoryStore.exportRecordCollection === 'function'
+      ? root.ImageHistoryStore.exportRecordCollection(records)
+      : { schema: 'GenerationRecordCollection', version: 2, records: records };
+    if (!confirmAction('匯出的備份檔會包含全部歷史作品、完整提示詞與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+      setAppStatus('已取消匯出全部歷史 JSON', 'warn');
+      return;
+    }
+    if (!downloadJsonPayload(normalized, 'history_backup_' + new Date().toISOString().slice(0, 10) + '.json')) {
+      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
+      return;
+    }
+    setAppStatus('已匯出全部歷史備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
   }
 
   function switchToGenerateTab() {
@@ -818,6 +854,9 @@
       return;
     }
     if (!switchToGenerateTab()) { return; }
+    if (typeof root.ImageGenApp.setSeedMode === 'function') {
+      root.ImageGenApp.setSeedMode('random');
+    }
     if (typeof root.ImageGenApp.setNextGenerationSourceRecord === 'function') {
       root.ImageGenApp.setNextGenerationSourceRecord(record.id);
     }
@@ -1137,6 +1176,7 @@
     var copyPrompt = el('copyHistoryPrompt');
     var copyShare = el('copyHistoryShareText');
     var exportJson = el('exportHistoryJson');
+    var exportAllJson = el('exportAllHistoryJson');
     var regenerateDetail = el('regenerateHistoryDetail');
     var useCompositionDetail = el('useCompositionDetail');
     var historySearch = el('historySearch');
@@ -1175,6 +1215,9 @@
     }
     if (exportJson) {
       exportJson.addEventListener('click', exportHistoryJson);
+    }
+    if (exportAllJson) {
+      exportAllJson.addEventListener('click', exportAllHistoryJson);
     }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
@@ -1243,6 +1286,8 @@
     buildShareText: buildShareText,
     copyHistoryShareText: copyHistoryShareText,
     exportHistoryJson: exportHistoryJson,
+    exportAllHistoryJson: exportAllHistoryJson,
+    downloadJsonPayload: downloadJsonPayload,
     regenerateHistoryDetail: regenerateHistoryDetail,
     recordMatchesFilters: recordMatchesFilters,
     applyHistoryFilters: applyHistoryFilters,
