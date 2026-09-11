@@ -67,6 +67,11 @@ IMAGE_RETRY_BACKOFF_SECONDS = 0.5
 # Batch generation: one prompt -> several variations, each with its own seed.
 MAX_BATCH_COUNT = 4
 BATCH_COUNT_ERROR_MESSAGE = f"count 必須是 1 到 {MAX_BATCH_COUNT} 之間的整數"
+# Keep the shared provider transport bounded. NVIDIA deployments commonly
+# expose one in-flight generation slot; a bounded queue prevents a batch from
+# turning that capacity into the historical 2→1/4→1 result. Individual
+# failures still settle into their indexed partial response at the route.
+BATCH_PROVIDER_CONCURRENCY = 1
 
 # AI 改圖（instruction edit）：FLUX.2 klein 吃 1-4 張自訂圖，每張須小於 512x512。
 MAX_EDIT_IMAGES = 4
@@ -675,8 +680,12 @@ def _random_seed() -> int:
 
 
 async def generate_batch(
-    request: GenerationRequest, count: int, settings: Settings | None = None
-) -> list[GenerationResult]:
+    request: GenerationRequest,
+    count: int,
+    settings: Settings | None = None,
+    *,
+    return_exceptions: bool = False,
+) -> list[GenerationResult | BaseException]:
     """Generate ``count`` variations of a prompt. The first image honours an
     explicit seed (so users can vary a locked composition); the rest get fresh
     random seeds so the batch shows genuine variety."""
@@ -685,19 +694,29 @@ async def generate_batch(
     # Resolve the fast-tier routing once (schnell -> Workers AI or NVIDIA dev) so
     # every variation in the batch uses the same provider/model.
     provider, effective_request = _resolve_provider_and_request(request, settings)
-    # The variations are independent network calls; run them concurrently so a
-    # 4-image batch costs one round-trip of latency, not four. The first image
-    # honours an explicit seed; the rest get fresh random seeds for variety.
+    # The variations use a bounded provider queue. The first image honours an
+    # explicit seed; the rest get fresh random seeds for variety.
     seeds = [
         effective_request.seed if (index == 0 and effective_request.seed is not None) else _random_seed()
         for index in range(count)
     ]
     tasks = [replace(effective_request, seed=seed) for seed in seeds]
-    return list(
-        await asyncio.gather(
-            *(_generate_one_with_fallback(provider, task, settings) for task in tasks)
-        )
-    )
+    # A provider failure belongs to one variation. Keep the other settled
+    # results so the HTTP caller can return a usable partial batch instead of
+    # cancelling the whole fan-out. The default still raises the first failure
+    # for existing service callers; the route opts into the settled contract.
+    semaphore = asyncio.Semaphore(BATCH_PROVIDER_CONCURRENCY)
+
+    async def run_bounded(task: GenerationRequest) -> GenerationResult:
+        async with semaphore:
+            return await _generate_one_with_fallback(provider, task, settings)
+
+    settled = list(await asyncio.gather(*(run_bounded(task) for task in tasks), return_exceptions=True))
+    if not return_exceptions:
+        for outcome in settled:
+            if isinstance(outcome, BaseException):
+                raise outcome
+    return settled
 
 
 def validate_edit_images(images: tuple[bytes, ...]) -> tuple[bytes, ...]:

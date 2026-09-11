@@ -2,6 +2,7 @@
   'use strict';
 
   var records = [];
+  var recordWriteChain = Promise.resolve();
   var selectedRecordId = '';
   var selectedRecordIds = {};
   var filters = { query: '', model: '', size: '', dateFrom: '', dateTo: '', favoritesOnly: false, cloudOnly: false };
@@ -13,6 +14,17 @@
   function toText(value) {
     if (value === null || value === undefined) { return ''; }
     return String(value).trim();
+  }
+
+  function safeMetadataValue(value, kind) {
+    var helper = root.ProvenanceReceipt;
+    if (helper && typeof helper.sanitizeMetadataValue === 'function') {
+      return helper.sanitizeMetadataValue(value, kind);
+    }
+    var text = toText(value);
+    if (!text || /[?#\\]/.test(text) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(text)) { return ''; }
+    if (/(?:api[_-]?key|token|secret|password|bearer|authorization|signature|signed)/i.test(text)) { return ''; }
+    return text.slice(0, 512);
   }
 
   function clearNode(node) {
@@ -359,6 +371,7 @@
     var toolbar = el('historyBatchBar');
     var filters = el('historyFilters');
     var clearHistoryButton = el('clearHistory');
+    var exportAllButton = el('exportAllHistoryJson');
     var countNode = el('historySelectionCount');
     var deleteButton = el('deleteSelectedHistory');
     var clearButton = el('clearHistorySelection');
@@ -372,6 +385,10 @@
     if (clearHistoryButton) {
       clearHistoryButton.hidden = records.length === 0;
       clearHistoryButton.disabled = records.length === 0;
+    }
+    if (exportAllButton) {
+      exportAllButton.hidden = records.length === 0;
+      exportAllButton.disabled = records.length === 0;
     }
     if (countNode) {
       countNode.textContent = count ? '已選取 ' + String(count) + ' 筆歷史作品' : '尚未選取作品';
@@ -429,12 +446,65 @@
     parts.push('尺寸：' + (toText(record.size) || 'square'));
     parts.push('Seed：' + String(record.seed || 0));
     if (record.width && record.height) { parts.push('解析度：' + record.width + '×' + record.height); }
-    if (record.provider) { parts.push('Provider：' + toText(record.provider)); }
+    var provider = safeMetadataValue(record.provider, 'provider');
+    if (provider) { parts.push('Provider：' + provider); }
     if (record.mode) { parts.push('模式：' + (record.mode === 'agent' ? '智慧體' : '一般')); }
     if (record.recommended) { parts.push('推薦圖'); }
     parts.push('版本：v' + String(record.versionNumber || 1));
     if (record.createdAt) { parts.push('建立：' + toText(record.createdAt)); }
     return parts.join(' · ');
+  }
+
+  function credentialStatusLabel(status) {
+    var labels = {
+      verified: '已驗證',
+      present_untrusted: '存在但未受信任',
+      invalid: '無效',
+      absent: '未發現',
+      unknown_after_transform: '轉換後未知',
+      unsupported: '尚未支援檢查'
+    };
+    return labels[toText(status)] || '未知';
+  }
+
+  function receiptStatusLabel(status) {
+    var labels = {
+      valid: '有效，圖片與 receipt 相符',
+      modified: '已修改或 receipt 不相符',
+      unavailable: '無法在此瀏覽器重新計算',
+      absent: '尚未建立'
+    };
+    return labels[toText(status)] || '尚未驗證';
+  }
+
+  function formatProvenanceStatus(record, verification) {
+    var receipt = record && record.provenanceReceipt;
+    var lines = [];
+    if (!receipt) {
+      return '本產品 receipt：尚未建立。Content Credentials：未提供檢查結果；缺少 credential 不代表是真人圖片。';
+    }
+    lines.push('本產品 receipt：' + receiptStatusLabel(verification && verification.status));
+    if (receipt.receipt_hash) { lines.push('Receipt hash：' + receipt.receipt_hash); }
+    if (receipt.output_sha256) { lines.push('Output SHA-256：' + receipt.output_sha256); }
+    lines.push('Content Credentials：' + credentialStatusLabel(verification && verification.credential_status ? verification.credential_status : 'unsupported'));
+    if (receipt.operation === 'edit') { lines.push('流程：AI 編輯；來源圖 hash 已保存。'); }
+    lines.push('缺少 credential 不代表是真人圖片；receipt 只描述本產品記錄的來源。');
+    return lines.join('\n');
+  }
+
+  function refreshProvenanceStatus(record) {
+    var sourceRecord = normalizeRecordForUi(record);
+    var verifier = root.ProvenanceReceipt && root.ProvenanceReceipt.verifyRecord;
+    if (!sourceRecord || !verifier) { return; }
+    Promise.resolve(verifier(sourceRecord)).then(function (verification) {
+      if (selectedRecordId === toText(sourceRecord.id)) {
+        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, verification));
+      }
+    }, function () {
+      if (selectedRecordId === toText(sourceRecord.id)) {
+        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, { status: 'unavailable', credential_status: 'unsupported' }));
+      }
+    });
   }
 
   function formatQaReport(record) {
@@ -675,6 +745,7 @@
     setDetailText('historyDetailProviderPrompt', sourceRecord.providerPrompt);
     setDetailText('historyDetailMeta', formatHistoryMeta(sourceRecord));
     setDetailText('historyDetailQaReport', formatQaReport(sourceRecord));
+    setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, null));
     renderCloudLinks(sourceRecord);
     if (tagEditor) {
       tagEditor.value = getRecordTags(sourceRecord).join(', ');
@@ -685,6 +756,7 @@
     } else {
       modal.hidden = false;
     }
+    refreshProvenanceStatus(sourceRecord);
   }
 
   function closeHistoryDetail() {
@@ -725,13 +797,22 @@
     var sourceRecord = normalizeRecordForUi(record);
     var lines = [];
     var cloudShareUrl;
+    var verification = arguments.length > 2 ? arguments[2] : null;
+    var credentialStatus = verification && toText(verification.credential_status) ? verification.credential_status : 'unsupported';
     if (!sourceRecord) { return ''; }
     lines.push('AI 圖片作品');
     lines.push('畫質：' + qualityLabel(sourceRecord));
     lines.push('尺寸：' + (toText(sourceRecord.size) || 'square'));
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
-    if (sourceRecord.provider) { lines.push('Provider：' + toText(sourceRecord.provider)); }
+    var provider = safeMetadataValue(sourceRecord.provider, 'provider');
+    if (provider) { lines.push('Provider：' + provider); }
+    if (sourceRecord.provenanceReceipt) {
+      lines.push('Provenance receipt：' + (toText(sourceRecord.provenanceReceipt.receipt_hash) || 'unavailable'));
+      // A serialized receipt carries only a claim. Only the current-image
+      // verification result supplied by verifyRecord may appear in share text.
+      lines.push('Content Credentials：' + credentialStatusLabel(credentialStatus));
+    }
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
     if (!hidePrompt) {
@@ -744,14 +825,23 @@
   function copyHistoryShareText() {
     var record = getSelectedRecord();
     var hidePrompt = !!(el('hidePromptInShare') && el('hidePromptInShare').checked);
+    var verifier = root.ProvenanceReceipt && root.ProvenanceReceipt.verifyRecord;
     if (!record) {
       setAppStatus('尚無可分享的作品', 'warn');
-      return;
+      return Promise.resolve(false);
     }
-    copyWithApp(buildShareText(record, hidePrompt)).then(function () {
+    // Revalidate the exact current image before copying a credential status.
+    // Imported/localStorage claims and receipt fields are never sufficient.
+    return Promise.resolve(typeof verifier === 'function' ? verifier(record) : { credential_status: 'unsupported' }).catch(function () {
+      return { credential_status: 'unsupported' };
+    }).then(function (verification) {
+      return copyWithApp(buildShareText(record, hidePrompt, verification));
+    }).then(function () {
       setAppStatus('已複製分享文案', 'done');
+      return true;
     }).catch(function (error) {
       setAppStatus('複製失敗：' + error.message, 'fail');
+      return false;
     });
   }
 
@@ -759,18 +849,39 @@
     return (toText(value) || 'history').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'history';
   }
 
-  function exportHistoryJson() {
-    var record = getSelectedRecord();
-    var normalized;
+  function downloadJsonPayload(payload, filename) {
     var blob;
     var url;
     var link;
+    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
+      return false;
+    }
+    blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    url = root.URL.createObjectURL(blob);
+    link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    try {
+      document.body.appendChild(link);
+      link.click();
+    } finally {
+      if (link.parentNode) {
+        link.parentNode.removeChild(link);
+      }
+      // Keep the object URL alive until the browser has consumed the download.
+      // Revoking it in the same task cancels downloads in Chromium.
+      setTimeout(function () {
+        try { root.URL.revokeObjectURL(url); } catch (_) {}
+      }, 30000);
+    }
+    return true;
+  }
+
+  function exportHistoryJson() {
+    var record = getSelectedRecord();
+    var normalized;
     if (!record) {
       setAppStatus('尚無可匯出的作品', 'warn');
-      return;
-    }
-    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
-      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
       return;
     }
     normalized = normalizeRecordForUi(record);
@@ -782,21 +893,31 @@
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
-    blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
-    url = root.URL.createObjectURL(blob);
-    link = document.createElement('a');
-    link.href = url;
-    link.download = 'history_' + safeFilePart(normalized.id) + '.json';
-    try {
-      document.body.appendChild(link);
-      link.click();
-    } finally {
-      if (link.parentNode) {
-        link.parentNode.removeChild(link);
-      }
-      root.URL.revokeObjectURL(url);
+    if (!downloadJsonPayload(normalized, 'history_' + safeFilePart(normalized.id) + '.json')) {
+      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
+      return;
     }
     setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+  }
+
+  function exportAllHistoryJson() {
+    var normalized;
+    if (!records.length) {
+      setAppStatus('尚無可匯出的歷史作品', 'warn');
+      return;
+    }
+    normalized = root.ImageHistoryStore && typeof root.ImageHistoryStore.exportRecordCollection === 'function'
+      ? root.ImageHistoryStore.exportRecordCollection(records)
+      : { schema: 'GenerationRecordCollection', version: 2, records: records };
+    if (!confirmAction('匯出的備份檔會包含全部歷史作品、完整提示詞與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+      setAppStatus('已取消匯出全部歷史 JSON', 'warn');
+      return;
+    }
+    if (!downloadJsonPayload(normalized, 'history_backup_' + new Date().toISOString().slice(0, 10) + '.json')) {
+      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
+      return;
+    }
+    setAppStatus('已匯出全部歷史備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
   }
 
   function switchToGenerateTab() {
@@ -818,6 +939,9 @@
       return;
     }
     if (!switchToGenerateTab()) { return; }
+    if (typeof root.ImageGenApp.setSeedMode === 'function') {
+      root.ImageGenApp.setSeedMode('random');
+    }
     if (typeof root.ImageGenApp.setNextGenerationSourceRecord === 'function') {
       root.ImageGenApp.setNextGenerationSourceRecord(record.id);
     }
@@ -1099,22 +1223,40 @@
   }
 
   function addGeneratedRecord(event) {
-    var nextRecords;
     if (!root.ImageHistoryStore || !event || !event.detail) { return; }
-    nextRecords = safeStore('歷史記錄儲存失敗', function () {
+    // Batch results dispatch several events in one turn. Serializing the
+    // async hash work keeps each event's parent lookup and localStorage write
+    // based on the latest history instead of racing and dropping records.
+    recordWriteChain = recordWriteChain.then(function () {
       var sourceRecordId = toText(event.detail.sourceRecordId);
       var parentRecord = sourceRecordId ? root.ImageHistoryStore.findRecordById(records, sourceRecordId) : null;
       var recordToAdd = event.detail;
       var addedRecords;
+      var attach;
       if (sourceRecordId && parentRecord && typeof root.ImageHistoryStore.createVersionRecord === 'function') {
         recordToAdd = root.ImageHistoryStore.createVersionRecord(records, parentRecord, event.detail);
       }
-      addedRecords = root.ImageHistoryStore.addRecord(records, recordToAdd);
-      return root.ImageHistoryStore.saveRecords(addedRecords);
-    }, null);
-    if (!nextRecords) { return; }
-    records = nextRecords;
-    renderHistoryWall();
+      if (!toText(recordToAdd.id)) {
+        // Batch event payloads intentionally omit ids. Reserve the id before
+        // hashing so the receipt and persisted record refer to the same item.
+        var identity = root.ImageHistoryStore.normalizeRecord(recordToAdd);
+        recordToAdd = copyRecord(recordToAdd);
+        recordToAdd.id = identity.id;
+      }
+      attach = root.ProvenanceReceipt && typeof root.ProvenanceReceipt.attachRecord === 'function'
+        ? root.ProvenanceReceipt.attachRecord(recordToAdd, parentRecord)
+        : Promise.resolve(recordToAdd);
+      return Promise.resolve(attach).then(function (attachedRecord) {
+        addedRecords = root.ImageHistoryStore.addRecord(records, attachedRecord);
+        return root.ImageHistoryStore.saveRecords(addedRecords);
+      });
+    }).then(function (nextRecords) {
+      if (!nextRecords) { return; }
+      records = nextRecords;
+      renderHistoryWall();
+    }, function (error) {
+      setAppStatus('歷史記錄儲存失敗：' + (error && error.message ? error.message : '未知錯誤'), 'fail');
+    });
   }
 
   function reloadHistoryAfterRecordUpdate(event) {
@@ -1137,6 +1279,7 @@
     var copyPrompt = el('copyHistoryPrompt');
     var copyShare = el('copyHistoryShareText');
     var exportJson = el('exportHistoryJson');
+    var exportAllJson = el('exportAllHistoryJson');
     var regenerateDetail = el('regenerateHistoryDetail');
     var useCompositionDetail = el('useCompositionDetail');
     var historySearch = el('historySearch');
@@ -1175,6 +1318,9 @@
     }
     if (exportJson) {
       exportJson.addEventListener('click', exportHistoryJson);
+    }
+    if (exportAllJson) {
+      exportAllJson.addEventListener('click', exportAllHistoryJson);
     }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
@@ -1243,6 +1389,8 @@
     buildShareText: buildShareText,
     copyHistoryShareText: copyHistoryShareText,
     exportHistoryJson: exportHistoryJson,
+    exportAllHistoryJson: exportAllHistoryJson,
+    downloadJsonPayload: downloadJsonPayload,
     regenerateHistoryDetail: regenerateHistoryDetail,
     recordMatchesFilters: recordMatchesFilters,
     applyHistoryFilters: applyHistoryFilters,

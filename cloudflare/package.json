@@ -4,6 +4,7 @@
   "scripts": {
     "test": "node --test tests/*.test.mjs",
     "check": "node scripts/check-js.mjs",
+    "build:c2pa": "node scripts/build-c2pa.mjs",
     "sync": "node scripts/sync-static.mjs",
     "sync:check": "node scripts/sync-static.mjs --check",
     "check:wrangler": "node scripts/check-wrangler-auth.mjs",
@@ -17,6 +18,7 @@
     "qa:a11y": "node ../tests/e2e/accessibility-keyboard-qa.mjs"
   },
   "devDependencies": {
+    "@contentauth/c2pa-web": "0.14.4",
     "esbuild": "^0.28.1",
     "playwright": "^1.61.1",
     "wrangler": "^4.104.0"

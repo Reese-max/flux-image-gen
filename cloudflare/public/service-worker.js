@@ -1,7 +1,7 @@
 (function(){
   // Bump this whenever the caching strategy changes. The activate handler deletes
   // any cache that does not match, forcing a clean re-cache of current assets.
-  var CACHE_NAME = 'ai-image-generator-pwa-v24';
+  var CACHE_NAME = 'ai-image-generator-pwa-v25';
   var STATIC_URLS = [
     '/',
     '/static/styles.css',
@@ -12,6 +12,10 @@
     '/static/app.js',
     '/static/canvas-viewport.js',
     '/static/prompt-transform.js',
+    '/static/c2pa-web.js',
+    '/static/c2pa-worker.js',
+    '/static/c2pa_bg.wasm',
+    '/static/provenance.js',
     '/static/history-store.js',
     '/static/history-wall.js',
     '/static/tutorial.js',

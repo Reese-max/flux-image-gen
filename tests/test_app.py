@@ -465,6 +465,55 @@ class AppRouteTests(unittest.TestCase):
         request, count = mocked_batch.await_args.args
         self.assertEqual(count, 2)
 
+    def test_generate_batch_route_returns_partial_successes_with_indexed_errors(self):
+        failed = ProviderError("provider rejected one variation", status_code=422, code="content_filtered")
+        with patch("app.main.generate_batch", new_callable=AsyncMock) as mocked_batch:
+            mocked_batch.return_value = [failed, self._generation_result(seed=2), self._generation_result(seed=3)]
+            response = self.client.post(
+                "/generate/batch",
+                json={"prompt": "a cat in a meadow", "model": "schnell", "size": "square", "count": 3},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data["images"]), 2)
+        self.assertEqual(data["errors"], [{"index": 0, "error": "provider rejected one variation", "code": "content_filtered", "status": 422}])
+        self.assertTrue(data["partial"])
+
+    def test_generate_blocks_official_identity_document_prompt_before_provider_call(self):
+        with patch("app.main.generate_image", new_callable=AsyncMock) as mocked_generate:
+            response = self.client.post(
+                "/generate",
+                json={
+                    "prompt": "realistic official ID card template, front and back",
+                    "userPrompt": "做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件",
+                    "model": "schnell",
+                    "size": "square",
+                },
+            )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["category"], "fake_documents")
+        self.assertNotIn("身分證", response.json()["error"])
+        mocked_generate.assert_not_awaited()
+
+    def test_generate_blocks_normalized_identity_variants_before_provider_call(self):
+        variants = (
+            "做一張身份证正面",
+            "make a driving license with a name and number",
+            "做一張身\u200b分證正面",
+            "做一張驾驶证樣張",
+        )
+        for prompt in variants:
+            with self.subTest(prompt=prompt), patch("app.main.generate_image", new_callable=AsyncMock) as mocked_generate:
+                response = self.client.post(
+                    "/generate",
+                    json={"prompt": prompt, "model": "schnell", "size": "square"},
+                )
+            self.assertEqual(response.status_code, 422)
+            self.assertEqual(response.json()["category"], "fake_documents")
+            mocked_generate.assert_not_awaited()
+
     def test_generate_batch_route_rejects_invalid_count(self):
         response = self.client.post(
             "/generate/batch",
