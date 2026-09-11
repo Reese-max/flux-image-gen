@@ -85,6 +85,44 @@ def _detect_high_risk_category(text: str) -> str:
         "fake passport",
         "counterfeit passport",
     )
+    # issue #10：裸證件詞不夠——「官方身分證樣張、可用來當真證件」不含假/偽造字首。
+    # 證件名詞 × 擬真/官方/可充真意圖詞同時出現才擋，純插畫/造型描述不受影響。
+    doc_terms = (
+        "身分證",
+        "身份證",
+        "護照",
+        "駕照",
+        "居留證",
+        "健保卡",
+        "戶口名簿",
+        "證件樣張",
+        "通行證",
+        "id card",
+        "passport",
+        "driver license",
+        "driver's license",
+        "identity card",
+        "identification card",
+    )
+    doc_intent = (
+        "官方",
+        "樣張",
+        "真證件",
+        "當真",
+        "可用來",
+        "身分證號碼",
+        "身份證號碼",
+        "欄位",
+        "照片欄",
+        "浮水印",
+        "official",
+        "realistic",
+        "authentic",
+        "real id",
+        "genuine",
+        "forgery",
+        "forged",
+    )
     fraud = (
         "詐騙廣告",
         "釣魚網站",
@@ -117,7 +155,7 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    if _has_any(text, fake_docs):
+    if _has_any(text, fake_docs) or (_has_any(text, doc_terms) and _has_any(text, doc_intent)):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"
