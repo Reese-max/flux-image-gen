@@ -400,6 +400,22 @@ async function handleGenerateBatch(request, env) {
       tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
     }
     const settled = await Promise.allSettled(tasks);
+    // issue #7: 並發打上游會觸發 rate limit 讓第 2+ 張靜默失敗。
+    // 對基礎設施類失敗做一次序列重試（仍 fail-closed：
+    // content_filtered / bad_request / missing_api_key / no_provider 不重試）。
+    const RETRYABLE = new Set(["rate_limited", "timeout", "network_error", "nvidia_error", "workers_ai_error", "pollinations_error", "bad_provider_response", "generation_failed"]);
+    for (let index = 0; index < settled.length; index++) {
+      const item = settled[index];
+      if (item.status !== "rejected") continue;
+      const code = item.reason instanceof HttpError ? item.reason.code : "";
+      if (!RETRYABLE.has(code)) continue;
+      try {
+        settled[index] = {
+          status: "fulfilled",
+          value: await generateOneImage(env, { prompt, model, size, width, height, seed: randomImageSeed(), steps, cfgScale }),
+        };
+      } catch { /* 保留原錯誤 */ }
+    }
     const images = [];
     const errors = [];
     const target = generationUsageTarget(env, model);

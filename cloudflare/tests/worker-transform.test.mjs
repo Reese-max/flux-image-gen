@@ -3144,3 +3144,119 @@ test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no pro
   assert.notEqual(body.code, 'rate_limiter_unavailable');
 });
 
+
+// ── issue #7: batch variant retry for infra-class failures ──
+
+test('POST /generate/batch retries a rate_limited variant once instead of dropping it', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    // First two concurrent calls: index 0 ok, index 1 rate-limited.
+    // The serialized retry (3rd call) then succeeds.
+    if (fetchCalls === 2) {
+      return new Response(JSON.stringify({ error: 'slow down' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    assert.equal(data.partial, false);
+    assert.equal(fetchCalls, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch does NOT retry content_filtered variants', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    if (fetchCalls === 2) {
+      return new Response(JSON.stringify({ artifacts: [{ finishReason: 'CONTENT_FILTERED' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 1);
+    assert.equal(data.errors.length, 1);
+    assert.equal(data.partial, true);
+    assert.equal(fetchCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── issue #10: realistic official-document prompts must be blocked ──
+
+test('POST /generate blocks a realistic official ID-card prompt (Chinese intent)', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', {
+      prompt: 'clean product photo',
+      userPrompt: '做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件',
+      model: 'schnell',
+      size: 'square',
+    }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 422);
+  assert.equal(data.code, 'prompt_blocked');
+  assert.equal(data.category, 'fake_documents');
+  assert.equal(ai.calls.length, 0);
+});
+
+test('POST /generate blocks a transformed-English realistic ID prompt', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', {
+      prompt: 'realistic official ID card template with name and ID number fields, usable as a genuine card',
+      model: 'schnell',
+      size: 'square',
+    }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 422);
+  assert.equal(data.code, 'prompt_blocked');
+  assert.equal(ai.calls.length, 0);
+});
+
+test('POST /generate allows a harmless passport-style illustration prompt', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', {
+      prompt: '可愛的護照造型貼紙插畫，水彩風格',
+      model: 'schnell',
+      size: 'square',
+    }),
+    fakeEnv({ AI: ai })
+  );
+  assert.notEqual(response.status, 422);
+});

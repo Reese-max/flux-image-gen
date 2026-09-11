@@ -782,14 +782,28 @@
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
-    blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
-    url = root.URL.createObjectURL(blob);
+    // issue #8：任何一步失敗都要有使用者可見的回饋，不能靜默無反應
+    try {
+      blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
+    } catch (error) {
+      setAppStatus('作品資料無法序列化為 JSON：' + error.message, 'fail');
+      return;
+    }
+    try {
+      url = root.URL.createObjectURL(blob);
+    } catch (error) {
+      setAppStatus('無法建立下載連結：' + error.message, 'fail');
+      return;
+    }
     link = document.createElement('a');
     link.href = url;
     link.download = 'history_' + safeFilePart(normalized.id) + '.json';
     try {
       document.body.appendChild(link);
       link.click();
+    } catch (error) {
+      setAppStatus('下載觸發失敗：' + error.message, 'fail');
+      return;
     } finally {
       if (link.parentNode) {
         link.parentNode.removeChild(link);
