@@ -104,21 +104,42 @@ test('both real deployment paths invoke readiness before resolving the commit', 
 import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness.mjs';
 
 
-test('assertProductionAbuseControls passes when ENVIRONMENT=production', () => {
-  assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"')
+test('assertProductionAbuseControls rejects production with Turnstile disabled', () => {
+  assert.throws(() =>
+    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"'),
+    /Production deployment rejected/,
   );
 });
 
-test('assertProductionAbuseControls passes when TURNSTILE_REQUIRED=true', () => {
-  assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"')
+test('GitHub deployment workflow runs tests and public abuse-control preflight before deployment', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const check = workflow.split('  deploy-preview:')[0];
+  const production = workflow.split('  deploy-production:')[1];
+  assert.match(check, /npm run check/);
+  assert.match(check, /npm test/);
+  assert.match(check, /npm run sync:check/);
+  assert.doesNotMatch(check, /\|\| true/);
+  assert.ok(production);
+  assert.ok(production.indexOf('check_deployment_preflight.py --public') < production.indexOf('Deploy Production'));
+});
+
+test('assertProductionAbuseControls rejects development even with Turnstile', () => {
+  assert.throws(() =>
+    assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "site"'),
+    /Production deployment rejected/,
   );
 });
 
-test('assertProductionAbuseControls passes when both are enabled', () => {
+test('assertProductionAbuseControls passes when both are enabled with a site key', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"')
+    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "site"')
+  );
+});
+
+test('assertProductionAbuseControls rejects missing site key', () => {
+  assert.throws(() =>
+    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"'),
+    /Production deployment rejected/,
   );
 });
 

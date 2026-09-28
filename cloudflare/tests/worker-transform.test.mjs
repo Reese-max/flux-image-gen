@@ -860,7 +860,7 @@ test('POST /generate rejects missing Turnstile token before provider access', as
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
-    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'public-site', TURNSTILE_SECRET_KEY: 'secret' })
   );
   const data = await response.json();
 
@@ -889,7 +889,7 @@ test('POST /generate verifies Turnstile token before Workers AI generation', asy
         size: 'square',
         turnstileToken: 'token-ok',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'public-site', TURNSTILE_SECRET_KEY: 'secret' })
     );
     const data = await response.json();
     assert.equal(response.status, 200);
@@ -918,7 +918,7 @@ test('POST /generate rejects a Turnstile token issued for another action', async
         size: 'square',
         turnstileToken: 'wrong-action-token',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'public-site', TURNSTILE_SECRET_KEY: 'secret' })
     );
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, 'turnstile_failed');
@@ -956,6 +956,7 @@ test('POST /generate bounds a hung Turnstile verification before provider access
       fakeEnv({
         AI: ai,
         TURNSTILE_REQUIRED: 'true',
+        TURNSTILE_SITE_KEY: 'public-site',
         TURNSTILE_SECRET_KEY: 'secret',
         TURNSTILE_TIMEOUT_MS: '10',
       })

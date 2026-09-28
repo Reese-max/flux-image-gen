@@ -76,6 +76,11 @@ async function recordPromptEvent(env, request, route, started, event) {
   });
 }
 
+async function rateLimitFailureEvent(response) {
+  const body = await response.clone().json();
+  return { outcome: "error", statusCode: response.status, errorCode: body.code };
+}
+
 async function recordVisionQaEvent(env, request, started, visionQa) {
   if (!visionQa) return;
   await recordUsageEvent(env, request, {
@@ -174,9 +179,7 @@ async function handleGenerate(request, env) {
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -306,9 +309,7 @@ async function handleGenerateBatch(request, env) {
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate_batch",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -469,9 +470,7 @@ async function handleEdit(request, env) {
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "edit",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -1019,7 +1018,7 @@ async function handlePromptTransform(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
@@ -1100,7 +1099,7 @@ async function handlePromptComplete(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
@@ -1166,7 +1165,7 @@ async function handlePromptEnhance(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }

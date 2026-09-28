@@ -10,7 +10,7 @@
 |---|---|---|---|
 | [ ] | 公開 bundle secret scan | `python scripts\scan_public_secrets.py` | 是 |
 | [ ] | Cloudflare deployment preflight | `python scripts\check_deployment_preflight.py` | 是 |
-| [ ] | Public Turnstile preflight | `python scripts\check_deployment_preflight.py --public`，需先設定 `TURNSTILE_REQUIRED = "true"` 與正式 `TURNSTILE_SITE_KEY` | 是 |
+| [ ] | Public abuse-control preflight | `python scripts\check_deployment_preflight.py --public`，需先設定 `ENVIRONMENT = "production"`、`TURNSTILE_REQUIRED = "true"` 與正式 `TURNSTILE_SITE_KEY` | 是 |
 | [ ] | Wrangler 登入與設定診斷 | `npm --prefix cloudflare run check:wrangler`，需確認 `wrangler whoami` 與 `wrangler deploy --dry-run` 都可驗證；診斷輸出需遮罩帳號 email / account id / token | 是 |
 | [ ] | 全量 verify | `node scripts\verify.mjs` | 是 |
 | [ ] | Wrangler dry-run | `npm --prefix cloudflare run deploy:dry-run` | 是 |

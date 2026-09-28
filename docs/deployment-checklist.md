@@ -32,7 +32,7 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 - `[assets]` 指向 `./public`，確保 SPA 與 `/static/*` 由 Worker assets 服務。
 - `[ai] binding = "AI"` 已存在，供 Workers AI FLUX.2 klein 快速模型與 AI 改圖使用。
 - `[[r2_buckets]] binding = "IMAGE_BUCKET"` 已存在，bucket 名稱為 `flux-image-gallery` 或正式環境指定名稱。
-- `[[ratelimits]] name = "GENERATE_RATE_LIMITER"` 已存在，公開站必須保留後端硬限制。
+- `[[ratelimits]] name = "GENERATE_RATE_LIMITER"` 已存在，公開站必須保留後端硬限制，並設定 `ENVIRONMENT = "production"`，讓所有付費路由在 binding 缺失或故障時回 503。
 - `TURNSTILE_REQUIRED = "true"`、`TURNSTILE_SITE_KEY` 填入公開 site key；只有本機或內部預覽可暫時維持 `false`。
 - `USAGE_ESTIMATED_COST_USD_PER_IMAGE`、`USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 與 `USAGE_ALERT_DAILY_GENERATIONS` 已設定；prompt／Vision 單價未校準時維持 `0`，但 Provider 嘗試仍會持久記錄，不得誤稱為完整成本。
 - `[version_metadata] binding = "CF_VERSION_METADATA"` 已存在，讓 health／記錄可對應 Cloudflare Version ID。

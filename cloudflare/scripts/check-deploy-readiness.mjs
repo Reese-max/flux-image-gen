@@ -108,30 +108,27 @@ export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerT
 }
 
 /**
- * Reject a production deployment configuration that has no abuse controls.
- *
- * A configuration is considered inadequate when ALL of the following are true:
- *   1. ENVIRONMENT is not "production" (rate limiter won't fail-closed).
- *   2. TURNSTILE_REQUIRED is not "true" (Turnstile gate is off).
- *
- * This prevents accidental public exposure where both layers are disabled.
+ * Production deploys need both fail-closed rate limiting (including the
+ * Gemini-backed prompt routes) and Turnstile for image generation. The public
+ * Python preflight validates the actual rate-limit binding in wrangler.toml.
  */
 export function assertProductionAbuseControls(tomlContent) {
   const content = String(tomlContent || '');
   const environmentMatch = content.match(/^\s*ENVIRONMENT\s*=\s*"([^"]*)"/m);
   const turnstileMatch = content.match(/^\s*TURNSTILE_REQUIRED\s*=\s*"([^"]*)"/m);
+  const siteKeyMatch = content.match(/^\s*TURNSTILE_SITE_KEY\s*=\s*"([^"]*)"/m);
 
   const environmentValue = (environmentMatch && environmentMatch[1]) || 'development';
   const turnstileValue = (turnstileMatch && turnstileMatch[1]) || 'false';
 
   const hasProductionMode = environmentValue.trim().toLowerCase() === 'production';
   const hasTurnstile = turnstileValue.trim().toLowerCase() === 'true';
+  const hasSiteKey = Boolean(siteKeyMatch && siteKeyMatch[1].trim());
 
-  if (!hasProductionMode && !hasTurnstile) {
+  if (!hasProductionMode || !hasTurnstile || !hasSiteKey) {
     throw new Error(
-      'Production deployment rejected: ENVIRONMENT is not "production" (rate limiter will not fail-closed) ' +
-      'AND TURNSTILE_REQUIRED is not "true". At least one abuse control must be active. ' +
-      'Set ENVIRONMENT="production" in wrangler.toml or enable TURNSTILE_REQUIRED="true".',
+      'Production deployment rejected: set ENVIRONMENT="production", ' +
+      'TURNSTILE_REQUIRED="true", and a nonempty TURNSTILE_SITE_KEY in wrangler.toml.',
     );
   }
 }
