@@ -48,6 +48,22 @@ def _has_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
 
 
+def _has_document_creation_intent(text: str) -> bool:
+    # Keep the intent next to the document itself. Generic "official" and
+    # "realistic" may describe a poster or a passport holder instead.
+    patterns = (
+        r"(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件)(?!造型|套|皮套).{0,12}(?:樣張|模板|範本|號碼欄位|照片欄|浮水印)",
+        r"(?:樣張|模板|範本).{0,12}(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件)(?!造型|套|皮套)",
+        r"(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件).{0,20}(?:當真證件|真證件)",
+        r"(?:做|製作|生成|產生|設計).{0,24}(?:官方|擬真|真實)(?:台灣|臺灣)?(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件)(?!造型|套|皮套)",
+        r"\b(?:id card|identity card|identification card|passport|driver'?s? license)\s+(?:template|sample|specimen|number fields?)\b",
+        r"\b(?:template|sample|specimen)\s+(?:for\s+)?(?:an?\s+)?(?:id card|identity card|identification card|passport|driver'?s? license)\b",
+        r"\b(?:make|create|generate|design|render|produce)\b.{0,40}\b(?:official|realistic|authentic|genuine|real)\s+(?:id card|identity card|identification card|passport|driver'?s? license)\b",
+        r"\b(?:forged|forgery|counterfeit)\s+(?:id card|identity card|identification card|passport|driver'?s? license)\b",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def _detect_high_risk_category(text: str) -> str:
     sexual = (
         "色情",
@@ -85,44 +101,7 @@ def _detect_high_risk_category(text: str) -> str:
         "fake passport",
         "counterfeit passport",
     )
-    # issue #10：裸證件詞不夠——「官方身分證樣張、可用來當真證件」不含假/偽造字首。
-    # 證件名詞 × 擬真/官方/可充真意圖詞同時出現才擋，純插畫/造型描述不受影響。
-    doc_terms = (
-        "身分證",
-        "身份證",
-        "護照",
-        "駕照",
-        "居留證",
-        "健保卡",
-        "戶口名簿",
-        "證件樣張",
-        "通行證",
-        "id card",
-        "passport",
-        "driver license",
-        "driver's license",
-        "identity card",
-        "identification card",
-    )
-    doc_intent = (
-        "官方",
-        "樣張",
-        "真證件",
-        "當真",
-        "可用來",
-        "身分證號碼",
-        "身份證號碼",
-        "欄位",
-        "照片欄",
-        "浮水印",
-        "official",
-        "realistic",
-        "authentic",
-        "real id",
-        "genuine",
-        "forgery",
-        "forged",
-    )
+    # issue #10: document creation/use is blocked even without a fake prefix.
     fraud = (
         "詐騙廣告",
         "釣魚網站",
@@ -155,7 +134,7 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    if _has_any(text, fake_docs) or (_has_any(text, doc_terms) and _has_any(text, doc_intent)):
+    if _has_any(text, fake_docs) or _has_document_creation_intent(text):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"

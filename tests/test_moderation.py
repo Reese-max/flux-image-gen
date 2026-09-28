@@ -34,6 +34,27 @@ class PromptModerationTests(unittest.TestCase):
         decision = moderate_prompt("可愛的護照造型貼紙插畫，水彩風格")
         self.assertTrue(decision.allowed)
 
+    def test_allows_passport_accessory_and_renewal_poster(self):
+        for prompt in (
+            "realistic product photo of a leather passport holder",
+            "official travel poster explaining where to renew a passport",
+            "製作官方旅遊海報，說明護照更新流程",
+        ):
+            with self.subTest(prompt=prompt):
+                self.assertTrue(moderate_prompt(prompt).allowed)
+
+    def test_blocks_document_template_without_fake_prefix(self):
+        decision = moderate_prompt("realistic official ID card template with name and ID number fields")
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.category, "fake_documents")
+
+    def test_blocks_direct_official_or_forged_document(self):
+        for prompt in ("做一張官方身分證", "create an official passport", "forged id card"):
+            with self.subTest(prompt=prompt):
+                decision = moderate_prompt(prompt)
+                self.assertFalse(decision.allowed)
+                self.assertEqual(decision.category, "fake_documents")
+
 
 if __name__ == "__main__":
     unittest.main()
