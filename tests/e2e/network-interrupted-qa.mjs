@@ -136,6 +136,9 @@ async function main() {
   const { server, url } = await startServer();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  // This QA exercises retry behavior, not first-run onboarding. The tutorial
+  // opens on a timer and can cover #go after the initial visibility check.
+  await context.addInitScript(() => localStorage.setItem('aiImageTutorialSeen.v1', 'true'));
   const page = await context.newPage();
   const errors = [];
   const promptText = '一隻柴犬在月球吃拉麵，PPT 插圖，明亮背景';

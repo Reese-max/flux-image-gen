@@ -1094,8 +1094,12 @@ function setGenerationSettings(settings){
     }
   }
   if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
-    el('prompt').value = source.providerPrompt || '';
-    el('prompt').removeAttribute('data-auto-source');
+    // issue #9：providerPrompt 為空時保留上一段寫入的 prompt（中文描述），
+    // 不能用空字串洗掉它讓 generate() 走重新 transform 而產出無關的圖
+    if(source.providerPrompt){
+      el('prompt').value = source.providerPrompt;
+      el('prompt').removeAttribute('data-auto-source');
+    }
   }
   if(Object.prototype.hasOwnProperty.call(source, 'avoid') && el('avoid')){ el('avoid').value = source.avoid || ''; }
   if(Object.prototype.hasOwnProperty.call(source, 'model')){ el('model').value = source.model || 'schnell'; }

@@ -48,6 +48,22 @@ def _has_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
 
 
+def _has_document_creation_intent(text: str) -> bool:
+    # Keep the intent next to the document itself. Generic "official" and
+    # "realistic" may describe a poster or a passport holder instead.
+    patterns = (
+        r"(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件)(?!造型|套|皮套).{0,12}(?:樣張|模板|範本|號碼欄位|照片欄|浮水印)",
+        r"(?:樣張|模板|範本).{0,12}(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件)(?!造型|套|皮套)",
+        r"(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件).{0,20}(?:當真證件|真證件)",
+        r"(?:做|製作|生成|產生|設計).{0,24}(?:官方|擬真|真實)(?:台灣|臺灣)?(?:身分證|身份證|護照|駕照|居留證|健保卡|戶口名簿|通行證|證件)(?!造型|套|皮套)",
+        r"\b(?:id card|identity card|identification card|passport|driver'?s? license)\s+(?:template|sample|specimen|number fields?)\b",
+        r"\b(?:template|sample|specimen)\s+(?:for\s+)?(?:an?\s+)?(?:id card|identity card|identification card|passport|driver'?s? license)\b",
+        r"\b(?:make|create|generate|design|render|produce)\b.{0,40}\b(?:official|realistic|authentic|genuine|real)\s+(?:id card|identity card|identification card|passport|driver'?s? license)\b",
+        r"\b(?:forged|forgery|counterfeit)\s+(?:id card|identity card|identification card|passport|driver'?s? license)\b",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def _detect_high_risk_category(text: str) -> str:
     sexual = (
         "色情",
@@ -85,6 +101,7 @@ def _detect_high_risk_category(text: str) -> str:
         "fake passport",
         "counterfeit passport",
     )
+    # issue #10: document creation/use is blocked even without a fake prefix.
     fraud = (
         "詐騙廣告",
         "釣魚網站",
@@ -117,7 +134,7 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    if _has_any(text, fake_docs):
+    if _has_any(text, fake_docs) or _has_document_creation_intent(text):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"

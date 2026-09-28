@@ -323,8 +323,12 @@ async function main() {
     await page.setInputFiles('#editFiles', editInputPath);
     await page.waitForSelector('.edit-thumb img', { timeout: 10000 });
     await page.fill('#editPrompt', '把背景改成藍色攝影棚');
-    await page.click('#editGo');
-    await page.waitForFunction(() => /AI 改圖中… 已用 \d+\.\d 秒/.test((document.querySelector('#editStatus') || {}).textContent || ''), null, { timeout: 10000 });
+    // The local edit fixture finishes quickly; begin observing the transient
+    // busy state before clicking so a fast response cannot outrun the waiter.
+    await Promise.all([
+      page.waitForFunction(() => /AI 改圖中… 已用 \d+\.\d 秒/.test((document.querySelector('#editStatus') || {}).textContent || ''), null, { timeout: 10000 }),
+      page.click('#editGo'),
+    ]);
     ok('AI 改圖執行時會即時顯示秒數', /秒/.test(await page.locator('#editStatus').innerText()));
     await page.waitForFunction(() => /完成 ✓ · 耗時 \d+\.\d 秒/.test((document.querySelector('#editStatus') || {}).textContent || ''), null, { timeout: 10000 });
     ok('AI 改圖完成後保留總耗時', counters.edit === 1, JSON.stringify(counters));
