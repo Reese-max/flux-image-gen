@@ -763,8 +763,8 @@
     var record = getSelectedRecord();
     var normalized;
     var blob;
-    var url;
     var link;
+    var blobUrl;
     if (!record) {
       setAppStatus('尚無可匯出的作品', 'warn');
       return;
@@ -783,9 +783,9 @@
       return;
     }
     blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
-    url = root.URL.createObjectURL(blob);
+    blobUrl = root.URL.createObjectURL(blob);
     link = document.createElement('a');
-    link.href = url;
+    link.href = blobUrl;
     link.download = 'history_' + safeFilePart(normalized.id) + '.json';
     try {
       document.body.appendChild(link);
@@ -794,7 +794,9 @@
       if (link.parentNode) {
         link.parentNode.removeChild(link);
       }
-      root.URL.revokeObjectURL(url);
+      setTimeout(function () {
+        try { root.URL.revokeObjectURL(blobUrl); } catch (_) {}
+      }, 30000);
     }
     setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
   }
