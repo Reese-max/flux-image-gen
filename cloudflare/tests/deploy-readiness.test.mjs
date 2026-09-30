@@ -111,16 +111,22 @@ test('assertProductionAbuseControls rejects production with Turnstile disabled',
   );
 });
 
-test('GitHub deployment workflow runs tests and public abuse-control preflight before deployment', async () => {
+test('GitHub deployment workflow gates preview version uploads and production deploys', async () => {
   const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
   const check = workflow.split('  deploy-preview:')[0];
+  const preview = workflow.split('  deploy-preview:')[1].split('  deploy-production:')[0];
   const production = workflow.split('  deploy-production:')[1];
   assert.match(check, /npm run check/);
   assert.match(check, /npm test/);
   assert.match(check, /npm run sync:check/);
   assert.doesNotMatch(check, /\|\| true/);
+  assert.ok(preview);
+  const previewPreflightIndex = preview.indexOf('check_deployment_preflight.py --public');
+  assert.ok(previewPreflightIndex >= 0 && previewPreflightIndex < preview.indexOf('Refresh Cloudflare Token'));
+  assert.ok(previewPreflightIndex < preview.indexOf('Deploy Preview'));
   assert.ok(production);
-  assert.ok(production.indexOf('check_deployment_preflight.py --public') < production.indexOf('Deploy Production'));
+  const productionPreflightIndex = production.indexOf('check_deployment_preflight.py --public');
+  assert.ok(productionPreflightIndex >= 0 && productionPreflightIndex < production.indexOf('Deploy Production'));
 });
 
 test('assertProductionAbuseControls rejects development even with Turnstile', () => {
