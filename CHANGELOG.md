@@ -37,6 +37,7 @@
 
 ### Fixed
 
+- 修正「匯出作品 JSON」按下後沒有下載任何檔案：匯出在 `link.click()` 的同一個 task 就 `revokeObjectURL`，Chromium 會在瀏覽器取用 blob 前取消下載。改為先觸發下載、30 秒後才回收 blob URL（與「下載圖片」相同做法），minified deploy bundle 同步更新。
 - 快速檔改為優先走 NVIDIA（schnell 映射到 FLUX.1-dev）：Workers AI 的模型端內容過濾較嚴、易誤殺一般描述，現在只有未設定 NVIDIA 金鑰時才退回 Workers AI。Cloudflare Worker 與 FastAPI REST twin 行為一致。
 
 - 快速檔依尺寸分流以降低成本並保住尺寸設定：預設 1024×1024 正方形改走較便宜的 Cloudflare FLUX.1 schnell（JSON、`steps=4`、不帶自訂尺寸），非正方形與自訂尺寸仍走 FLUX.2 klein（支援 width/height）。Cloudflare Worker 與 FastAPI REST twin 行為一致。
