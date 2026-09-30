@@ -860,7 +860,7 @@ test('POST /generate rejects missing Turnstile token before provider access', as
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
-    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'site-key', TURNSTILE_SECRET_KEY: 'secret' })
   );
   const data = await response.json();
 
@@ -889,7 +889,7 @@ test('POST /generate verifies Turnstile token before Workers AI generation', asy
         size: 'square',
         turnstileToken: 'token-ok',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'site-key', TURNSTILE_SECRET_KEY: 'secret' })
     );
     const data = await response.json();
     assert.equal(response.status, 200);
@@ -918,7 +918,7 @@ test('POST /generate rejects a Turnstile token issued for another action', async
         size: 'square',
         turnstileToken: 'wrong-action-token',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'site-key', TURNSTILE_SECRET_KEY: 'secret' })
     );
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, 'turnstile_failed');
@@ -956,6 +956,7 @@ test('POST /generate bounds a hung Turnstile verification before provider access
       fakeEnv({
         AI: ai,
         TURNSTILE_REQUIRED: 'true',
+        TURNSTILE_SITE_KEY: 'site-key',
         TURNSTILE_SECRET_KEY: 'secret',
         TURNSTILE_TIMEOUT_MS: '10',
       })
@@ -3142,5 +3143,129 @@ test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no pro
   assert.notEqual(response.status, 503);
   const body = await response.json().catch(() => ({}));
   assert.notEqual(body.code, 'rate_limiter_unavailable');
+});
+
+// ── Malformed limiter outcome ────────────────────────────────────────────────
+// A binding that resolves without throwing but returns an unexpected shape
+// (not {success:true} / {success:false}) must still fail closed in production:
+// the rate-limit decision cannot be trusted, so server-funded work is blocked.
+
+test('POST /generate fail-closed (503) when the limiter returns a malformed outcome in production', async () => {
+  const env = productionEnv({ GENERATE_RATE_LIMITER: { limit: async () => ({}) } });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_error');
+});
+
+test('POST /generate fail-closed (503) when the limiter resolves to null in production', async () => {
+  const env = productionEnv({ GENERATE_RATE_LIMITER: { limit: async () => null } });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_error');
+});
+
+test('POST /generate keeps pass-through on a malformed limiter outcome in dev mode', async () => {
+  const env = fakeEnv({ GENERATE_RATE_LIMITER: { limit: async () => ({}) } });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.notEqual(response.status, 503);
+  const body = await response.json().catch(() => ({}));
+  assert.notEqual(body.code, 'rate_limiter_error');
+});
+
+// ── Turnstile required but misconfigured ────────────────────────────────────
+
+test('POST /generate fail-closed (503) when Turnstile is required but the site key is missing', async () => {
+  const env = productionEnv({
+    GENERATE_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    TURNSTILE_REQUIRED: 'true',
+    TURNSTILE_SECRET_KEY: 'test-secret',
+    // TURNSTILE_SITE_KEY intentionally absent.
+  });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'turnstile_unconfigured');
+});
+
+test('POST /generate fail-closed (503) when Turnstile is required but the secret is missing', async () => {
+  const env = productionEnv({
+    GENERATE_RATE_LIMITER: { limit: async () => ({ success: true }) },
+    TURNSTILE_REQUIRED: 'true',
+    TURNSTILE_SITE_KEY: '0x_site',
+    // TURNSTILE_SECRET_KEY intentionally absent.
+  });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'turnstile_unconfigured');
+});
+
+// ── Gemini-backed prompt routes share the production policy ──────────────────
+
+test('POST /prompt/transform fail-closed (503) when the limiter is absent in production', async () => {
+  const env = productionEnv({ GEMINI_API_KEY: 'test-gemini-key' });
+  const response = await worker.fetch(
+    jsonRequest('/prompt/transform', { source: '一隻可愛柴犬在月球上', style: 'auto' }),
+    env,
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_unavailable');
+});
+
+test('POST /prompt/complete fail-closed (503) when the limiter is absent in production', async () => {
+  const env = productionEnv({ GEMINI_API_KEY: 'test-gemini-key' });
+  const response = await worker.fetch(
+    jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
+    env,
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_unavailable');
+});
+
+test('POST /prompt/enhance fail-closed (503) when the limiter is absent in production', async () => {
+  const env = productionEnv({ GEMINI_API_KEY: 'test-gemini-key' });
+  const response = await worker.fetch(
+    jsonRequest('/prompt/enhance', { prompt: 'a cat', effect: '更夢幻' }),
+    env,
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_unavailable');
+});
+
+// ── Combined dependency failures ────────────────────────────────────────────
+// When several protection dependencies fail together, the request must still be
+// rejected before any provider call, and the first failing layer is reported.
+
+test('POST /generate rejects before provider call when limiter throws AND Turnstile is unconfigured', async () => {
+  const env = productionEnv({
+    GENERATE_RATE_LIMITER: throwingLimiter(),
+    TURNSTILE_REQUIRED: 'true',
+    // Turnstile secret + site key both missing.
+  });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_error');
+});
+
+test('POST /generate rejects before provider call when limiter is absent AND Turnstile is unconfigured', async () => {
+  const env = productionEnv({
+    TURNSTILE_REQUIRED: 'true',
+    // No GENERATE_RATE_LIMITER and no Turnstile secret/site key.
+  });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_unavailable');
+});
+
+// ── Usage telemetry records the real failure code ───────────────────────────
+
+test('fail-closed rate-limit events record their real error code in usage metrics', async () => {
+  resetUsageMetrics();
+  const env = productionEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+  assert.equal(usage.byErrorCode.rate_limiter_unavailable, 1);
+  assert.equal(usage.byErrorCode.rate_limited || 0, 0);
+  assert.equal(usage.byRoute.generate.failures, 1);
 });
 

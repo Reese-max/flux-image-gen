@@ -64,6 +64,10 @@
 - 正式 Windows／WSL deploy 新增共用 fail-closed gate：worktree 有 staged、unstaged 或 untracked 變更即停止，並在上傳前唯讀確認五個必要 production secret 名稱；輸出不含 secret 值。
 - 部署 wrapper 固定 `flux-image-gen` production 目標與 `git-<HEAD12>`／`commit <HEAD>` 版本標記；僅接受 `--dry-run`，拒絕 target、entrypoint、tag 或 message 覆寫。
 - WSL fallback 將 OAuth refresh 同步移入 EXIT cleanup；readiness 或 deploy 失敗時也會先備份／更新 Windows 憑證，再還原原有 WSL 登入。
+- GitHub Actions 公開部署路徑改為強制通過濫用防護 gate：production job 在 `wrangler deploy` 前依序執行 `check_deployment_preflight.py --public` 與 `check-deploy-readiness.mjs`（唯讀確認必要 secrets、乾淨 worktree 與 abuse-control 設定），preview `versions upload` 前也強制 `--public` preflight；任一步失敗即停止上傳。
+- `wrangler.toml` 追蹤值改為公開站硬化預設：`ENVIRONMENT="production"`、`TURNSTILE_REQUIRED="true"`，任何部署路徑（Actions、wrapper、手動）都會發佈啟用 fail-closed rate limiting 與 Turnstile 的設定；本機開發需明確 `wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false` 才回到 dev pass-through。
+- `check-deploy-readiness.mjs` 的 abuse-control 檢查改為拒絕「Turnstile 關閉且無持久 fail-closed rate limiter」的設定：要求 `TURNSTILE_REQUIRED="true"` 且 site key 非空，或 `ENVIRONMENT="production"` 且存在 `[[ratelimits]] GENERATE_RATE_LIMITER` binding；`check_deployment_preflight.py --public` 套用同一政策。
+- Worker rate limiter 在 binding 回傳非 `{success:true/false}` 形狀時也於 production+provider key 下 fail-closed（503）；Turnstile required 但 site key 或 secret 缺失維持 503 `turnstile_unconfigured`；rate gate 回 503 時用量事件改記錄實際 status/code 而非寫死 429。
 
 ### Not deployed
 

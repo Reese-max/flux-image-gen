@@ -87,6 +87,42 @@ def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tm
     assert payload["publicMode"] is True
 
 
+def test_deployment_preflight_public_mode_rejects_when_all_abuse_controls_off(tmp_path):
+    """A public deploy with neither Turnstile nor a fail-closed limiter policy must be rejected."""
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "ENVIRONMENT", "development")
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert any("ENVIRONMENT" in e or "TURNSTILE" in e for e in payload["errors"])
+
+
+def test_deployment_preflight_public_mode_allows_fail_closed_limiter_alternative(tmp_path):
+    """ENVIRONMENT=production plus the required limiter binding is the documented
+    equivalent abuse-control policy when Turnstile is opted out."""
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "ENVIRONMENT", "production")
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 0, result.stderr
+
+
+def test_deployment_preflight_public_mode_rejects_missing_environment_and_turnstile_off(tmp_path):
+    """Removing ENVIRONMENT entirely must not silently pass: without the flag the
+    limiter cannot fail closed, so Turnstile must be the active gate."""
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    text = wrangler.read_text(encoding="utf-8")
+    text = "\n".join(line for line in text.splitlines() if not line.startswith("ENVIRONMENT = ")) + "\n"
+    wrangler.write_text(text, encoding="utf-8")
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 1
+
+
 def test_deployment_preflight_rejects_secret_in_public_vars(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"

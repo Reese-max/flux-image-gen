@@ -93,7 +93,7 @@ export async function verifyTurnstileToken(token, request, env) {
   if (!config.required) return null;
 
   const secret = String((env && env.TURNSTILE_SECRET_KEY) || "").trim();
-  if (!secret) {
+  if (!secret || !config.siteKey) {
     return new HttpError("真人驗證尚未完成設定，請稍後再試", 503, "turnstile_unconfigured");
   }
 
@@ -286,6 +286,17 @@ export async function checkRateLimit(request, limiter, env) {
 
   if (outcome && outcome.success === false) {
     return json({ error: "叫用太頻繁，請稍後再試", code: "rate_limited", retry_after: 60 }, 429);
+  }
+  if ((!outcome || outcome.success !== true) && inProduction && hasProviderKeys(env)) {
+    // Fail closed: a limiter that resolves with an unexpected shape gives no
+    // trustworthy allow/deny decision, so server-funded work stays blocked.
+    return json(
+      {
+        error: "服務暫時維護中，請稍後再試",
+        code: "rate_limiter_error",
+      },
+      503,
+    );
   }
   return null;
 }

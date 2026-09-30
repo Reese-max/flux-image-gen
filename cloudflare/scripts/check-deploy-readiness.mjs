@@ -107,31 +107,76 @@ export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerT
   }
 }
 
+// Extract the [vars] table body: section headers only count at line start, so
+// brackets inside comments can't truncate the section early, and [env.*]
+// tables can't shadow the deployment policy values.
+function varsTable(content) {
+  const lines = String(content || '').split('\n');
+  let inVars = false;
+  const collected = [];
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      inVars = /^\s*\[\s*vars\s*\]/.test(line);
+      continue;
+    }
+    if (inVars) collected.push(line);
+  }
+  return collected.join('\n');
+}
+
 /**
- * Reject a production deployment configuration that has no abuse controls.
+ * Reject a production deployment configuration that cannot gate abuse.
  *
- * A configuration is considered inadequate when ALL of the following are true:
- *   1. ENVIRONMENT is not "production" (rate limiter won't fail-closed).
- *   2. TURNSTILE_REQUIRED is not "true" (Turnstile gate is off).
+ * The [[ratelimits]] GENERATE_RATE_LIMITER binding is mandatory — the Python
+ * --public preflight requires it too, and without it the Gemini-backed
+ * /prompt/* routes have no Turnstile equivalent to fall back on.
  *
- * This prevents accidental public exposure where both layers are disabled.
+ * On top of the binding, at least one policy layer must be active:
+ *   1. The Turnstile gate: TURNSTILE_REQUIRED="true" AND a nonempty
+ *      TURNSTILE_SITE_KEY (without the site key the public gate is required
+ *      but unconfigured — the Worker would 503 every request).
+ *   2. Fail-closed limiter mode: ENVIRONMENT="production" so a broken or
+ *      missing binding returns 503 before provider calls instead of allowing.
+ *
+ * Anything else — Turnstile off AND limiter stuck in dev pass-through —
+ * publishes a public endpoint that can consume server-funded quota ungated.
  */
 export function assertProductionAbuseControls(tomlContent) {
   const content = String(tomlContent || '');
-  const environmentMatch = content.match(/^\s*ENVIRONMENT\s*=\s*"([^"]*)"/m);
-  const turnstileMatch = content.match(/^\s*TURNSTILE_REQUIRED\s*=\s*"([^"]*)"/m);
+  const varsSection = varsTable(content);
+  const environmentMatch = varsSection.match(/^\s*ENVIRONMENT\s*=\s*"([^"]*)"/m);
+  const turnstileMatch = varsSection.match(/^\s*TURNSTILE_REQUIRED\s*=\s*"([^"]*)"/m);
+  const siteKeyMatch = varsSection.match(/^\s*TURNSTILE_SITE_KEY\s*=\s*"([^"]*)"/m);
 
   const environmentValue = (environmentMatch && environmentMatch[1]) || 'development';
   const turnstileValue = (turnstileMatch && turnstileMatch[1]) || 'false';
+  const siteKeyValue = (siteKeyMatch && siteKeyMatch[1]) || '';
 
   const hasProductionMode = environmentValue.trim().toLowerCase() === 'production';
   const hasTurnstile = turnstileValue.trim().toLowerCase() === 'true';
+  const hasSiteKey = siteKeyValue.trim().length > 0;
+  const hasRateLimiterBinding =
+    /\[\[ratelimits\]\][^\[]*name\s*=\s*"GENERATE_RATE_LIMITER"/.test(content);
 
-  if (!hasProductionMode && !hasTurnstile) {
+  if (!hasRateLimiterBinding) {
     throw new Error(
-      'Production deployment rejected: ENVIRONMENT is not "production" (rate limiter will not fail-closed) ' +
-      'AND TURNSTILE_REQUIRED is not "true". At least one abuse control must be active. ' +
-      'Set ENVIRONMENT="production" in wrangler.toml or enable TURNSTILE_REQUIRED="true".',
+      'Production deployment rejected: wrangler.toml must declare the ' +
+      '[[ratelimits]] GENERATE_RATE_LIMITER binding so generation routes keep a hard request gate.',
+    );
+  }
+
+  if (hasTurnstile && !hasSiteKey) {
+    throw new Error(
+      'Production deployment rejected: TURNSTILE_REQUIRED is "true" but TURNSTILE_SITE_KEY is missing or empty.',
+    );
+  }
+
+  const turnstileActive = hasTurnstile && hasSiteKey;
+  if (!turnstileActive && !hasProductionMode) {
+    throw new Error(
+      'Production deployment rejected: TURNSTILE_REQUIRED is not "true" and ENVIRONMENT is not ' +
+      '"production" (the rate limiter stays in dev pass-through). At least one abuse control ' +
+      'must be active before a public deploy.',
     );
   }
 }

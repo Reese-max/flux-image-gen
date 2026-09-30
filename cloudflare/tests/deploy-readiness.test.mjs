@@ -103,42 +103,121 @@ test('both real deployment paths invoke readiness before resolving the commit', 
 
 import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness.mjs';
 
+const LIMITER_BINDING = '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\nsimple = { limit = 12, period = 60 }';
 
-test('assertProductionAbuseControls passes when ENVIRONMENT=production', () => {
+test('assertProductionAbuseControls passes on the Turnstile gate alone', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"')
+    assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n${LIMITER_BINDING}`,
+    )
   );
 });
 
-test('assertProductionAbuseControls passes when TURNSTILE_REQUIRED=true', () => {
+test('assertProductionAbuseControls passes on a durable fail-closed limiter alone', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"')
+    assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"\n${LIMITER_BINDING}`,
+    )
   );
 });
 
-test('assertProductionAbuseControls passes when both are enabled', () => {
+test('assertProductionAbuseControls passes when every control is enabled', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"')
+    assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n${LIMITER_BINDING}`,
+    )
   );
 });
 
-test('assertProductionAbuseControls rejects when neither abuse control is active', () => {
+test('assertProductionAbuseControls rejects when Turnstile is off and the limiter is not fail-closed', () => {
   assert.throws(
-    () => assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"'),
+    () => assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\n${LIMITER_BINDING}`,
+    ),
     /Production deployment rejected/,
   );
 });
 
-test('assertProductionAbuseControls rejects when ENVIRONMENT is missing and TURNSTILE is false', () => {
+test('assertProductionAbuseControls rejects production mode without the limiter binding', () => {
+  // The GENERATE_RATE_LIMITER binding is mandatory: without it the
+  // Gemini-backed prompt routes have no equivalent hard gate at all.
   assert.throws(
-    () => assertProductionAbuseControls('TURNSTILE_REQUIRED = "false"'),
-    /Production deployment rejected/,
+    () => assertProductionAbuseControls('[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"'),
+    /GENERATE_RATE_LIMITER/,
+  );
+});
+
+test('assertProductionAbuseControls rejects a Turnstile-only config without the limiter binding', () => {
+  // Even a correct Turnstile gate does not cover /prompt/* routes, which
+  // never verify Turnstile tokens — the limiter binding is still required.
+  assert.throws(
+    () => assertProductionAbuseControls(
+      '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"',
+    ),
+    /GENERATE_RATE_LIMITER/,
+  );
+});
+
+test('assertProductionAbuseControls rejects Turnstile-required config without a site key', () => {
+  assert.throws(
+    () => assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\n${LIMITER_BINDING}`,
+    ),
+    /TURNSTILE_SITE_KEY/,
   );
 });
 
 test('assertProductionAbuseControls rejects when no vars set', () => {
   assert.throws(
     () => assertProductionAbuseControls(''),
+    /Production deployment rejected|GENERATE_RATE_LIMITER/,
+  );
+});
+
+test('assertProductionAbuseControls ignores matching names outside the [vars] table', () => {
+  // An env-specific [env.staging.vars] table must not shadow the real [vars]
+  // deployment policy values.
+  const spoofed =
+    '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\n' +
+    '[env.staging.vars]\nENVIRONMENT = "production"\n' +
+    LIMITER_BINDING;
+  assert.throws(
+    () => assertProductionAbuseControls(spoofed),
     /Production deployment rejected/,
   );
+});
+
+test('assertProductionAbuseControls accepts the tracked production wrangler.toml', async () => {
+  const toml = await readFile(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  assert.doesNotThrow(() => assertProductionAbuseControls(toml));
+});
+
+test('GitHub Actions production deploy runs the hardened abuse gates before wrangler deploy', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const productionJob = workflow.slice(workflow.indexOf('deploy-production:'));
+
+  const preflightIndex = productionJob.indexOf('check_deployment_preflight.py --public');
+  const readinessIndex = productionJob.indexOf('check-deploy-readiness.mjs');
+  const deployIndex = productionJob.indexOf('command: deploy');
+
+  assert.ok(preflightIndex >= 0, 'production job must run the public deployment preflight');
+  assert.ok(readinessIndex >= 0, 'production job must run check-deploy-readiness.mjs');
+  assert.ok(
+    deployIndex > preflightIndex && deployIndex > readinessIndex,
+    'wrangler deploy must run only after both abuse-control gates pass',
+  );
+});
+
+test('GitHub Actions preview upload runs the public preflight before versions upload', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const previewJob = workflow.slice(
+    workflow.indexOf('deploy-preview:'),
+    workflow.indexOf('deploy-production:'),
+  );
+
+  const preflightIndex = previewJob.indexOf('check_deployment_preflight.py --public');
+  const uploadIndex = previewJob.indexOf('command: versions upload');
+
+  assert.ok(preflightIndex >= 0, 'preview job must run the public deployment preflight');
+  assert.ok(uploadIndex > preflightIndex, 'versions upload must run after the preflight passes');
 });

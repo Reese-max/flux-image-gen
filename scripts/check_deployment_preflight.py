@@ -32,6 +32,7 @@ REQUIRED_VARS = {
     "GEMINI_COMPLETE_MODEL",
     "GEMINI_VISION_MODEL",
     "VISION_QA_ENABLED",
+    "ENVIRONMENT",
     "TURNSTILE_REQUIRED",
     "TURNSTILE_SITE_KEY",
     "USAGE_ESTIMATED_COST_USD_PER_IMAGE",
@@ -213,6 +214,22 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
 
     if public and str(vars_section.get("TURNSTILE_REQUIRED", "")).lower() == "true":
         require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白", errors)
+
+    if public:
+        # Public deployments must have at least one active abuse control:
+        # either the Turnstile gate, or a durable fail-closed rate limiter
+        # (ENVIRONMENT="production" so a missing/broken binding returns 503,
+        # plus the GENERATE_RATE_LIMITER binding required above). A config
+        # with both layers disabled would expose server-funded generation
+        # without a hard request gate.
+        environment_value = str(vars_section.get("ENVIRONMENT", "")).strip().lower()
+        turnstile_active = str(vars_section.get("TURNSTILE_REQUIRED", "")).strip().lower() == "true"
+        durable_limiter = environment_value == "production" and limiter is not None
+        require(
+            turnstile_active or durable_limiter,
+            '--public 模式需要至少一項濫用防護：TURNSTILE_REQUIRED = "true"，或 ENVIRONMENT = "production" 搭配 GENERATE_RATE_LIMITER 綁定',
+            errors,
+        )
 
     checks.append("wrangler bindings OK")
 
