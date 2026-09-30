@@ -24,6 +24,18 @@ export function decodeImageDataUrl(dataUrl) {
   return { contentType, bytes };
 }
 
+// Client-supplied meta can never mint "verified" — no code path performs a
+// trust-chain validation, so that state must not be injectable into share pages.
+const GALLERY_CREDENTIAL_STATUSES = new Set([
+  "present_untrusted",
+  "invalid",
+  "absent",
+  "unknown_after_transform",
+  "unsupported",
+]);
+const GALLERY_SOURCE_ACTIONS = new Set(["generate", "edit", "regenerate"]);
+const HEX64 = /^[0-9a-f]{64}$/i;
+
 export function sanitizeGalleryMeta(meta) {
   const out = {};
   if (meta && typeof meta === "object") {
@@ -32,10 +44,24 @@ export function sanitizeGalleryMeta(meta) {
     out.visibility = meta.visibility === "public" ? "public" : "unlisted";
     out.storage = "r2";
     out.metadataStorage = "r2-json";
-    for (const field of ["title", "model", "size", "seed", "mode", "style", "styleLabel", "useCase", "useCaseLabel"]) {
+    for (const field of ["title", "model", "size", "seed", "mode", "style", "styleLabel", "useCase", "useCaseLabel", "appVersion"]) {
       if (meta[field] !== undefined && meta[field] !== null) {
         out[field] = String(meta[field]).slice(0, 500);
       }
+    }
+    // Provenance fields（issue #18）：hash 欄位只收 64 位 hex；狀態/行為走 enum。
+    // Allowlist 而非 denylist，token/URL/secret 類欄位永遠進不來。
+    for (const field of ["outputSha256", "receiptHash"]) {
+      const value = String(meta[field] || "").toLowerCase();
+      if (HEX64.test(value)) {
+        out[field] = value;
+      }
+    }
+    if (GALLERY_CREDENTIAL_STATUSES.has(meta.credentialStatus)) {
+      out.credentialStatus = meta.credentialStatus;
+    }
+    if (GALLERY_SOURCE_ACTIONS.has(meta.sourceAction)) {
+      out.sourceAction = meta.sourceAction;
     }
     if (promptPublic && meta.prompt !== undefined && meta.prompt !== null) {
       out.prompt = String(meta.prompt).slice(0, 500);

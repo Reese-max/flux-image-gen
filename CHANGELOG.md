@@ -49,6 +49,13 @@
 
 ### Added
 
+- 每筆新的生成／改圖歷史記錄自動附帶可驗證的「來源收據」（Provenance Receipt，issue #18）：receipt 記錄輸出位元組 SHA-256、provider／模型／畫質設定、建立時間、App 版本與版本 lineage（父 receipt hash、版本群組、序號），並附帶自描述 `receiptHash`，內容被改動可在詳情頁被偵測出來。
+- Content Credentials（C2PA）誠實檢測：PNG `caBX` chunk、JPEG APP11/JUMBF 與 APP1 XMP、WebP `XMP ` chunk 皆做結構掃描，狀態分為 `verified`／`present_untrusted`／`invalid`／`absent`／`unknown_after_transform`／`unsupported`。本層只做結構檢測——沒有 signer／trust list 時絕不宣稱 verified；「未偵測到」一律不暗示圖片非 AI 產生。
+- 改圖 provenance：參考圖在 canvas 重編碼後計算 SHA-256（即 provider 實際收到的位元組），收據記錄 `inputs` 清單與 `canvas-resize-png` 轉換標記，credential 狀態誠實標為 `unknown_after_transform`；伺服器 `/edit` 也回傳輸入圖 hash 與輸出 credential 檢測。
+- 歷史詳情新增「來源與驗證」區塊：顯示 receipt hash 自驗證、輸出位元組重新比對（match／mismatch）、credential 狀態與誠實聲明；新增「下載來源 Receipt」按鈕匯出 `.receipt.json`（內含 allowlist 的 public receipt 視圖），並在分享文案附上一行 receipt 摘要。
+- 雲端圖庫與分享頁支援 provenance：`/gallery` metadata allowlist 新增 `outputSha256`／`receiptHash`／`credentialStatus`／`sourceAction`／`appVersion`（hash 僅收 64 位 hex、狀態走 enum，token／secret 類欄位永遠進不來）；`/share/:id` 只在有 provenance 欄位時顯示「來源與驗證」區塊。
+- 伺服器端 attestation：`/generate`、`/generate/batch`、`/edit` 回應附帶 `provenance` 區塊（輸出 SHA-256＋credential 檢測＋改圖輸入 hash），FastAPI twin 與 Cloudflare Worker 行為一致；前端 receipt 會把該區塊收進 `providerFields.server` 並在詳情頁與本機 hash 交叉比對。
+
 - 生成後 AI 視覺檢查有了實際入口：進階設定新增「生成後 AI 檢查」勾選框，單張生成時會把 `visionQa` 送給後端，完成訊息直接顯示符合度／構圖／畫質分數與偵測到的問題。後端 `/generate` 早已支援此欄位，先前只是前端從未送出，等同永遠關閉。
 - 高品質（FLUX.1-dev）可逐次調參：選到「高品質」時顯示 `steps`（1–50）與 `cfg_scale`（1–10）欄位，留空則沿用 `NVIDIA_DEV_STEPS`／`NVIDIA_DEV_CFG_SCALE`。先前這兩個值只能改環境變數並全域生效。
 - 用量事件以既有 `IMAGE_BUCKET` 的 `usage-events/YYYY-MM-DD/` metadata 持久保存；摘要不含 prompt、圖片、原始 IP 或 IP 雜湊，超過單日 1,000 筆時明確標示部分資料。

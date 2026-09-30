@@ -83,6 +83,63 @@
 
   var EDIT_PROVIDER_UNAVAILABLE_MESSAGE = '此環境尚未啟用 Workers AI 改圖；仍可先整理參考圖與指令，啟用後再送出。';
 
+  // 對送出的參考圖（canvas 重編碼後的 PNG blob）計算 SHA-256。
+  // 這些 hash 是「stable local references」：canvas 已剝除原圖 EXIF/GPS，
+  // hash 指向的正是 provider 實際收到的位元組（issue #18）。
+  function hashEditInputs(blobs) {
+    var P = root.ImageProvenance;
+    var jobs;
+    if (!P || typeof P.sha256Bytes !== 'function' || !Array.isArray(blobs) || !blobs.length) {
+      return Promise.resolve([]);
+    }
+    try {
+      jobs = blobs.map(function (blob) {
+        // Blob#arrayBuffer 是 ES2020 API；缺少時降級為無 hash，不擋改圖流程。
+        if (!blob || typeof blob.arrayBuffer !== 'function') {
+          return Promise.resolve('');
+        }
+        return blob.arrayBuffer().then(function (buf) {
+          return P.sha256Bytes(new Uint8Array(buf));
+        });
+      });
+    } catch (error) {
+      return Promise.resolve([]);
+    }
+    return Promise.all(jobs).then(function (hashes) {
+      return hashes.filter(function (digest) { return !!digest; });
+    }, function () { return []; });
+  }
+
+  // 改圖完成後把結果寫進歷史作品牆：recordAction='edit' + 輸入圖 hash 清單，
+  // history-store 會產生對應的 edit ProvenanceReceipt。
+  function dispatchEditRecord(data, prompt, finalPrompt, hashPromise) {
+    if (!data || !data.image || typeof document === 'undefined') { return; }
+    hashPromise.then(function (hashes) {
+      var detail = {
+        image: data.image,
+        thumbnail: data.image,
+        prompt: prompt,
+        providerPrompt: finalPrompt || prompt,
+        model: typeof data.model === 'string' ? data.model : '',
+        size: '',
+        steps: null,
+        cfgScale: null,
+        seed: 0,
+        width: 0,
+        height: 0,
+        provider: typeof data.provider === 'string' ? data.provider : '',
+        providerProvenance: data.provenance || null,
+        recordAction: 'edit',
+        editInputHashes: hashes,
+        sourceRecordId: '',
+        mode: 'normal'
+      };
+      try {
+        document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: detail }));
+      } catch (error) { /* 歷史寫入失敗不影響改圖結果 */ }
+    });
+  }
+
   // 只有健康檢查明確回報 workersAI=false 時才停用，避免網路錯誤或舊版後端造成誤判。
   function editAvailabilityFromHealth(data) {
     var providers = data && data.providers;
@@ -487,6 +544,7 @@
       lighting: productLighting ? productLighting.value : ''
     });
     var fd = buildEditFormData(finalPrompt, selected.map(function (s) { return s.blob; }), token);
+    var inputHashPromise = hashEditInputs(selected.map(function (s) { return s.blob; }));
 
     fetch('/edit', { method: 'POST', body: fd })
       .then(function (resp) {
@@ -499,6 +557,7 @@
         if (mapped.image) {
           showResult(mapped.image);
           setStatus('完成 ✓ · 耗時 ' + elapsedTimer.stop() + ' 秒', 'done');
+          dispatchEditRecord(r.data, prompt, finalPrompt, inputHashPromise);
         } else {
           setStatus('改圖失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + mapped.error, 'fail');
           setPreviewState('error', '改圖失敗');

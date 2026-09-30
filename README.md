@@ -37,6 +37,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - Prompt 強化器：提供更寫實、電影感、產品照、可愛、乾淨構圖、修正常見瑕疵等規則式強化，不增加 API 成本。
 - 失敗修正建議：依 `content_filtered`、`rate_limited`、`timeout`、`bad_provider_response`、`missing_api_key` 等錯誤提供下一步建議。
 - 歷史搜尋與標籤：可搜尋 prompt、篩選 model/size、收藏星號、編輯標籤。
+- 來源收據（Provenance Receipt）：每筆新的生成／改圖記錄附帶版本化收據，記錄輸出圖片位元組的 SHA-256、provider／模型／畫質設定、建立時間、App 版本與父收據 hash；詳情頁會重新比對圖片位元組並驗證收據自描述 hash，可一鍵匯出 `receipt.json`。同時對圖片做 Content Credentials（C2PA）結構檢測（PNG `caBX`、JPEG APP11/APP1 XMP、WebP `XMP `），狀態僅回報偵測訊號——沒有信任鏈驗證時不宣稱「已驗證」，「未偵測到」也不代表圖片非 AI 產生。收據與公開視圖只收 allowlist 欄位，prompt 只存 SHA-256、API key／token／簽名 URL 永不進收據。
 - PWA / 手機體驗：提供 manifest、service worker、手機底部生成列與響應式歷史牆。
 
 不包含帳號系統；公開站已具備後端限流、Turnstile 防機器人入口與雲端分享基礎。
@@ -309,8 +310,9 @@ app/
     app.js
     prompt-transform.js  # 提示詞轉換前端互動
     generation-settings.js  # Seed、排除描述與設定序列化
-    history-store.js     # 圖片歷史記錄 localStorage 儲存
-    history-wall.js      # 歷史記錄牆 UI、下載、複製與再生
+    provenance.js        # 來源收據（Provenance Receipt）+ Content Credentials 檢測
+    history-store.js     # 圖片歷史記錄 localStorage 儲存（自動附帶收據）
+    history-wall.js      # 歷史記錄牆 UI、下載、複製與再生（含來源與驗證區塊）
     tutorial.js          # 使用者教學彈窗
 tests/
   test_app.py

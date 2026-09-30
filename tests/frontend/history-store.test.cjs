@@ -120,6 +120,7 @@ test('normalizeRecord trims fields, uses injected id factory, and applies defaul
     sourceRecordId: '',
     versionGroupId: 'history-id-1',
     versionNumber: 1,
+    provenance: null,
     createdAt: 'normalized-date'
   });
 });
@@ -445,6 +446,7 @@ test('saveRecords writes normalized JSON to storage key', () => {
     sourceRecordId: '',
     versionGroupId: 'save-me',
     versionNumber: 1,
+    provenance: null,
     createdAt: result[0].createdAt
   }]);
   assert.equal(storage.calls.setItem.length, 1);

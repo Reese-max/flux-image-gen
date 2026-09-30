@@ -29,6 +29,7 @@ import {
   validateSteps,
 } from "./image.js";
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
+import { buildOutputProvenance, sha256HexBytes } from "./provenance.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
 
@@ -277,6 +278,9 @@ async function handleGenerate(request, env) {
       await recordVisionQaEvent(env, request, qaStarted, visionQa);
       if (visionQa) result.visionQa = visionQa;
     }
+    // 伺服器端 attestation：輸出位元組 hash + credential 結構檢測。
+    // 只回報偵測訊號，絕不宣稱 verified；前端 receipt 會自行重算驗證。
+    result.provenance = await buildOutputProvenance(result.image);
     const galleryToken = await issueGalleryToken(env);
     return json(galleryToken ? { ...result, galleryToken } : result);
   } catch (e) {
@@ -452,6 +456,9 @@ async function handleGenerateBatch(request, env) {
         if (visionQa) image.visionQa = visionQa;
       }
     }
+    for (const image of images) {
+      image.provenance = await buildOutputProvenance(image.image);
+    }
     const galleryToken = await issueGalleryToken(env);
     const response = { images, errors, partial: errors.length > 0 };
     return json(galleryToken ? { ...response, galleryToken } : response);
@@ -545,6 +552,13 @@ async function handleEdit(request, env) {
 
   try {
     const result = await editImage(env, { prompt, images });
+    // Edit provenance：輸出位元組 hash + credential 檢測 + 輸入圖 hash。
+    // 輸入 hash 證明 provider 實際收到的位元組（前端送的是 canvas 重編碼 PNG）。
+    const inputImageHashes = [];
+    for (const blob of images) {
+      inputImageHashes.push(await sha256HexBytes(await blob.arrayBuffer()));
+    }
+    result.provenance = await buildOutputProvenance(result.image, inputImageHashes);
     await recordUsageEvent(env, request, {
       route: "edit",
       outcome: "success",
@@ -700,6 +714,11 @@ async function readGalleryMetaObject(bucket, key) {
     mode: String(metadata.mode || "normal"),
     styleLabel: String(metadata.styleLabel || metadata.style || ""),
     useCaseLabel: String(metadata.useCaseLabel || metadata.useCase || ""),
+    outputSha256: String(metadata.outputSha256 || ""),
+    receiptHash: String(metadata.receiptHash || ""),
+    credentialStatus: String(metadata.credentialStatus || ""),
+    sourceAction: String(metadata.sourceAction || ""),
+    appVersion: String(metadata.appVersion || ""),
     createdAt: String(payload.createdAt || ""),
     storage: {
       image: String(metadata.storage || "r2"),
@@ -885,6 +904,42 @@ function shareTemplateUrl(prompt, metadata) {
   return query ? `/?${query}` : "/";
 }
 
+// 分享頁只呈現 allowlist 的 provenance 欄位；語氣誠實（absent ≠ 非 AI）。
+const SHARE_CREDENTIAL_LABELS = {
+  verified: "Content Credentials 已驗證",
+  present_untrusted: "偵測到 Content Credentials（結構有效，未驗證簽章信任鏈）",
+  invalid: "Content Credentials 無效或已損毀",
+  absent: "未偵測到 Content Credentials（不代表非 AI）",
+  unknown_after_transform: "經過轉換／重新編碼，credential 狀態未知",
+  unsupported: "圖片格式不支援 credential 檢測",
+};
+const SHARE_ACTION_LABELS = { generate: "生成", edit: "AI 改圖", regenerate: "版本再生" };
+
+function shareProvenanceSection(metadata) {
+  const chips = [];
+  if (metadata.outputSha256) {
+    chips.push(`輸出 SHA-256：${escapeHtml(String(metadata.outputSha256).slice(0, 16))}…`);
+  }
+  if (metadata.receiptHash) {
+    chips.push(`來源 receipt：${escapeHtml(String(metadata.receiptHash).slice(0, 16))}…`);
+  }
+  if (SHARE_CREDENTIAL_LABELS[metadata.credentialStatus]) {
+    chips.push(escapeHtml(SHARE_CREDENTIAL_LABELS[metadata.credentialStatus]));
+  }
+  if (SHARE_ACTION_LABELS[metadata.sourceAction]) {
+    chips.push(`行為：${escapeHtml(SHARE_ACTION_LABELS[metadata.sourceAction])}`);
+  }
+  if (metadata.appVersion) {
+    chips.push(`App：${escapeHtml(String(metadata.appVersion))}`);
+  }
+  if (!chips.length) return "";
+  return `<section class="card">
+      <h2>來源與驗證</h2>
+      <div class="meta">${chips.map((chip) => `<span>${chip}</span>`).join("")}</div>
+      <p class="note">此為作品建立時記錄的來源收據摘要；「未偵測到 Content Credentials」不代表圖片非 AI 產生。</p>
+    </section>`;
+}
+
 function shareTemplateSummary(prompt, metadata, promptPublic) {
   const fields = [
     `模式：${String(metadata.mode || "normal") === "agent" ? "智慧體模式" : "一般模式"}`,
@@ -948,6 +1003,7 @@ async function handleSharePage(env, id) {
   const robots = payload.visibility === "public" ? "index,follow" : "noindex,nofollow";
   const templateUrl = shareTemplateUrl(promptPublic ? prompt : "", metadata);
   const templateSummary = shareTemplateSummary(prompt, metadata, promptPublic);
+  const provenanceSection = shareProvenanceSection(metadata);
   const regenerateLabel = promptPublic && prompt ? "用這個 prompt 再生成" : "套用公開設定再生成";
   const promptBlock = promptPublic && prompt
     ? `<pre>${escapeHtml(prompt)}</pre><button type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.querySelector('pre').textContent)">複製 prompt 模板</button>`
@@ -973,6 +1029,7 @@ async function handleSharePage(env, id) {
     .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
     pre{white-space:pre-wrap;word-break:break-word;color:#d9f99d}
     button,.button{border:1px solid rgba(190,242,100,.45);border-radius:999px;background:rgba(190,242,100,.12);color:#ecfccb;padding:10px 14px;cursor:pointer;text-decoration:none;display:inline-flex}
+    .note{color:#94a3b8;font-size:12px;margin:10px 0 0}
     a{color:#bef264}
   </style>
 </head>
@@ -996,6 +1053,7 @@ async function handleSharePage(env, id) {
       <h2>Prompt</h2>
       ${promptBlock}
     </section>
+    ${provenanceSection}
     <section class="actions">
       <a class="button" href="${escapeHtml(templateUrl)}">${escapeHtml(regenerateLabel)}</a>
       <button type="button" data-template="${escapeHtml(templateSummary)}" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.dataset.template)">複製模板設定</button>

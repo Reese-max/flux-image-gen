@@ -650,6 +650,142 @@
     }
   }
 
+  // 來源與驗證區塊（issue #18）：顯示 receipt hash、輸出位元組比對、
+  // Content Credentials 狀態與版本 lineage。語氣保持誠實：
+  // absent ≠ 非 AI，本機 receipt ≠ C2PA 簽章。
+  function shortHash(value) {
+    var text = toText(value);
+    return text ? text.slice(0, 16) + '…' : '';
+  }
+
+  function renderProvenanceSection(record) {
+    var section = el('historyProvenanceSection');
+    var meta = el('historyProvenanceMeta');
+    var note = el('historyProvenanceNote');
+    var exportBtn = el('exportHistoryReceipt');
+    var P = root.ImageProvenance;
+    var receipt = record && record.provenance && typeof record.provenance === 'object' ? record.provenance : null;
+    var lines = [];
+    var hashState = '';
+    var receiptOk = false;
+    var actionLabel = '生成';
+    var serverHash;
+    var inputCount;
+
+    if (!section) { return; }
+    if (!receipt || !P) {
+      section.hidden = false;
+      if (meta) { meta.textContent = '此作品尚未建立來源收據（舊記錄或缺少 provenance 模組）。'; }
+      if (note) { note.textContent = ''; }
+      if (exportBtn) { exportBtn.hidden = true; }
+      return;
+    }
+
+    section.hidden = false;
+    if (exportBtn) { exportBtn.hidden = false; }
+
+    if (receipt.action === 'edit') { actionLabel = 'AI 改圖'; }
+    else if (receipt.action === 'regenerate') { actionLabel = '版本再生'; }
+    lines.push(
+      '行為：' + actionLabel +
+      ' · Provider：' + (toText(receipt.provider) || '—') +
+      ' · 模型：' + (toText(receipt.model) || '—') +
+      ' · App：' + (toText(receipt.appVersion) || '—')
+    );
+
+    receiptOk = typeof P.verifyReceiptHash === 'function' ? P.verifyReceiptHash(receipt) : false;
+    lines.push('Receipt：sha256:' + shortHash(receipt.receiptHash) + (receiptOk ? '（自描述 hash 一致）' : '（hash 與內容不符，可能被修改）'));
+
+    if (receipt.outputHashStatus === 'sha256' && receipt.outputSha256) {
+      hashState = typeof P.verifyOutput === 'function' ? P.verifyOutput(receipt, record.image) : 'unavailable';
+      lines.push(
+        '輸出圖片：sha256:' + shortHash(receipt.outputSha256) +
+        (hashState === 'match' ? '（與目前圖片位元組一致）'
+          : hashState === 'mismatch' ? '（不符！輸出內容曾被變更）'
+          : '（目前圖片無法驗證）')
+      );
+    } else {
+      lines.push('輸出圖片：' + (receipt.outputHashStatus === 'remote_url' ? '遠端圖片，未保存位元組 hash' : '無法計算 hash'));
+    }
+
+    lines.push(
+      'Content Credentials：' + (typeof P.describeCredentialStatus === 'function' ? P.describeCredentialStatus(receipt.credentialStatus) : toText(receipt.credentialStatus)) +
+      (receipt.credentialSignals && receipt.credentialSignals.length ? '（訊號：' + receipt.credentialSignals.join('、') + '）' : '')
+    );
+
+    if (toText(receipt.parentReceiptHash)) {
+      lines.push('來源：父 receipt sha256:' + shortHash(receipt.parentReceiptHash) + ' · 版本 v' + String(receipt.versionNumber || 1));
+    }
+    inputCount = Array.isArray(receipt.inputs) ? receipt.inputs.length : 0;
+    if (inputCount) {
+      lines.push('輸入圖：' + String(inputCount) + ' 張（' +
+        Array.prototype.map.call(receipt.inputs, function (entry) { return 'sha256:' + shortHash(entry.sha256); }).join('、') + '）');
+    }
+    if (Array.isArray(receipt.transforms) && receipt.transforms.length) {
+      lines.push('轉換記錄：' + receipt.transforms.join('、'));
+    }
+    serverHash = receipt.providerFields && receipt.providerFields.server && toText(receipt.providerFields.server.outputSha256);
+    if (serverHash) {
+      lines.push('伺服器回報：sha256:' + shortHash(serverHash) +
+        (receipt.outputSha256 && serverHash !== receipt.outputSha256 ? '（與本機 hash 不符）' : '（與本機 hash 一致）'));
+    }
+    if (meta) { meta.textContent = lines.join('\n'); }
+    if (note) {
+      note.textContent = '此收據是本機生成的可驗證記錄，不是 C2PA 簽章；credential 狀態僅描述偵測到的訊號，「未偵測到」不代表圖片非 AI 產生。';
+    }
+  }
+
+  function exportHistoryReceipt() {
+    var record = getSelectedRecord();
+    var normalized;
+    var receipt;
+    var blob;
+    var url;
+    var link;
+    if (!record) {
+      setAppStatus('尚無可匯出的作品', 'warn');
+      return;
+    }
+    normalized = normalizeRecordForUi(record);
+    receipt = normalized && normalized.provenance;
+    if (!receipt) {
+      setAppStatus('此作品沒有來源收據', 'warn');
+      return;
+    }
+    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
+      setAppStatus('瀏覽器不支援匯出', 'fail');
+      return;
+    }
+    var imageExt = '';
+    try {
+      imageExt = extensionFromImageData(validateHistoryImageUrl(normalized.image));
+    } catch (error) {
+      imageExt = '.png';
+    }
+    blob = new Blob([JSON.stringify({
+      schema: 'ProvenanceReceiptExport',
+      version: 1,
+      recordId: normalized.id,
+      imageFile: 'history_' + normalized.id + imageExt,
+      receipt: receipt,
+      publicReceipt: root.ImageProvenance && typeof root.ImageProvenance.publicReceipt === 'function'
+        ? root.ImageProvenance.publicReceipt(receipt)
+        : null
+    }, null, 2)], { type: 'application/json' });
+    url = root.URL.createObjectURL(blob);
+    link = document.createElement('a');
+    link.href = url;
+    link.download = 'history_' + safeFilePart(normalized.id) + '.receipt.json';
+    try {
+      document.body.appendChild(link);
+      link.click();
+    } finally {
+      if (link.parentNode) { link.parentNode.removeChild(link); }
+      root.URL.revokeObjectURL(url);
+    }
+    setAppStatus('已匯出來源收據（不含 prompt 全文）；可搭配下載的圖片檔驗證 outputSha256。', 'done');
+  }
+
   function openHistoryDetail(record) {
     var sourceRecord = normalizeRecordForUi(record);
     var modal = el('historyDetailModal');
@@ -675,6 +811,7 @@
     setDetailText('historyDetailProviderPrompt', sourceRecord.providerPrompt);
     setDetailText('historyDetailMeta', formatHistoryMeta(sourceRecord));
     setDetailText('historyDetailQaReport', formatQaReport(sourceRecord));
+    renderProvenanceSection(sourceRecord);
     renderCloudLinks(sourceRecord);
     if (tagEditor) {
       tagEditor.value = getRecordTags(sourceRecord).join(', ');
@@ -732,6 +869,14 @@
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
     if (sourceRecord.provider) { lines.push('Provider：' + toText(sourceRecord.provider)); }
+    if (sourceRecord.provenance && typeof sourceRecord.provenance === 'object') {
+      lines.push(
+        '來源：receipt sha256:' + shortHash(sourceRecord.provenance.receiptHash) +
+        ' · ' + (root.ImageProvenance && typeof root.ImageProvenance.describeCredentialStatus === 'function'
+          ? root.ImageProvenance.describeCredentialStatus(sourceRecord.provenance.credentialStatus)
+          : toText(sourceRecord.provenance.credentialStatus))
+      );
+    }
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
     if (!hidePrompt) {
@@ -1137,6 +1282,7 @@
     var copyPrompt = el('copyHistoryPrompt');
     var copyShare = el('copyHistoryShareText');
     var exportJson = el('exportHistoryJson');
+    var exportReceipt = el('exportHistoryReceipt');
     var regenerateDetail = el('regenerateHistoryDetail');
     var useCompositionDetail = el('useCompositionDetail');
     var historySearch = el('historySearch');
@@ -1175,6 +1321,9 @@
     }
     if (exportJson) {
       exportJson.addEventListener('click', exportHistoryJson);
+    }
+    if (exportReceipt) {
+      exportReceipt.addEventListener('click', exportHistoryReceipt);
     }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
@@ -1243,6 +1392,8 @@
     buildShareText: buildShareText,
     copyHistoryShareText: copyHistoryShareText,
     exportHistoryJson: exportHistoryJson,
+    exportHistoryReceipt: exportHistoryReceipt,
+    renderProvenanceSection: renderProvenanceSection,
     regenerateHistoryDetail: regenerateHistoryDetail,
     recordMatchesFilters: recordMatchesFilters,
     applyHistoryFilters: applyHistoryFilters,

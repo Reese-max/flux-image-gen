@@ -683,6 +683,12 @@
             <h3>版本</h3>
             <div id="historyVersionList" class="version-list"></div>
           </section>
+          <section id="historyProvenanceSection" hidden>
+            <h3>來源與驗證</h3>
+            <p id="historyProvenanceMeta" class="provenance-meta"></p>
+            <p id="historyProvenanceNote" class="provenance-note"></p>
+            <button id="exportHistoryReceipt" class="btn secondary mini" type="button" hidden>下載來源 Receipt</button>
+          </section>
           <section id="historyCloudSection" hidden>
             <h3>雲端保存</h3>
             <p id="historyCloudMeta"></p>
@@ -829,6 +835,7 @@
   <script src="/static/app.js"></script>
   <script src="/static/canvas-viewport.js"></script>
   <script src="/static/prompt-transform.js"></script>
+  <script src="/static/provenance.js"></script>
   <script src="/static/history-store.js"></script>
   <script src="/static/history-wall.js"></script>
   <script src="/static/tutorial.js"></script>
