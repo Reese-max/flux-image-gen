@@ -570,6 +570,31 @@ def test_history_regenerate_restores_complete_settings_before_visible_generation
     assert body.index("switchToGenerateTab()") < body.index("ImageGenApp.setGenerationSettings({") < body.index("ImageGenApp.generate()")
 
 
+def test_result_and_composition_regenerate_restore_stored_provider_prompt():
+    """Issue #9：🔁 再生一張與 🔧 以這張構圖再變化也要回填作品的 providerPrompt，
+    不能把中文描述直接當成供應商提示詞送出。"""
+    app_js = read_static("app.js")
+    regenerate = re.search(r"function regenerate\(\)\{([\s\S]*?)\n\}\n", app_js)
+    lock_composition = re.search(
+        r"function lockCompositionFromRecord\(record\)\{([\s\S]*?)\n\}\n", app_js
+    )
+
+    assert regenerate
+    assert lock_composition
+    for body in [regenerate.group(1), lock_composition.group(1)]:
+        for setting in ["providerPrompt:", "width:", "height:", "steps:", "cfgScale:"]:
+            assert setting in body
+
+
+def test_restored_provider_prompt_is_tied_to_the_description():
+    """還原的 providerPrompt 要標 data-auto-source：描述之後被編輯時作廢重編，
+    不能沿用舊提示詞產出與新描述無關的圖。"""
+    app_js = read_static("app.js")
+
+    assert "source.providerPrompt){\n      el('prompt').value = source.providerPrompt;" in app_js
+    assert "el('prompt').setAttribute('data-auto-source', el('plainPrompt') ? el('plainPrompt').value.trim() : '')" in app_js
+
+
 def test_cloudflare_csp_allows_local_image_preview_blobs():
     headers = read_repo("cloudflare/public/_headers")
 
