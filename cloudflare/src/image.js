@@ -31,6 +31,15 @@ function withProviderAttempts(target, attempts) {
   return target;
 }
 
+// Tag an error thrown by generateWithWorkersAi: the batch rescue must know the
+// failure came from an uncancellable AI.run (never replay it), and usage events
+// count the started provider call.
+function withWorkersAiAttempt(error) {
+  withProviderAttempts(error, 1);
+  Object.defineProperty(error, "provider", { value: "workers-ai", configurable: true });
+  return error;
+}
+
 // NVIDIA may return HTTP 200 + a black placeholder with finishReason CONTENT_FILTERED.
 function isContentFiltered(data) {
   const arts = data && data.artifacts;
@@ -354,23 +363,28 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
   } catch (e) {
     console.error("Workers AI 生圖失敗（attempt 1/1）", e);
     if (isWorkersAiContentFilterError(e)) {
-      throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
+      throw withWorkersAiAttempt(new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered"));
     }
-    throw e && (e.name === "TimeoutError" || e.name === "AbortError")
+    throw withWorkersAiAttempt(e && (e.name === "TimeoutError" || e.name === "AbortError")
       ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
-      : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+      : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error"));
   } finally {
     clearTimeout(timer);
   }
 
   if (isContentFiltered(data)) {
-    throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
+    throw withWorkersAiAttempt(new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered"));
   }
   // Documented binding shape is { image: "<base64>" }; short images fail the
   // shared length heuristic, so keep this direct path before extractImage.
   const direct = data && typeof data.image === "string" ? data.image.trim() : "";
   const directMime = direct && isValidBase64(direct) ? detectImageMimeStrict(direct) : null;
-  const image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
+  let image;
+  try {
+    image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
+  } catch (error) {
+    throw withWorkersAiAttempt(error);
+  }
   return {
     image,
     provider: "workers-ai",
@@ -584,8 +598,17 @@ async function generateWithFallbackChain(env, { prompt, model, width, height, se
     try {
       return await generateWithWorkersAi(env, { prompt, model, width, height, seed });
     } catch (waErr) {
-      if (pollinationsEnabled && shouldFallbackToWorkersAi(waErr)) {
-        return await generateWithPollinations({ prompt, width, height, seed });
+      // A timed-out AI.run may still be running; crossing to Pollinations now
+      // would also start a second paid generation for this same variant.
+      if (pollinationsEnabled && waErr.code !== "timeout" && shouldFallbackToWorkersAi(waErr)) {
+        try {
+          return await generateWithPollinations({ prompt, width, height, seed });
+        } catch (pollErr) {
+          // This variant already consumed a Workers AI run; flag the surfaced
+          // error so the batch rescue does not start a second uncancellable run.
+          if (pollErr && typeof pollErr === "object") pollErr.workersAiAttempted = true;
+          throw pollErr;
+        }
       }
       throw waErr;
     }
