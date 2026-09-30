@@ -315,3 +315,37 @@ test('history regenerate then editing the description does not reuse the stale p
   assert.equal(bodies[0].userPrompt, EDITED_PROMPT);
   assert.equal(bodies[0].prompt, EDITED_WITH_AVOID);
 });
+
+for (const entry of ['canvas', 'composition', 'history']) {
+  for (const avoid of ['', 'watermark']) {
+    test(`${entry} restore allows ${avoid ? 'replacing' : 'clearing'} the saved avoid text`, async () => {
+      const env = setupEnvironment();
+      const { ImageGenApp, ImageHistoryStore, ImageHistoryWall } = env.windowObj;
+      ImageHistoryStore.saveRecords([CAT_RECORD]);
+      env.fire('DOMContentLoaded');
+
+      if (entry === 'canvas') {
+        await generateOnce(env);
+        env.fire('regenerate:click');
+      } else if (entry === 'composition') {
+        assert.equal(ImageGenApp.lockCompositionFromRecord(CAT_RECORD), true);
+      } else {
+        ImageHistoryWall.openHistoryDetail(CAT_RECORD);
+        ImageHistoryWall.regenerateHistoryDetail();
+      }
+      await env.tick();
+      env.fetchCalls.length = 0;
+
+      env.elements.avoid.value = avoid;
+      env.fire('avoid:input');
+      await ImageGenApp.generate();
+
+      const bodies = env.generateBodies();
+      assert.equal(bodies.length, 1);
+      assert.equal(bodies[0].userPrompt, USER_PROMPT);
+      assert.equal(bodies[0].prompt, PROVIDER_PROMPT + (avoid ? ', avoid ' + avoid : ''));
+      assert.equal(ImageGenApp.getLastGeneration().avoid, avoid);
+      assert.equal(env.transformBodies().length, 0, 'preserve the stored compiled prompt');
+    });
+  }
+}

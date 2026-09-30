@@ -1087,6 +1087,8 @@ function clearAutoProviderPrompt(){
 function setGenerationSettings(settings){
   var source = settings || {};
   var autoSource;
+  var avoid = String(source.avoid || '').trim();
+  var avoidSuffix = ', avoid ' + avoid;
   if(Object.prototype.hasOwnProperty.call(source, 'prompt')){
     if(el('plainPrompt')){ el('plainPrompt').value = source.prompt || ''; }
     if(el('prompt')){
@@ -1097,6 +1099,10 @@ function setGenerationSettings(settings){
   if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
     if(source.providerPrompt){
       el('prompt').value = source.providerPrompt;
+      // 儲存的是最終提示詞；拆回排除欄位，讓之後修改或清空排除內容能生效。
+      if(avoid && el('prompt').value.slice(-avoidSuffix.length) === avoidSuffix){
+        el('prompt').value = el('prompt').value.slice(0, -avoidSuffix.length);
+      }
       // 還原的英文提示詞對應目前的中文描述；描述之後被編輯時必須作廢重編，
       // 否則下一次生成會沿用舊提示詞，產出與新描述無關的圖。
       autoSource = el('plainPrompt') ? el('plainPrompt').value.trim() : '';

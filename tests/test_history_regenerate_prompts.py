@@ -19,7 +19,9 @@ def test_history_and_result_regenerate_reuse_stored_provider_prompt():
         [node, "--test", str(HARNESS)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
         cwd=str(REPO_ROOT),
     )
+    assert result.stdout is not None, "Node test output must remain available for regression diagnostics"
     assert result.returncode == 0, result.stdout + "\n" + result.stderr
