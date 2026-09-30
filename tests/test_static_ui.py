@@ -592,7 +592,14 @@ def test_restored_provider_prompt_is_tied_to_the_description():
     app_js = read_static("app.js")
 
     assert "source.providerPrompt){\n      el('prompt').value = source.providerPrompt;" in app_js
-    assert "el('prompt').setAttribute('data-auto-source', el('plainPrompt') ? el('plainPrompt').value.trim() : '')" in app_js
+    assert "el('prompt').setAttribute('data-auto-source', autoSource);" in app_js
+
+
+def test_restored_provider_prompt_does_not_double_append_avoid():
+    """providerPrompt 已含 ', avoid X' 後綴時，serialize 不得再附加一次。"""
+    generation_settings_js = read_static("generation-settings.js")
+
+    assert "base.slice(-suffix.length) === suffix" in generation_settings_js
 
 
 def test_cloudflare_csp_allows_local_image_preview_blobs():

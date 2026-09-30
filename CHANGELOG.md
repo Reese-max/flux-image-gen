@@ -37,7 +37,7 @@
 
 ### Fixed
 
-- 修正「🔁 再生一張」與「🔧 以這張構圖再變化」產出與原作品無關的圖：兩條路徑先前只回填中文描述、漏掉作品儲存的 providerPrompt，等於把中文直接當成供應商提示詞送給 /generate（改描述後更糟：沿用舊英文提示詞、無視新描述）。兩處現在完整回填中文描述／providerPrompt／負面提示／model／尺寸／寬高／steps／cfgScale／seed；`setGenerationSettings` 還原的 providerPrompt 也改標 `data-auto-source` 綁定當前描述，描述一被編輯就自動作廢重編，杜絕沿用另一筆狀態。
+- 修正「🔁 再生一張」與「🔧 以這張構圖再變化」產出與原作品無關的圖：兩條路徑先前只回填中文描述、漏掉作品儲存的 providerPrompt，等於把中文直接當成供應商提示詞送給 /generate（改描述後更糟：沿用舊英文提示詞、無視新描述）。兩處現在完整回填中文描述／providerPrompt／負面提示／model／尺寸／寬高／steps／cfgScale／seed；`setGenerationSettings` 還原的 providerPrompt 也改標 `data-auto-source` 綁定當前描述，描述一被編輯就自動作廢重編，杜絕沿用另一筆狀態。`buildProviderPrompt` 對已含 `, avoid X` 後綴的提示詞改為冪等，避免回填後重複附加負面提示。
 - 快速檔改為優先走 NVIDIA（schnell 映射到 FLUX.1-dev）：Workers AI 的模型端內容過濾較嚴、易誤殺一般描述，現在只有未設定 NVIDIA 金鑰時才退回 Workers AI。Cloudflare Worker 與 FastAPI REST twin 行為一致。
 
 - 快速檔依尺寸分流以降低成本並保住尺寸設定：預設 1024×1024 正方形改走較便宜的 Cloudflare FLUX.1 schnell（JSON、`steps=4`、不帶自訂尺寸），非正方形與自訂尺寸仍走 FLUX.2 klein（支援 width/height）。Cloudflare Worker 與 FastAPI REST twin 行為一致。

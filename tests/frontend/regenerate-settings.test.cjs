@@ -13,8 +13,11 @@ const load = (name) => fs.readFileSync(path.join(STATIC_DIR, name), 'utf8');
 
 const USER_PROMPT = '一隻貓在草地上';
 const PROVIDER_PROMPT = 'a fluffy cat on green grass, highly detailed';
+const AVOID_TEXT = 'blurry';
+const PROVIDER_WITH_AVOID = PROVIDER_PROMPT + ', avoid ' + AVOID_TEXT;
 const EDITED_PROMPT = '一隻貓在桌上';
 const EDITED_PROVIDER_PROMPT = 'a cat on a wooden table, highly detailed';
+const EDITED_WITH_AVOID = EDITED_PROVIDER_PROMPT + ', avoid ' + AVOID_TEXT;
 
 function setupEnvironment() {
   const listeners = {};
@@ -191,8 +194,8 @@ const CAT_RECORD = {
   image: 'data:image/png;base64,CAT',
   thumbnail: 'data:image/png;base64,CAT',
   prompt: USER_PROMPT,
-  providerPrompt: PROVIDER_PROMPT,
-  avoid: '',
+  providerPrompt: PROVIDER_WITH_AVOID,
+  avoid: AVOID_TEXT,
   model: 'schnell',
   size: 'square',
   steps: null,
@@ -208,6 +211,7 @@ async function generateOnce(env) {
   // Simulate the user having generated the cat through the normal flow.
   env.elements['plainPrompt'].value = USER_PROMPT;
   env.elements['prompt'].value = PROVIDER_PROMPT;
+  env.elements['avoid'].value = AVOID_TEXT;
   const p = env.windowObj.ImageGenApp.generate();
   await env.tick();
   return p;
@@ -218,10 +222,12 @@ test('canvas 「🔁 再生一張」 reuses the stored provider prompt, not the 
   env.fire('DOMContentLoaded');
   await generateOnce(env);
   assert.equal(env.generateBodies().length, 1);
+  assert.equal(env.generateBodies()[0].prompt, PROVIDER_WITH_AVOID);
 
   // The composer moved on; regenerate must restore the record settings itself.
   env.elements['plainPrompt'].value = '';
   env.elements['prompt'].value = '';
+  env.elements['avoid'].value = '';
   env.fetchCalls.length = 0;
 
   env.fire('regenerate:click');
@@ -232,8 +238,8 @@ test('canvas 「🔁 再生一張」 reuses the stored provider prompt, not the 
   assert.equal(bodies[0].userPrompt, USER_PROMPT, 'recorded description must stay the original text');
   assert.equal(
     bodies[0].prompt,
-    PROVIDER_PROMPT,
-    'regenerate must resend the stored provider prompt; got ' + JSON.stringify(bodies[0].prompt)
+    PROVIDER_WITH_AVOID,
+    'regenerate must resend the stored provider prompt without re-appending avoid; got ' + JSON.stringify(bodies[0].prompt)
   );
 });
 
@@ -250,7 +256,7 @@ test('history detail 「以此版本再生」 reuses the stored provider prompt'
   const bodies = env.generateBodies();
   assert.equal(bodies.length, 1);
   assert.equal(bodies[0].userPrompt, USER_PROMPT);
-  assert.equal(bodies[0].prompt, PROVIDER_PROMPT);
+  assert.equal(bodies[0].prompt, PROVIDER_WITH_AVOID);
 });
 
 test('lock-composition then editing the description recompiles instead of posting a stale prompt', async () => {
@@ -276,9 +282,10 @@ test('lock-composition then editing the description recompiles instead of postin
   assert.equal(transforms.length, 1, 'edited description must be recompiled through /prompt/transform');
   assert.equal(transforms[0].source, EDITED_PROMPT);
   assert.equal(bodies.length, 1);
+  assert.equal(bodies[0].userPrompt, EDITED_PROMPT);
   assert.equal(
     bodies[0].prompt,
-    EDITED_PROVIDER_PROMPT,
+    EDITED_WITH_AVOID,
     'edited description must produce a fresh provider prompt; got ' + JSON.stringify(bodies[0].prompt)
   );
 });
@@ -305,5 +312,6 @@ test('history regenerate then editing the description does not reuse the stale p
   assert.equal(transforms.length, 1, 'edited description must be recompiled through /prompt/transform');
   assert.equal(transforms[0].source, EDITED_PROMPT);
   assert.equal(bodies.length, 1);
-  assert.equal(bodies[0].prompt, EDITED_PROVIDER_PROMPT);
+  assert.equal(bodies[0].userPrompt, EDITED_PROMPT);
+  assert.equal(bodies[0].prompt, EDITED_WITH_AVOID);
 });

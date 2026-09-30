@@ -1086,6 +1086,7 @@ function clearAutoProviderPrompt(){
 }
 function setGenerationSettings(settings){
   var source = settings || {};
+  var autoSource;
   if(Object.prototype.hasOwnProperty.call(source, 'prompt')){
     if(el('plainPrompt')){ el('plainPrompt').value = source.prompt || ''; }
     if(el('prompt')){
@@ -1098,7 +1099,12 @@ function setGenerationSettings(settings){
       el('prompt').value = source.providerPrompt;
       // 還原的英文提示詞對應目前的中文描述；描述之後被編輯時必須作廢重編，
       // 否則下一次生成會沿用舊提示詞，產出與新描述無關的圖。
-      el('prompt').setAttribute('data-auto-source', el('plainPrompt') ? el('plainPrompt').value.trim() : '');
+      autoSource = el('plainPrompt') ? el('plainPrompt').value.trim() : '';
+      if(autoSource){
+        el('prompt').setAttribute('data-auto-source', autoSource);
+      }else{
+        el('prompt').removeAttribute('data-auto-source');
+      }
     }else{
       el('prompt').value = '';
       el('prompt').removeAttribute('data-auto-source');
