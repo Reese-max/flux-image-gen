@@ -586,10 +586,11 @@ def _resolve_provider_and_request(
 
 
 # NVIDIA circuit breaker: once an infra failure (5xx/timeout) is seen, mark the
-# provider "down" for a cooldown so subsequent requests skip the ~60s dark-provider
+# provider "down" for a cooldown so requests don't each eat the ~60s dark-provider
 # wait and go straight to the fallback chain. Cheap in-process state (monotonic
-# deadline); good enough for one worker, and a batch's concurrent tasks all benefit
-# once the first trips it. Half-open is implicit: past the deadline the next request
+# deadline); good enough for one worker, and a serial batch also benefits once
+# its first variation trips it — the remaining variations skip the dark provider.
+# Half-open is implicit: past the deadline the next request
 # re-probes NVIDIA and re-trips only if it's still down.
 NVIDIA_CIRCUIT_COOLDOWN_S = 180
 _nvidia_circuit_open_until: float = 0.0
@@ -677,27 +678,37 @@ def _random_seed() -> int:
 async def generate_batch(
     request: GenerationRequest, count: int, settings: Settings | None = None
 ) -> list[GenerationResult]:
-    """Generate ``count`` variations of a prompt. The first image honours an
-    explicit seed (so users can vary a locked composition); the rest get fresh
-    random seeds so the batch shows genuine variety."""
+    """Generate ``count`` variations of a prompt, one at a time. The first image
+    honours an explicit seed (so users can vary a locked composition); the rest
+    get fresh random seeds so the batch shows genuine variety. An error that
+    escapes the fallback chain (rate limit / content filter, or an infra failure
+    with no fallback available) aborts the remaining variations and propagates,
+    which the route turns into a single non-2xx body."""
     count = validate_batch_count(count)
     settings = settings or get_settings()
     # Resolve the fast-tier routing once (schnell -> Workers AI or NVIDIA dev) so
-    # every variation in the batch uses the same provider/model.
+    # every variation in the batch starts from the same provider/model choice.
     provider, effective_request = _resolve_provider_and_request(request, settings)
-    # The variations are independent network calls; run them concurrently so a
-    # 4-image batch costs one round-trip of latency, not four. The first image
-    # honours an explicit seed; the rest get fresh random seeds for variety.
+    # The first image honours an explicit seed; the rest get fresh random seeds
+    # for variety.
     seeds = [
         effective_request.seed if (index == 0 and effective_request.seed is not None) else _random_seed()
         for index in range(count)
     ]
-    tasks = [replace(effective_request, seed=seed) for seed in seeds]
-    return list(
-        await asyncio.gather(
-            *(_generate_one_with_fallback(provider, task, settings) for task in tasks)
-        )
-    )
+    variations = [replace(effective_request, seed=seed) for seed in seeds]
+    # Generate one variation at a time. Hosted inference endpoints admit only a
+    # limited number of concurrent runs per account, so the previous unbounded
+    # fan-out came back rate_limited (429) for every variation after the first —
+    # and 429 never falls back or retries by design, so the batch surfaced as
+    # "1 succeeded, N-1 failed" (#7). Serialising trades one round-trip of
+    # latency for a full set of variations: worst case a 4-image batch now takes
+    # about four single-image timeouts instead of one, and a hard failure on any
+    # variation stops the rest instead of spending quota on them. Routing is
+    # resolved once above, but each variation re-checks the circuit breaker, so a
+    # variation that trips it hands the remaining ones to the fallback chain.
+    return [
+        await _generate_one_with_fallback(provider, variation, settings) for variation in variations
+    ]
 
 
 def validate_edit_images(images: tuple[bytes, ...]) -> tuple[bytes, ...]:
