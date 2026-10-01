@@ -398,7 +398,9 @@ async function handleGenerateBatch(request, env) {
     // rate_limited (429) for every variation after the first — and 429 never
     // falls back or retries by design, so the batch surfaced as "1 succeeded,
     // N-1 failed" (#7). Each variant still settles on its own so a genuine
-    // provider failure is still reported against its own index below.
+    // provider failure is still reported against its own index below, and the
+    // trade is bounded: worst case a 4-image batch waits about four single-image
+    // timeouts instead of one.
     const settled = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();

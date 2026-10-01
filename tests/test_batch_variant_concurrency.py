@@ -72,10 +72,18 @@ class SingleRunProvider:
 
 
 def _patch_provider(fake: SingleRunProvider):
-    async def generate(self, request):  # noqa: ARG001 - patched onto NvidiaProvider
+    async def generate(self, request):  # patched onto NvidiaProvider, self unused
         return await fake.generate(request)
 
     return patch.object(NvidiaProvider, "generate", new=generate)
+
+
+class HardFailingProvider(SingleRunProvider):
+    """Provider whose runs always fail the way a rate limit does."""
+
+    async def generate(self, request: GenerationRequest) -> GenerationResult:
+        self.calls += 1
+        raise ProviderError("叫用太頻繁，請稍後再試", status_code=429, code="rate_limited")
 
 
 class BatchVariantConcurrencyTests(unittest.IsolatedAsyncioTestCase):
@@ -123,6 +131,21 @@ class BatchVariantConcurrencyTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(results[0].seed, 777)
         self.assertNotEqual(results[1].seed, 777)
+
+    async def test_generate_batch_stops_at_the_first_hard_failure(self):
+        # The FastAPI twin stays all-or-nothing (a single non-2xx body), so a hard
+        # failure must not be followed by more metered provider calls for the
+        # variations it already doomed.
+        fake = HardFailingProvider()
+        with _patch_provider(fake), self.assertRaises(ProviderError) as ctx:
+            await generate_batch(
+                GenerationRequest(prompt="a cute corgi astronaut", model="schnell", size="square"),
+                count=4,
+                settings=_settings(),
+            )
+
+        self.assertEqual(ctx.exception.code, "rate_limited")
+        self.assertEqual(fake.calls, 1)
 
 
 class BatchVariantRouteTests(unittest.TestCase):
