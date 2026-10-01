@@ -3144,3 +3144,270 @@ test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no pro
   assert.notEqual(body.code, 'rate_limiter_unavailable');
 });
 
+// ── issue #7: batch variant rescue for infra-class failures ──
+
+test('POST /generate/batch retries a rate_limited variant once instead of dropping it', async () => {
+  resetUsageMetrics();
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    // First two concurrent calls: index 0 ok, index 1 rate-limited.
+    // The serialized retry (3rd call) then succeeds.
+    if (fetchCalls === 2) {
+      return new Response(JSON.stringify({ error: 'slow down' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const env = fakeEnv({ NVIDIA_API_KEY: 'test-key', GALLERY_ADMIN_TOKEN: 'admin-secret' });
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      env
+    );
+    const data = await response.json();
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    assert.equal(data.partial, false);
+    assert.equal(fetchCalls, 3);
+    assert.equal(usage.totalAttempts, 3, 'the failed call and successful retry both count');
+    assert.equal(usage.byProvider.nvidia.attempts, 3);
+    assert.equal(usage.estimatedCostUsd, 0.009);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch keeps an explicit seed when the first variant is retried', async () => {
+  const originalFetch = globalThis.fetch;
+  const sentSeeds = [];
+  globalThis.fetch = async function (_url, options) {
+    sentSeeds.push(JSON.parse(options.body).seed);
+    if (sentSeeds.length === 1) {
+      return new Response(JSON.stringify({ error: 'slow down' }), { status: 429 });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2, seed: 777 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    assert.equal(data.images[0].seed, 777);
+    assert.equal(sentSeeds[0], 777);
+    assert.equal(sentSeeds[2], 777);
+    assert.equal(sentSeeds.length, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch counts an unsuccessful retry as another provider attempt', async () => {
+  resetUsageMetrics();
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    if (fetchCalls > 1) return new Response(JSON.stringify({ error: 'slow down' }), { status: 429 });
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), { status: 200 });
+  };
+  try {
+    const env = fakeEnv({ NVIDIA_API_KEY: 'test-key', GALLERY_ADMIN_TOKEN: 'admin-secret' });
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      env
+    );
+    const data = await response.json();
+    const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 1);
+    assert.equal(data.errors.length, 1);
+    assert.equal(fetchCalls, 3);
+    assert.equal(usage.totalAttempts, 3);
+    assert.equal(usage.estimatedCostUsd, 0.009);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch never retries a Workers AI call', async () => {
+  for (const [failure, code] of [
+    [Object.assign(new Error('timed out'), { name: 'TimeoutError' }), 'timeout'],
+    [new Error('model overloaded'), 'workers_ai_error'],
+  ]) {
+    const ai = fakeAi([failure, { image: 'iVBORw0KGgo=' }, { image: 'iVBORw0KGgo=' }]);
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ AI: ai })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200, code);
+    assert.equal(data.images.length, 1, code);
+    assert.equal(data.errors[0].code, code);
+    assert.equal(ai.calls.length, 2, 'an uncancellable run must not be replayed');
+  }
+});
+
+test('POST /generate/batch does NOT retry content_filtered variants', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    if (fetchCalls === 2) {
+      return new Response(JSON.stringify({ artifacts: [{ finishReason: 'CONTENT_FILTERED' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 1);
+    assert.equal(data.errors.length, 1);
+    assert.equal(data.partial, true);
+    assert.equal(fetchCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch does not retry a permanent upstream 4xx', async () => {
+  // A deterministic provider 400 fails identically on retry — only rate limits
+  // and 5xx earn the one serialized rescue.
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async function () {
+    fetchCalls += 1;
+    if (fetchCalls === 2) {
+      return new Response(JSON.stringify({ error: 'bad params' }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 1);
+    assert.equal(data.errors.length, 1);
+    assert.equal(data.errors[0].code, 'nvidia_error');
+    assert.equal(fetchCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate/batch does not replay a variant that already consumed Workers AI', async () => {
+  // NVIDIA 5xx -> Workers AI error -> Pollinations error: the surfaced error is
+  // pollinations_error, but the variant already consumed an uncancellable run.
+  const originalFetch = globalThis.fetch;
+  let pollinationsCalls = 0;
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      return new Response('upstream down', { status: 502 });
+    }
+    return new Response(JSON.stringify({ error: 'overloaded' }), { status: 503 });
+  };
+  const ai = fakeAi(new Error('model overloaded'));
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(data.code, 'pollinations_error');
+    assert.equal(ai.calls.length, 2, 'each variant may consume at most one AI.run');
+    assert.equal(pollinationsCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate does not cross to Pollinations while Workers AI may still be running', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi(Object.assign(new Error('timed out'), { name: 'TimeoutError' }));
+  let pollinationsCalls = 0;
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), { status: 500 });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 504);
+    assert.equal(data.code, 'timeout');
+    assert.equal(ai.calls.length, 1);
+    assert.equal(pollinationsCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+
+test('POST /generate/batch rescues a Pollinations 429 variant on the fallback path', async () => {
+  // Pollinations maps an upstream 429 to pollinations_error (not rate_limited);
+  // status 429 must still count as transient or the fallback path keeps the bug.
+  const originalFetch = globalThis.fetch;
+  let pollinationsCalls = 0;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      if (pollinationsCalls === 1) {
+        return new Response('rate limited', { status: 429 });
+      }
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'overloaded' }), { status: 503 });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    assert.equal(data.partial, false);
+    assert.equal(pollinationsCalls, 3, '2 burst calls + 1 serialized rescue');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

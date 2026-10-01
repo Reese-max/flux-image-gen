@@ -59,7 +59,9 @@ CUSTOM_SIZE_ERROR_MESSAGE = (
 
 # Image generation is the slowest, most expensive call — retry transient failures
 # (timeout / network / 5xx) before giving up. 429 is surfaced immediately so the
-# client can honour retry_after instead of hammering the quota.
+# client can honour retry_after instead of hammering the quota — the single-call
+# path keeps that contract; only the batch rescue (BATCH_RETRYABLE_CODES) gives a
+# rate-limited variant one serialized retry after the burst settles.
 IMAGE_MAX_ATTEMPTS = 2
 RETRYABLE_IMAGE_STATUS = frozenset({500, 502, 503, 504})
 IMAGE_RETRY_BACKOFF_SECONDS = 0.5
@@ -67,6 +69,23 @@ IMAGE_RETRY_BACKOFF_SECONDS = 0.5
 # Batch generation: one prompt -> several variations, each with its own seed.
 MAX_BATCH_COUNT = 4
 BATCH_COUNT_ERROR_MESSAGE = f"count 必須是 1 到 {MAX_BATCH_COUNT} 之間的整數"
+# A failed variation gets ONE serialized rescue retry only for
+# infrastructure-class failures (issue #7: the concurrent burst trips the
+# provider's rate limit, so variant 2+ fails while variant 1 succeeds).
+# content_filtered / bad_request / missing_api_key / no_provider stay
+# fail-closed — they fail identically on retry or must not be regenerated.
+BATCH_RETRYABLE_CODES = frozenset({
+    "rate_limited",
+    "timeout",
+    "network_error",
+    "nvidia_error",
+    "workers_ai_error",
+    "pollinations_error",
+    "bad_provider_response",
+    # Kept identical to the Worker's RETRYABLE set (cloudflare/src/index.js);
+    # "generation_failed" is synthesized there for non-HttpError rejections.
+    "generation_failed",
+})
 
 # AI 改圖（instruction edit）：FLUX.2 klein 吃 1-4 張自訂圖，每張須小於 512x512。
 MAX_EDIT_IMAGES = 4
@@ -118,12 +137,23 @@ class EditResult:
 
 
 class ProviderError(Exception):
-    def __init__(self, message: str, status_code: int = 500, code: str = "provider_error", retry_after: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 500,
+        code: str = "provider_error",
+        retry_after: int | None = None,
+        provider: str | None = None,
+    ):
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.code = code
         self.retry_after = retry_after
+        # Which provider produced the error, when known. The batch rescue uses
+        # it to never replay a Workers AI call (an uncancellable run may still
+        # be executing — a second call would double-bill the same variant).
+        self.provider = provider
 
 
 def inspect_generated_image(image: str, expected_width: int, expected_height: int) -> dict[str, Any]:
@@ -623,8 +653,17 @@ async def _run_fallback_chain(request: GenerationRequest, settings: Settings) ->
         try:
             return await WorkersAiProvider(settings).generate(request)
         except ProviderError as wa_error:
-            if pollinations_enabled and (wa_error.status_code or 0) >= 500:
-                return await PollinationsProvider(settings).generate(request)
+            wa_error.provider = wa_error.provider or WorkersAiProvider.provider_name
+            # A timed-out AI.run may still be running; crossing to Pollinations
+            # now would also start a second paid generation for this variant.
+            if pollinations_enabled and wa_error.code != "timeout" and (wa_error.status_code or 0) >= 500:
+                try:
+                    return await PollinationsProvider(settings).generate(request)
+                except ProviderError as poll_error:
+                    # The variant already consumed a Workers AI run; flag the
+                    # surfaced error so the batch rescue does not replay it.
+                    poll_error.workers_ai_attempted = True
+                    raise
             raise
     if pollinations_enabled:
         return await PollinationsProvider(settings).generate(request)
@@ -648,6 +687,9 @@ async def _generate_one_with_fallback(
     try:
         return await provider.generate(request)
     except ProviderError as error:
+        # Tag the error with its provider so the batch rescue can tell an
+        # uncancellable Workers AI run apart from a replayable NVIDIA call.
+        error.provider = error.provider or getattr(provider, "provider_name", None)
         if not (isinstance(provider, NvidiaProvider) and (error.status_code or 0) >= 500):
             raise
         if not _has_fallback(settings):
@@ -693,11 +735,44 @@ async def generate_batch(
         for index in range(count)
     ]
     tasks = [replace(effective_request, seed=seed) for seed in seeds]
-    return list(
+    results = list(
         await asyncio.gather(
-            *(_generate_one_with_fallback(provider, task, settings) for task in tasks)
+            *(_generate_one_with_fallback(provider, task, settings) for task in tasks),
+            return_exceptions=True,
         )
     )
+    # issue #7: the concurrent fan-out can trip the provider's rate limit, so the
+    # 2nd+ variation fails while the 1st succeeds. Give each infrastructure-class
+    # failure ONE serialized retry — after the burst settles the limiter has room
+    # again. Fail-closed errors (content_filtered etc.) and Workers AI failures
+    # are never retried: the former would fail identically, the latter is an
+    # uncancellable run that may still be executing (replaying double-bills).
+    for index, outcome in enumerate(results):
+        if not isinstance(outcome, ProviderError):
+            continue
+        # Permanent errors (<500, except an upstream 429 rate limit) fail
+        # identically on retry; only transient/infrastructure failures earn the
+        # one serialized rescue. A 429 may arrive under a provider-specific code
+        # (e.g. pollinations_error), so the status carries the transient signal.
+        status_code = outcome.status_code or 0
+        transient = outcome.code == "rate_limited" or status_code == 429 or status_code >= 500
+        if (
+            outcome.code not in BATCH_RETRYABLE_CODES
+            or outcome.provider == "workers-ai"
+            or getattr(outcome, "workers_ai_attempted", False)
+            or not transient
+        ):
+            continue
+        try:
+            results[index] = await _generate_one_with_fallback(provider, tasks[index], settings)
+        except Exception:
+            pass  # keep the original error
+    # Preserve the all-or-nothing contract: propagate the first unresolved
+    # failure in order (gather semantics), rescued variants already removed.
+    for outcome in results:
+        if isinstance(outcome, BaseException):
+            raise outcome
+    return results
 
 
 def validate_edit_images(images: tuple[bytes, ...]) -> tuple[bytes, ...]:

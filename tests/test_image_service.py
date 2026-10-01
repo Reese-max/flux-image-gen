@@ -867,6 +867,324 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         # First variation honours the explicit seed; the rest are fresh randoms.
         self.assertEqual(results[0].seed, 999)
 
+    async def test_generate_batch_rescues_rate_limited_variant_with_serialized_retry(self):
+        # issue #7: firing N concurrent requests trips the provider rate limit and
+        # the 2nd+ variation silently fails. One serialized retry per infra-class
+        # failure rescues it (after the burst settles, the limit has room again).
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            generate_batch,
+        )
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia")
+        first = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="nvidia",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=11,
+        )
+        rescued = GenerationResult(
+            image="data:image/png;base64,BBBB",
+            provider="nvidia",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=22,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=[
+                first,
+                ProviderError("叫用太頻繁，請稍後再試", status_code=429, code="rate_limited"),
+                rescued,
+            ]
+        )
+        with patch.object(NvidiaProvider, "generate", new=nvidia_mock):
+            results = await generate_batch(
+                GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                count=2,
+                settings=settings,
+            )
+
+        self.assertEqual([result.seed for result in results], [11, 22])
+        self.assertEqual(nvidia_mock.call_count, 3, "2 concurrent calls + 1 serialized rescue")
+
+    async def test_generate_batch_retry_reuses_the_variants_seed(self):
+        # The rescued variant keeps its own seed — index 0 keeps the explicit
+        # locked seed so a composition-lock batch does not silently change image.
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            generate_batch,
+        )
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia")
+        recovered = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="nvidia",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=777,
+        )
+        second = GenerationResult(
+            image="data:image/png;base64,BBBB",
+            provider="nvidia",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=555,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=[
+                ProviderError("叫用太頻繁，請稍後再試", status_code=429, code="rate_limited"),
+                second,
+                recovered,
+            ]
+        )
+        with patch.object(NvidiaProvider, "generate", new=nvidia_mock):
+            results = await generate_batch(
+                GenerationRequest(prompt="a cat", model="schnell", size="square", seed=777),
+                count=2,
+                settings=settings,
+            )
+
+        self.assertEqual(results[0].seed, 777)
+        retried_request = nvidia_mock.call_args_list[2].args[0]
+        self.assertEqual(retried_request.seed, 777, "the rescue must reuse the variant's own seed")
+
+    async def test_generate_batch_does_not_retry_content_filtered_variant(self):
+        # Fail-closed: a moderation-blocked variant must not be regenerated.
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            generate_batch,
+        )
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia")
+        ok = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="nvidia",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=11,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=[
+                ok,
+                ProviderError(
+                    "此描述觸發 NVIDIA 內容安全過濾，無法生成圖片，請換個描述再試",
+                    status_code=422,
+                    code="content_filtered",
+                ),
+            ]
+        )
+        with patch.object(NvidiaProvider, "generate", new=nvidia_mock):
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_batch(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    count=2,
+                    settings=settings,
+                )
+
+        self.assertEqual(ctx.exception.code, "content_filtered")
+        self.assertEqual(nvidia_mock.call_count, 2, "content_filtered variants are never retried")
+
+    async def test_generate_batch_never_replays_a_workers_ai_call(self):
+        # AI.run cannot be cancelled: a failed Workers AI run may still be
+        # executing, so the batch must not start another generation for it.
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            ProviderError,
+            WorkersAiProvider,
+            generate_batch,
+        )
+
+        settings = Settings(
+            nvidia_api_key="",
+            image_provider="auto",
+            cf_account_id="acct",
+            cf_api_token="tok",
+        )
+        ok = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="workers-ai",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=11,
+        )
+        wa_mock = AsyncMock(
+            side_effect=[
+                ProviderError("Workers AI 生圖失敗", status_code=502, code="workers_ai_error"),
+                ok,
+            ]
+        )
+        with patch.object(WorkersAiProvider, "generate", new=wa_mock):
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_batch(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    count=2,
+                    settings=settings,
+                )
+
+        self.assertEqual(ctx.exception.code, "workers_ai_error")
+        self.assertEqual(wa_mock.call_count, 2, "an uncancellable run must not be replayed")
+
+    async def test_generate_batch_does_not_retry_permanent_provider_4xx(self):
+        # A deterministic upstream 400 fails identically on retry — only
+        # rate_limited and 5xx earn the one serialized rescue.
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            generate_batch,
+        )
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia")
+        ok = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="nvidia",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=11,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=[
+                ok,
+                ProviderError("NVIDIA HTTP 400: bad params", status_code=400, code="nvidia_error"),
+            ]
+        )
+        with patch.object(NvidiaProvider, "generate", new=nvidia_mock):
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_batch(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    count=2,
+                    settings=settings,
+                )
+
+        self.assertEqual(ctx.exception.code, "nvidia_error")
+        self.assertEqual(nvidia_mock.call_count, 2, "permanent 4xx must not be retried")
+
+    async def test_generate_batch_does_not_replay_variant_that_consumed_workers_ai(self):
+        # NVIDIA 5xx -> Workers AI error -> Pollinations error surfaces as
+        # pollinations_error, but the variant already consumed an AI run —
+        # the rescue must not start a second uncancellable call for it.
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            NvidiaProvider,
+            PollinationsProvider,
+            ProviderError,
+            WorkersAiProvider,
+            generate_batch,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            cf_account_id="acct",
+            cf_api_token="tok",
+            pollinations_fallback_enabled=True,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=ProviderError("NVIDIA 產圖逾時", status_code=504, code="timeout")
+        )
+        wa_mock = AsyncMock(
+            side_effect=ProviderError("Workers AI 生圖失敗", status_code=502, code="workers_ai_error")
+        )
+        pollinations_mock = AsyncMock(
+            side_effect=ProviderError("Pollinations HTTP 502", status_code=502, code="pollinations_error")
+        )
+        with patch.object(NvidiaProvider, "generate", new=nvidia_mock), patch.object(
+            WorkersAiProvider, "generate", new=wa_mock
+        ), patch.object(PollinationsProvider, "generate", new=pollinations_mock):
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_batch(
+                    GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                    count=2,
+                    settings=settings,
+                )
+
+        self.assertEqual(ctx.exception.code, "pollinations_error")
+        self.assertEqual(wa_mock.call_count, 2, "each variant may consume at most one AI run")
+        self.assertEqual(pollinations_mock.call_count, 2)
+
+    async def test_generate_batch_rescues_pollinations_429_variant(self):
+        # Pollinations surfaces an upstream 429 as pollinations_error (not
+        # rate_limited) — the rescue must still treat status 429 as transient
+        # or the NVIDIA->Pollinations fallback path keeps the issue-#7 bug.
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            PollinationsProvider,
+            ProviderError,
+            generate_batch,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            pollinations_fallback_enabled=True,
+        )
+        first = GenerationResult(
+            image="data:image/jpeg;base64,AAAA",
+            provider="pollinations",
+            model="flux",
+            width=1024,
+            height=1024,
+            seed=11,
+        )
+        rescued = GenerationResult(
+            image="data:image/jpeg;base64,BBBB",
+            provider="pollinations",
+            model="flux",
+            width=1024,
+            height=1024,
+            seed=22,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=ProviderError("NVIDIA HTTP 503", status_code=503, code="nvidia_error")
+        )
+        pollinations_mock = AsyncMock(
+            side_effect=[
+                ProviderError("Pollinations HTTP 429", status_code=429, code="pollinations_error"),
+                first,
+                rescued,
+            ]
+        )
+        with patch.object(NvidiaProvider, "generate", new=nvidia_mock), patch.object(
+            PollinationsProvider, "generate", new=pollinations_mock
+        ):
+            results = await generate_batch(
+                GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                count=2,
+                settings=settings,
+            )
+
+        self.assertEqual([result.seed for result in results], [22, 11])
+        self.assertEqual(nvidia_mock.call_count, 1, "the open circuit spares NVIDIA the burst and the rescue")
+        self.assertEqual(pollinations_mock.call_count, 3, "2 failed-over calls + 1 serialized rescue")
+
     def test_validate_batch_count_rejects_out_of_range_values(self):
         from app.image_service import validate_batch_count
 

@@ -37,6 +37,8 @@
 
 ### Fixed
 
+- 修正多張變體只有第 1 張成功、其餘標失敗（#7）：並發打上游會觸發 provider 限流（429），第 2 張起直接失敗。批次現在對基礎設施類失敗（rate_limited／timeout／network_error／nvidia_error／pollinations_error／bad_provider_response 等）做一次「序列化」補救重試——並發爆發結束後限流已有空位；重試沿用原 seed（鎖定構圖的第 1 張不會被換掉），失敗才保留原錯誤並計入用量嘗試次數。content_filtered／bad_request／missing_api_key／no_provider 仍 fail-closed 不重試；Workers AI 的錯誤一律不重送（AI.run 不可取消，逾時的 run 可能還在跑，重送會重複計費），且 Workers AI 逾時不再跨到 Pollinations（同樣避免雙重計費）。Worker 與 FastAPI twin 行為一致。
+
 - 快速檔改為優先走 NVIDIA（schnell 映射到 FLUX.1-dev）：Workers AI 的模型端內容過濾較嚴、易誤殺一般描述，現在只有未設定 NVIDIA 金鑰時才退回 Workers AI。Cloudflare Worker 與 FastAPI REST twin 行為一致。
 
 - 快速檔依尺寸分流以降低成本並保住尺寸設定：預設 1024×1024 正方形改走較便宜的 Cloudflare FLUX.1 schnell（JSON、`steps=4`、不帶自訂尺寸），非正方形與自訂尺寸仍走 FLUX.2 klein（支援 width/height）。Cloudflare Worker 與 FastAPI REST twin 行為一致。

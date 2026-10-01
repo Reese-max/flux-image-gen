@@ -395,14 +395,51 @@ async function handleGenerateBatch(request, env) {
     // The variations are independent network calls; run them concurrently so a
     // 4-image batch costs one round-trip of latency instead of four.
     const tasks = [];
+    const variationSeeds = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
+      variationSeeds.push(variationSeed);
       tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
     }
     const settled = await Promise.allSettled(tasks);
+    const target = generationUsageTarget(env, model);
+    const extraAttempts = Array(count).fill(0);
+    // issue #7: 並發打上游會觸發 rate limit 讓第 2+ 張靜默失敗。
+    // 對基礎設施類失敗做一次序列重試（仍 fail-closed：
+    // content_filtered / bad_request / missing_api_key / no_provider 不重試）。
+    const RETRYABLE = new Set(["rate_limited", "timeout", "network_error", "nvidia_error", "workers_ai_error", "pollinations_error", "bad_provider_response", "generation_failed"]);
+    for (let index = 0; index < settled.length; index++) {
+      const item = settled[index];
+      if (item.status !== "rejected") continue;
+      const isHttp = item.reason instanceof HttpError;
+      const code = isHttp ? item.reason.code : "";
+      // AI.run cannot be cancelled; a failed Workers AI call may still be
+      // running, so never start another generation for that variant — the same
+      // holds when the fallback chain already consumed a Workers AI run.
+      const consumedWorkersAi = Boolean(item.reason && (item.reason.provider === "workers-ai" || item.reason.workersAiAttempted));
+      // Permanent errors (<500, except an upstream 429 rate limit) fail
+      // identically on retry; only transient/infrastructure failures earn the
+      // one serialized rescue. A 429 may arrive under a provider-specific code
+      // (e.g. pollinations_error), so the status carries the transient signal.
+      const transient = code === "rate_limited" || (isHttp && (item.reason.status === 429 || item.reason.status >= 500));
+      if (!RETRYABLE.has(code) || consumedWorkersAi || !transient) continue;
+      const fallbackAttempts = code !== "bad_request" && code !== "missing_api_key" && target.provider !== "demo" ? 1 : 0;
+      const originalAttempts = providerAttemptCount(item.reason, fallbackAttempts);
+      try {
+        extraAttempts[index] = originalAttempts;
+        settled[index] = {
+          status: "fulfilled",
+          value: await generateOneImage(env, { prompt, model, size, width, height, seed: variationSeeds[index], steps, cfgScale }),
+        };
+      } catch (retryError) {
+        // Keep the original error in the response, but count the second
+        // provider call even when the retry also fails.
+        const retryFallback = retryError instanceof HttpError && retryError.code !== "missing_api_key" && retryError.code !== "bad_request" ? 1 : 0;
+        extraAttempts[index] = providerAttemptCount(retryError, retryFallback);
+      }
+    }
     const images = [];
     const errors = [];
-    const target = generationUsageTarget(env, model);
     for (let index = 0; index < settled.length; index++) {
       const item = settled[index];
       if (item.status === "fulfilled") {
@@ -415,7 +452,7 @@ async function handleGenerateBatch(request, env) {
           model: item.value.model,
           imageCount: 1,
           durationMs: elapsedMs(started),
-          attempt: providerAttemptCount(item.value, item.value.provider === "demo" ? 0 : 1),
+          attempt: providerAttemptCount(item.value, item.value.provider === "demo" ? 0 : 1) + extraAttempts[index],
           batchIndex: index,
         });
       } else {
@@ -423,7 +460,7 @@ async function handleGenerateBatch(request, env) {
           ? item.reason
           : new HttpError("圖片生成失敗，請稍後再試", 502, "generation_failed");
         const fallbackAttempts = error.code !== "bad_request" && error.code !== "missing_api_key" && target.provider !== "demo" ? 1 : 0;
-        const attempts = providerAttemptCount(error, fallbackAttempts);
+        const attempts = providerAttemptCount(error, fallbackAttempts) + extraAttempts[index];
         errors.push({ index, error: error.message, code: error.code, status: error.status });
         await recordUsageEvent(env, request, {
           route: "generate_batch",
