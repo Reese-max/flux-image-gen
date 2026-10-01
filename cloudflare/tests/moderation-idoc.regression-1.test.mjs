@@ -83,4 +83,11 @@ suite("moderation: identity document default-deny", () => {
       assert.equal(category, "", `expected allowed for: ${prompt}`);
     }
   });
+
+  test("blocks whitespace evasion in CJK identity terms", () => {
+    for (const prompt of ["做一張身 分 證樣張", "做一張護 照樣張"]) {
+      assert.equal(detectHighRiskPromptCategory(prompt), "fake_documents", prompt);
+    }
+  });
+
 });
