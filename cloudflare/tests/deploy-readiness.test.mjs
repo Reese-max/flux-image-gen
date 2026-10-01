@@ -100,6 +100,26 @@ test('both real deployment paths invoke readiness before resolving the commit', 
   assert.match(wslScript, /default\.toml.*\.bak-|\$\{WIN_CREDS\}\.bak-/);
 });
 
+test('Deploy Preview upload is guarded while a pull request is a draft', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const ciWorkflow = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+
+  assert.match(
+    workflow,
+    /deploy-preview:\s+needs: check\s+if: github\.event_name == 'pull_request' && github\.event\.pull_request\.draft == false/
+  );
+  assert.match(workflow, /command: versions upload/);
+  assert.match(workflow, /deploy-production:\s+needs: check\s+if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/production'/);
+  assert.match(workflow, /permissions:\s+contents: read/);
+  assert.match(workflow, /check:[\s\S]*?run: npm run sync[\s\S]*?uses: actions\/upload-artifact@v7/);
+  assert.match(workflow, /if: github\.event_name == 'pull_request'[\s\S]*?cloudflare\/public\/static\/app\.js[\s\S]*?cloudflare\/public\/static\/generation-settings\.js[\s\S]*?cloudflare\/public\/static\/history-store\.js[\s\S]*?if-no-files-found: error/);
+  assert.doesNotMatch(workflow, /git push|contents:\s*write/);
+
+  const syncIndex = ciWorkflow.indexOf('run: npm run sync');
+  const verifyIndex = ciWorkflow.indexOf('run: node scripts/verify.mjs');
+  assert.ok(syncIndex >= 0 && syncIndex < verifyIndex, 'CI must sync deploy assets before full offline verification');
+});
+
 
 import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness.mjs';
 

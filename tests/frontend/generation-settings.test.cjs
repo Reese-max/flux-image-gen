@@ -55,6 +55,14 @@ test('buildProviderPrompt appends avoid text', () => {
   );
 });
 
+test('legacy history without a provider prompt requires compilation', () => {
+  const settings = loadGenerationSettings();
+
+  assert.equal(settings.shouldCompileProviderPrompt('一隻貓在草地上', ''), true);
+  assert.equal(settings.shouldCompileProviderPrompt('一隻貓在草地上', 'a cat in a meadow'), false);
+  assert.equal(settings.shouldCompileProviderPrompt('', ''), false);
+});
+
 test('serializeSettings includes validated custom dimensions', () => {
   const settings = loadGenerationSettings();
   const serialized = settings.serializeSettings({

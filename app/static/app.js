@@ -1539,7 +1539,7 @@ function compileProviderPromptIfNeeded(settings){
   var style = promptStyle ? promptStyle.value : 'auto';
   var requestBody;
 
-  if(existingProviderPrompt || !source){
+  if(!GenerationSettings.shouldCompileProviderPrompt(source, existingProviderPrompt)){
     return Promise.resolve(settings);
   }
 
@@ -1618,7 +1618,10 @@ function generate(options){
     return Promise.resolve();
   }
 
-  if(el('plainPrompt') && el('plainPrompt').value.trim() && el('prompt') && !el('prompt').value.trim()){
+  if(GenerationSettings.shouldCompileProviderPrompt(
+    el('plainPrompt') ? el('plainPrompt').value : '',
+    el('prompt') ? el('prompt').value : ''
+  )){
     generationInFlight = true;
     setFieldInvalid(el('plainPrompt'), '');
     setGenerationState('compiling_prompt');

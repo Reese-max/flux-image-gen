@@ -337,7 +337,9 @@
       image: image,
       thumbnail: toText(source.thumbnail) || image,
       prompt: prompt,
-      providerPrompt: toText(source.providerPrompt) || prompt,
+      // Keep missing legacy provider prompts empty so regeneration can rebuild
+      // the provider-ready prompt from the preserved user prompt.
+      providerPrompt: toText(source.providerPrompt),
       negativePrompt: negativePrompt,
       avoid: negativePrompt,
       model: sanitizeMetadataValue(source.model, 'model', DEFAULT_MODEL),
