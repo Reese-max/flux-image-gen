@@ -37,6 +37,7 @@
 
 ### Fixed
 
+- 批次變體改為逐張生成，修掉「2 張／4 張變體只有 1 張成功、其餘標失敗」（#7）：`/generate/batch` 先前把所有變體一次併發送出（Worker `Promise.allSettled`、FastAPI `asyncio.gather`），但推論供應商每個帳號只允許少量併發執行，第 1 張之後的變體全部拿到 429 `rate_limited`；而 429 依設計既不重試也不切後備 provider，於是每批固定只有 1 張成功、重試也一樣。單張路徑不受影響，因為它本來就只有一個請求。現在一次只送一個變體，逐張沿用同一個 provider／model 與各自的 seed（首張仍沿用指定 seed），真的失敗仍逐張回報自己的索引與錯誤碼，部分成功的回應格式不變。代價是批次延遲回到逐張累加，換取指定的張數真的都有圖。
 - 快速檔改為優先走 NVIDIA（schnell 映射到 FLUX.1-dev）：Workers AI 的模型端內容過濾較嚴、易誤殺一般描述，現在只有未設定 NVIDIA 金鑰時才退回 Workers AI。Cloudflare Worker 與 FastAPI REST twin 行為一致。
 
 - 快速檔依尺寸分流以降低成本並保住尺寸設定：預設 1024×1024 正方形改走較便宜的 Cloudflare FLUX.1 schnell（JSON、`steps=4`、不帶自訂尺寸），非正方形與自訂尺寸仍走 FLUX.2 klein（支援 width/height）。Cloudflare Worker 與 FastAPI REST twin 行為一致。

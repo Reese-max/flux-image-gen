@@ -685,19 +685,20 @@ async def generate_batch(
     # Resolve the fast-tier routing once (schnell -> Workers AI or NVIDIA dev) so
     # every variation in the batch uses the same provider/model.
     provider, effective_request = _resolve_provider_and_request(request, settings)
-    # The variations are independent network calls; run them concurrently so a
-    # 4-image batch costs one round-trip of latency, not four. The first image
-    # honours an explicit seed; the rest get fresh random seeds for variety.
+    # The first image honours an explicit seed; the rest get fresh random seeds
+    # for variety.
     seeds = [
         effective_request.seed if (index == 0 and effective_request.seed is not None) else _random_seed()
         for index in range(count)
     ]
     tasks = [replace(effective_request, seed=seed) for seed in seeds]
-    return list(
-        await asyncio.gather(
-            *(_generate_one_with_fallback(provider, task, settings) for task in tasks)
-        )
-    )
+    # Generate one variation at a time. Hosted inference endpoints admit only a
+    # limited number of concurrent runs per account, so the previous unbounded
+    # fan-out came back rate_limited (429) for every variation after the first —
+    # and 429 never falls back or retries by design, so the batch surfaced as
+    # "1 succeeded, N-1 failed" (#7). Serialising trades one round-trip of
+    # latency for a full set of variations.
+    return [await _generate_one_with_fallback(provider, task, settings) for task in tasks]
 
 
 def validate_edit_images(images: tuple[bytes, ...]) -> tuple[bytes, ...]:

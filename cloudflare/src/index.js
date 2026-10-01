@@ -392,14 +392,25 @@ async function handleGenerateBatch(request, env) {
   }
 
   try {
-    // The variations are independent network calls; run them concurrently so a
-    // 4-image batch costs one round-trip of latency instead of four.
-    const tasks = [];
+    // Generate one variation at a time. Hosted inference endpoints admit only a
+    // limited number of concurrent runs per account, so the previous unbounded
+    // fan-out (Promise.allSettled over eagerly started requests) came back
+    // rate_limited (429) for every variation after the first — and 429 never
+    // falls back or retries by design, so the batch surfaced as "1 succeeded,
+    // N-1 failed" (#7). Each variant still settles on its own so a genuine
+    // provider failure is still reported against its own index below.
+    const settled = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
-      tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
+      try {
+        settled.push({
+          status: "fulfilled",
+          value: await generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }),
+        });
+      } catch (reason) {
+        settled.push({ status: "rejected", reason });
+      }
     }
-    const settled = await Promise.allSettled(tasks);
     const images = [];
     const errors = [];
     const target = generationUsageTarget(env, model);
