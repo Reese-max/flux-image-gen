@@ -4,12 +4,69 @@ export const PROMPT_BLOCK_MESSAGE =
   "這段描述屬於高風險內容，無法生成圖片。請改成安全、非侵害性且不涉及詐欺或偽造的描述。";
 
 function normalize(value) {
-  return String(value || "").split(/\s+/).filter(Boolean).join(" ").toLowerCase();
+  // NFKC folds full-width/compat lookalikes and dropping Cf format chars
+  // (ZWSP, word joiner, BOM...) blocks invisible separators used to evade
+  // the term list.
+  let text = String(value || "");
+  try {
+    text = text.normalize("NFKC");
+  } catch (_) {
+    // normalize() may throw on some runtimes; fall back to raw text
+  }
+  text = text.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, "");
+  return text.split(/\s+/).filter(Boolean).join(" ").toLowerCase();
 }
 
 function hasAny(text, terms) {
   return terms.some((term) => text.includes(term));
 }
+
+// 政府核發的身分／官方證件預設拒絕：不需要「假／偽造」字眼，因為寫實證件圖本身就是偽造風險。
+const ID_DOCUMENT_TERMS = [
+  "身分證",
+  "身份證",
+  "身分証",
+  "身份証",
+  "身分证",
+  "身份证",
+  "護照",
+  "护照",
+  "駕照",
+  "驾照",
+  "駕駛執照",
+  "驾驶执照",
+  "居留證",
+  "居留证",
+  "健保卡",
+  "戶口名簿",
+  "户口簿",
+  "戶籍謄本",
+  "户籍誊本",
+  "台胞證",
+  "台胞证",
+  "簽證",
+  "签证",
+  "學生證",
+  "学生证",
+];
+
+// Latin terms match on token boundaries so "valid card"/"paid card" do not
+// collide with "id card" and "advisable" does not collide with "visa".
+// Separators may be a space, hyphen, or nothing ("id-card"/"idcard"); plurals
+// and straight/curly apostrophes are covered.
+const ID_DOCUMENT_LATIN_RE = new RegExp(
+  "(?<![a-z0-9])(?:" +
+    "identification[ -]?(?:cards?|documents?)" +
+    "|identity[ -]?(?:cards?|documents?)" +
+    "|national[ -]?(?:ids?|identity[ -]?(?:cards?|documents?))" +
+    "|student[ -]?ids?|school[ -]?ids?|state[ -]?ids?|government[ -]?ids?" +
+    "|id[ -]?cards?|passports?|visas?" +
+    "|driver['\\u2019]?s?[ -]?licen[cs]es?|driving[ -]?licen[cs]es?" +
+    "|social[ -]?security[ -]?cards?|ssn[ -]?cards?" +
+    "|birth[ -]?certificates?|green[ -]?cards?" +
+    "|residence[ -]?permits?|permanent[ -]?resident[ -]?cards?" +
+    ")(?![a-z0-9])"
+);
 
 export function detectHighRiskPromptCategory(prompt) {
   const text = normalize(prompt);
@@ -28,7 +85,8 @@ export function detectHighRiskPromptCategory(prompt) {
   if (hasAny(text, minors) && hasAny(text, sexual)) return "minor_sensitive";
   if (hasAny(text, sexual)) return "sexual";
   if (hasAny(text, gore)) return "graphic_violence";
-  if (hasAny(text, fakeDocs)) return "fake_documents";
+  const compactText = text.replace(/\s+/g, "");
+  if (hasAny(text, fakeDocs) || hasAny(text, ID_DOCUMENT_TERMS) || hasAny(compactText, ID_DOCUMENT_TERMS) || ID_DOCUMENT_LATIN_RE.test(text)) return "fake_documents";
   if (hasAny(text, fraud)) return "fraud";
   if (hasAny(text, privacy)) return "privacy";
   if (hasAny(text, political) && hasAny(text, deceptive)) return "political_deception";
