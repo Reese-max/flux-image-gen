@@ -24,8 +24,8 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - 複製設定：可一鍵複製目前圖片的提示詞、模型、尺寸與 Seed，方便分享或重現。
 - Seed 控制：`0` 或空白代表隨機；輸入固定正整數可重現同一組設定，或在原設定上微調。
 - 排除描述輔助：前端會把「不要出現什麼」合併進 prompt（例如 `avoid ...`），不會送出 NVIDIA 目前未支援的 `negative_prompt` 欄位。
-- 後端限流：FastAPI 會依 IP 對 `/generate`、`/generate/batch`、`/edit` 與可能消耗 Gemini 配額的 `/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 做硬性 rate limit；Cloudflare 版使用 `wrangler.toml` 的 `GENERATE_RATE_LIMITER` binding。達上限時回 `429 rate_limited` 與 `retry_after`，不會呼叫模型。追蹤的 `wrangler.toml` 預設 `ENVIRONMENT="production"`：binding 缺失或錯誤且設有 provider key 時回 503 fail-closed，本機 dev 需明確 `wrangler dev --var ENVIRONMENT:development` 才放行。
-- Turnstile 防機器人：公開站追蹤預設 `TURNSTILE_REQUIRED=true` + `TURNSTILE_SITE_KEY`，並把 `TURNSTILE_SECRET_KEY` 放在後端/Worker secret。前端只拿 site key，後端在呼叫模型前驗證 token；驗證失敗或 secret/site key 缺失時不會出圖（fail closed）。
+- 後端限流：FastAPI 會依 IP 對 `/generate`、`/generate/batch`、`/edit` 與可能消耗 Gemini 配額的 `/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 做硬性 rate limit；Cloudflare 版使用 `wrangler.toml` 的 `GENERATE_RATE_LIMITER` binding。達上限時回 `429 rate_limited` 與 `retry_after`，不會呼叫模型。追蹤的 `wrangler.toml` 預設 `ENVIRONMENT="production"`：binding 缺失或錯誤且設有 provider key 時回 503 fail-closed，本機 dev 需明確 `wrangler dev --var ENVIRONMENT:development` 才放行。所有公開部署 gate 都要求 `ENVIRONMENT="production"` 與 limiter binding，因 `/prompt/*` 不驗證 Turnstile。
+- Turnstile 防機器人：公開站可設定 `TURNSTILE_REQUIRED=true`、`TURNSTILE_SITE_KEY`，並把 `TURNSTILE_SECRET_KEY` 放在後端/Worker secret。Worker 對生圖／改圖路由驗證 token；驗證失敗或 secret/site key 缺失時拒絕請求（fail closed）。Turnstile 不涵蓋 Gemini `/prompt/*`，因此不能取代公開部署所需的 production rate limiter。
 - Prompt moderation：`/generate`、`/generate/batch`、`/edit` 在呼叫模型前先擋高風險描述（色情、未成年敏感、血腥暴力、仿冒證件、詐欺、隱私侵犯、政治誤導與商標濫用）。拒絕訊息不回顯敏感全文。
 - 成本 Dashboard：網站「用量」分頁與 `GET /api/usage` 可查今日生成次數、失敗次數、估計成本、每模型／provider／匿名 IP 用量、錯誤率與平均生成時間。FastAPI 另寫入 `logs/usage-YYYY-MM-DD.jsonl`；Worker 輸出 `usage_event` 結構化 log。用量資料不保存 prompt、圖片內容或金鑰。
 

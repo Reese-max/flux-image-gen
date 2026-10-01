@@ -78,6 +78,7 @@ def test_deployment_preflight_public_mode_allows_turnstile_opt_out(tmp_path):
 def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "ENVIRONMENT", "production")
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
     set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "1x00000000000000000000AA")
     result = run_preflight(root, "--public")
@@ -85,6 +86,19 @@ def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tm
     payload = json.loads(result.stdout)
     assert payload["status"] == "PASS"
     assert payload["publicMode"] is True
+
+
+def test_deployment_preflight_public_mode_rejects_development_even_with_turnstile(tmp_path):
+    """Turnstile does not cover /prompt/*, so public deploys must be fail-closed."""
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "ENVIRONMENT", "development")
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
+    set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "1x00000000000000000000AA")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert any("ENVIRONMENT" in error and '"production"' in error for error in payload["errors"])
 
 
 def test_deployment_preflight_public_mode_rejects_when_all_abuse_controls_off(tmp_path):

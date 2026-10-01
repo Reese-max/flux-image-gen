@@ -105,11 +105,13 @@ import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness
 
 const LIMITER_BINDING = '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\nsimple = { limit = 12, period = 60 }';
 
-test('assertProductionAbuseControls passes on the Turnstile gate alone', () => {
-  assert.doesNotThrow(() =>
-    assertProductionAbuseControls(
+test('assertProductionAbuseControls rejects development mode even when Turnstile is active', () => {
+  // Turnstile is not verified by Gemini-backed /prompt/* routes.
+  assert.throws(
+    () => assertProductionAbuseControls(
       `[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n${LIMITER_BINDING}`,
-    )
+    ),
+    /ENVIRONMENT must be "production"/,
   );
 });
 
@@ -220,4 +222,9 @@ test('GitHub Actions preview upload runs the public preflight before versions up
 
   assert.ok(preflightIndex >= 0, 'preview job must run the public deployment preflight');
   assert.ok(uploadIndex > preflightIndex, 'versions upload must run after the preflight passes');
+  assert.match(
+    previewJob,
+    /if:\s*github\.event_name == 'pull_request' && !github\.event\.pull_request\.draft/,
+    'draft pull requests must skip the external preview upload',
+  );
 });

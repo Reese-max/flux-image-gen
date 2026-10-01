@@ -131,15 +131,9 @@ function varsTable(content) {
  * --public preflight requires it too, and without it the Gemini-backed
  * /prompt/* routes have no Turnstile equivalent to fall back on.
  *
- * On top of the binding, at least one policy layer must be active:
- *   1. The Turnstile gate: TURNSTILE_REQUIRED="true" AND a nonempty
- *      TURNSTILE_SITE_KEY (without the site key the public gate is required
- *      but unconfigured — the Worker would 503 every request).
- *   2. Fail-closed limiter mode: ENVIRONMENT="production" so a broken or
- *      missing binding returns 503 before provider calls instead of allowing.
- *
- * Anything else — Turnstile off AND limiter stuck in dev pass-through —
- * publishes a public endpoint that can consume server-funded quota ungated.
+ * Production mode is mandatory so a broken or missing limiter fails closed.
+ * Turnstile remains an additional gate for image routes, but it is not checked
+ * by the Gemini-backed /prompt/* routes and cannot replace the limiter policy.
  */
 export function assertProductionAbuseControls(tomlContent) {
   const content = String(tomlContent || '');
@@ -171,12 +165,10 @@ export function assertProductionAbuseControls(tomlContent) {
     );
   }
 
-  const turnstileActive = hasTurnstile && hasSiteKey;
-  if (!turnstileActive && !hasProductionMode) {
+  if (!hasProductionMode) {
     throw new Error(
-      'Production deployment rejected: TURNSTILE_REQUIRED is not "true" and ENVIRONMENT is not ' +
-      '"production" (the rate limiter stays in dev pass-through). At least one abuse control ' +
-      'must be active before a public deploy.',
+      'Production deployment rejected: ENVIRONMENT must be "production" so GENERATE_RATE_LIMITER ' +
+      'fails closed for public routes; Turnstile does not cover /prompt/*.',
     );
   }
 }

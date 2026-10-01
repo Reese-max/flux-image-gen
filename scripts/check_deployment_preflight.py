@@ -3,7 +3,7 @@
 
 Default mode verifies the repository is wired safely for deployment without
 requiring production-only values. Use --public before a real public deploy to
-require Turnstile production vars.
+require production fail-closed mode, the limiter binding, and valid Turnstile configuration when enabled.
 """
 from __future__ import annotations
 
@@ -216,18 +216,14 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
         require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白", errors)
 
     if public:
-        # Public deployments must have at least one active abuse control:
-        # either the Turnstile gate, or a durable fail-closed rate limiter
-        # (ENVIRONMENT="production" so a missing/broken binding returns 503,
-        # plus the GENERATE_RATE_LIMITER binding required above). A config
-        # with both layers disabled would expose server-funded generation
-        # without a hard request gate.
+        # Turnstile is not checked by the Gemini-backed /prompt/* routes, so
+        # every public deploy must keep the shared rate limiter fail-closed.
+        # The required binding is validated above; production mode makes a
+        # missing or broken binding reject requests before provider calls.
         environment_value = str(vars_section.get("ENVIRONMENT", "")).strip().lower()
-        turnstile_active = str(vars_section.get("TURNSTILE_REQUIRED", "")).strip().lower() == "true"
-        durable_limiter = environment_value == "production" and limiter is not None
         require(
-            turnstile_active or durable_limiter,
-            '--public 模式需要至少一項濫用防護：TURNSTILE_REQUIRED = "true"，或 ENVIRONMENT = "production" 搭配 GENERATE_RATE_LIMITER 綁定',
+            environment_value == "production",
+            '--public 模式要求 ENVIRONMENT = "production"（/prompt/* 路由不驗證 Turnstile，rate limiter 必須 fail-closed）',
             errors,
         )
 
