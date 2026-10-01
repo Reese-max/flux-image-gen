@@ -85,7 +85,8 @@ export function detectHighRiskPromptCategory(prompt) {
   if (hasAny(text, minors) && hasAny(text, sexual)) return "minor_sensitive";
   if (hasAny(text, sexual)) return "sexual";
   if (hasAny(text, gore)) return "graphic_violence";
-  if (hasAny(text, fakeDocs) || hasAny(text, ID_DOCUMENT_TERMS) || ID_DOCUMENT_LATIN_RE.test(text)) return "fake_documents";
+  const compactText = text.replace(/\s+/g, "");
+  if (hasAny(text, fakeDocs) || hasAny(text, ID_DOCUMENT_TERMS) || hasAny(compactText, ID_DOCUMENT_TERMS) || ID_DOCUMENT_LATIN_RE.test(text)) return "fake_documents";
   if (hasAny(text, fraud)) return "fraud";
   if (hasAny(text, privacy)) return "privacy";
   if (hasAny(text, political) && hasAny(text, deceptive)) return "political_deception";
