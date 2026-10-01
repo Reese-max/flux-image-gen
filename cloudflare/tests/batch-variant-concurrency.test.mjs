@@ -32,14 +32,14 @@ function fakeEnv(extra = {}) {
 
 // A provider that admits one in-flight run per account: overlapping calls get the
 // same 429 the deployed provider returned for every variant after the first.
-function singleRunProvider({ latencyMs = 20 } = {}) {
+function singleRunProvider() {
   const state = { inFlight: 0, peakInFlight: 0, calls: 0 };
   const fetchImpl = async () => {
     state.calls += 1;
     state.inFlight += 1;
     state.peakInFlight = Math.max(state.peakInFlight, state.inFlight);
     try {
-      await new Promise((resolve) => setTimeout(resolve, latencyMs));
+      await new Promise((resolve) => setTimeout(resolve, 20));
       if (state.inFlight > 1) {
         return new Response(JSON.stringify({ detail: 'concurrent run limit' }), {
           status: 429,
@@ -57,9 +57,9 @@ function singleRunProvider({ latencyMs = 20 } = {}) {
   return { state, fetchImpl };
 }
 
-async function withProvider(options, run) {
+async function withProvider(run) {
   const originalFetch = globalThis.fetch;
-  const { state, fetchImpl } = singleRunProvider(options);
+  const { state, fetchImpl } = singleRunProvider();
   globalThis.fetch = fetchImpl;
   try {
     return { state, result: await run() };
@@ -69,7 +69,7 @@ async function withProvider(options, run) {
 }
 
 test('POST /generate/batch returns every requested image when the provider admits one run', async () => {
-  const { state, result } = await withProvider({}, () =>
+  const { state, result } = await withProvider(() =>
     worker.fetch(
       jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 4 }),
       fakeEnv({ NVIDIA_API_KEY: 'test-key' })
@@ -87,7 +87,7 @@ test('POST /generate/batch returns every requested image when the provider admit
 });
 
 test('POST /generate/batch keeps a single provider call in flight for two variants', async () => {
-  const { state, result } = await withProvider({}, () =>
+  const { state, result } = await withProvider(() =>
     worker.fetch(
       jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
       fakeEnv({ NVIDIA_API_KEY: 'test-key' })

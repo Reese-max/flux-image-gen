@@ -678,9 +678,11 @@ def _random_seed() -> int:
 async def generate_batch(
     request: GenerationRequest, count: int, settings: Settings | None = None
 ) -> list[GenerationResult]:
-    """Generate ``count`` variations of a prompt. The first image honours an
-    explicit seed (so users can vary a locked composition); the rest get fresh
-    random seeds so the batch shows genuine variety."""
+    """Generate ``count`` variations of a prompt, one at a time. The first image
+    honours an explicit seed (so users can vary a locked composition); the rest
+    get fresh random seeds so the batch shows genuine variety. A provider error
+    on any variation aborts the remaining ones and propagates, which the route
+    turns into a single non-2xx body."""
     count = validate_batch_count(count)
     settings = settings or get_settings()
     # Resolve the fast-tier routing once (schnell -> Workers AI or NVIDIA dev) so
@@ -699,10 +701,10 @@ async def generate_batch(
     # and 429 never falls back or retries by design, so the batch surfaced as
     # "1 succeeded, N-1 failed" (#7). Serialising trades one round-trip of
     # latency for a full set of variations: worst case a 4-image batch now takes
-    # about four single-image timeouts instead of one, and a hard failure on the
-    # first variation stops the rest instead of spending quota on them. Routing is
-    # still resolved once above, but each variation re-checks the circuit breaker,
-    # so a variation that trips it hands the remaining ones to the fallback chain.
+    # about four single-image timeouts instead of one, and a hard failure on any
+    # variation stops the rest instead of spending quota on them. Routing is
+    # resolved once above, but each variation re-checks the circuit breaker, so a
+    # variation that trips it hands the remaining ones to the fallback chain.
     return [
         await _generate_one_with_fallback(provider, variation, settings) for variation in variations
     ]
