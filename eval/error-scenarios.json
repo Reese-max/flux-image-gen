@@ -172,13 +172,23 @@
           "path": "tests/test_moderation.py",
           "patterns": [
             "test_blocks_fake_documents",
-            "test_blocks_minor_sensitive_content"
+            "test_blocks_minor_sensitive_content",
+            "test_blocks_official_id_document_specimen",
+            "test_blocks_identity_document_variants",
+            "test_blocks_concatenated_latin_id_terms",
+            "test_blocks_unicode_evasion_variants"
           ]
         },
         {
           "path": "cloudflare/tests/worker-transform.test.mjs",
           "patterns": [
             "blocks high-risk prompt before provider access"
+          ]
+        },
+        {
+          "path": "cloudflare/tests/moderation-idoc.regression-1.test.mjs",
+          "patterns": [
+            "moderation: identity document default-deny"
           ]
         }
       ]

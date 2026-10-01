@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 
 
@@ -41,11 +42,64 @@ def moderate_prompt(prompt: str) -> ModerationDecision:
 
 
 def _normalize(value: str) -> str:
-    return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+    # NFKC folds full-width/compat lookalikes (ｐａｓｓｐｏｒｔ → passport) and
+    # dropping Cf format chars (ZWSP, word joiner, BOM...) blocks invisible
+    # separators used to evade the term list.
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
+    return re.sub(r"\s+", " ", text).strip().lower()
 
 
 def _has_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
+
+
+# 政府核發的身分／官方證件預設拒絕：不需要「假／偽造」字眼，因為寫實證件圖本身就是偽造風險。
+_ID_DOCUMENT_TERMS = (
+    "身分證",
+    "身份證",
+    "身分証",
+    "身份証",
+    "身分证",
+    "身份证",
+    "護照",
+    "护照",
+    "駕照",
+    "驾照",
+    "駕駛執照",
+    "驾驶执照",
+    "居留證",
+    "居留证",
+    "健保卡",
+    "戶口名簿",
+    "户口簿",
+    "戶籍謄本",
+    "户籍誊本",
+    "台胞證",
+    "台胞证",
+    "簽證",
+    "签证",
+    "學生證",
+    "学生证",
+)
+
+# Latin terms match on token boundaries so "valid card"/"paid card" do not
+# collide with "id card" and "advisable" does not collide with "visa".
+# Separators may be a space, hyphen, or nothing ("id-card"/"idcard"); plurals
+# and straight/curly apostrophes are covered.
+_ID_DOCUMENT_LATIN_RE = re.compile(
+    r"(?<![a-z0-9])(?:"
+    r"identification[ -]?(?:cards?|documents?)|"
+    r"identity[ -]?(?:cards?|documents?)|"
+    r"national[ -]?(?:ids?|identity[ -]?(?:cards?|documents?))|"
+    r"student[ -]?ids?|school[ -]?ids?|state[ -]?ids?|government[ -]?ids?|"
+    r"id[ -]?cards?|passports?|visas?|"
+    r"driver['’]?s?[ -]?licen[cs]es?|driving[ -]?licen[cs]es?|"
+    r"social[ -]?security[ -]?cards?|ssn[ -]?cards?|"
+    r"birth[ -]?certificates?|green[ -]?cards?|"
+    r"residence[ -]?permits?|permanent[ -]?resident[ -]?cards?"
+    r")(?![a-z0-9])"
+)
 
 
 def _detect_high_risk_category(text: str) -> str:
@@ -117,7 +171,7 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    if _has_any(text, fake_docs):
+    if _has_any(text, fake_docs) or _has_any(text, _ID_DOCUMENT_TERMS) or _ID_DOCUMENT_LATIN_RE.search(text):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"
