@@ -680,9 +680,10 @@ async def generate_batch(
 ) -> list[GenerationResult]:
     """Generate ``count`` variations of a prompt, one at a time. The first image
     honours an explicit seed (so users can vary a locked composition); the rest
-    get fresh random seeds so the batch shows genuine variety. A provider error
-    on any variation aborts the remaining ones and propagates, which the route
-    turns into a single non-2xx body."""
+    get fresh random seeds so the batch shows genuine variety. An error that
+    escapes the fallback chain (rate limit / content filter, or an infra failure
+    with no fallback available) aborts the remaining variations and propagates,
+    which the route turns into a single non-2xx body."""
     count = validate_batch_count(count)
     settings = settings or get_settings()
     # Resolve the fast-tier routing once (schnell -> Workers AI or NVIDIA dev) so
