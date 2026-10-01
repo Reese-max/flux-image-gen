@@ -419,8 +419,9 @@ async function handleGenerateBatch(request, env) {
       const consumedWorkersAi = Boolean(item.reason && (item.reason.provider === "workers-ai" || item.reason.workersAiAttempted));
       // Permanent errors (<500, except an upstream 429 rate limit) fail
       // identically on retry; only transient/infrastructure failures earn the
-      // one serialized rescue.
-      const transient = code === "rate_limited" || (isHttp && item.reason.status >= 500);
+      // one serialized rescue. A 429 may arrive under a provider-specific code
+      // (e.g. pollinations_error), so the status carries the transient signal.
+      const transient = code === "rate_limited" || (isHttp && (item.reason.status === 429 || item.reason.status >= 500));
       if (!RETRYABLE.has(code) || consumedWorkersAi || !transient) continue;
       const fallbackAttempts = code !== "bad_request" && code !== "missing_api_key" && target.provider !== "demo" ? 1 : 0;
       const originalAttempts = providerAttemptCount(item.reason, fallbackAttempts);

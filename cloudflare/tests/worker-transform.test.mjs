@@ -3379,3 +3379,35 @@ test('POST /generate does not cross to Pollinations while Workers AI may still b
   }
 });
 
+
+test('POST /generate/batch rescues a Pollinations 429 variant on the fallback path', async () => {
+  // Pollinations maps an upstream 429 to pollinations_error (not rate_limited);
+  // status 429 must still count as transient or the fallback path keeps the bug.
+  const originalFetch = globalThis.fetch;
+  let pollinationsCalls = 0;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      if (pollinationsCalls === 1) {
+        return new Response('rate limited', { status: 429 });
+      }
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'overloaded' }), { status: 503 });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    assert.equal(data.partial, false);
+    assert.equal(pollinationsCalls, 3, '2 burst calls + 1 serialized rescue');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

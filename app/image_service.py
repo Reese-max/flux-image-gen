@@ -752,8 +752,10 @@ async def generate_batch(
             continue
         # Permanent errors (<500, except an upstream 429 rate limit) fail
         # identically on retry; only transient/infrastructure failures earn the
-        # one serialized rescue.
-        transient = outcome.code == "rate_limited" or (outcome.status_code or 0) >= 500
+        # one serialized rescue. A 429 may arrive under a provider-specific code
+        # (e.g. pollinations_error), so the status carries the transient signal.
+        status_code = outcome.status_code or 0
+        transient = outcome.code == "rate_limited" or status_code == 429 or status_code >= 500
         if (
             outcome.code not in BATCH_RETRYABLE_CODES
             or outcome.provider == "workers-ai"

@@ -1127,6 +1127,64 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(wa_mock.call_count, 2, "each variant may consume at most one AI run")
         self.assertEqual(pollinations_mock.call_count, 2)
 
+    async def test_generate_batch_rescues_pollinations_429_variant(self):
+        # Pollinations surfaces an upstream 429 as pollinations_error (not
+        # rate_limited) — the rescue must still treat status 429 as transient
+        # or the NVIDIA->Pollinations fallback path keeps the issue-#7 bug.
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            PollinationsProvider,
+            ProviderError,
+            generate_batch,
+        )
+
+        settings = Settings(
+            nvidia_api_key="dummy-key",
+            image_provider="nvidia",
+            pollinations_fallback_enabled=True,
+        )
+        first = GenerationResult(
+            image="data:image/jpeg;base64,AAAA",
+            provider="pollinations",
+            model="flux",
+            width=1024,
+            height=1024,
+            seed=11,
+        )
+        rescued = GenerationResult(
+            image="data:image/jpeg;base64,BBBB",
+            provider="pollinations",
+            model="flux",
+            width=1024,
+            height=1024,
+            seed=22,
+        )
+        nvidia_mock = AsyncMock(
+            side_effect=ProviderError("NVIDIA HTTP 503", status_code=503, code="nvidia_error")
+        )
+        pollinations_mock = AsyncMock(
+            side_effect=[
+                ProviderError("Pollinations HTTP 429", status_code=429, code="pollinations_error"),
+                first,
+                rescued,
+            ]
+        )
+        with patch.object(NvidiaProvider, "generate", new=nvidia_mock), patch.object(
+            PollinationsProvider, "generate", new=pollinations_mock
+        ):
+            results = await generate_batch(
+                GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                count=2,
+                settings=settings,
+            )
+
+        self.assertEqual([result.seed for result in results], [22, 11])
+        self.assertEqual(nvidia_mock.call_count, 1, "the open circuit spares NVIDIA the burst and the rescue")
+        self.assertEqual(pollinations_mock.call_count, 3, "2 failed-over calls + 1 serialized rescue")
+
     def test_validate_batch_count_rejects_out_of_range_values(self):
         from app.image_service import validate_batch_count
 
