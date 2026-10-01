@@ -183,6 +183,12 @@ export const MAX_EDIT_IMAGES = 4;
 // 單張上傳上限（前端已縮到 <512，這是防濫用的硬上限）。
 export const MAX_EDIT_IMAGE_BYTES = 12 * 1024 * 1024;
 export const MAX_BATCH_COUNT = 4;
+// Keep the shared provider transport bounded. NVIDIA deployments commonly
+// expose a single in-flight generation slot; serializing a user batch avoids
+// turning that upstream capacity limit into the historical 2→1/4→1 symptom.
+// Promise settlement still preserves an indexed partial result if one call
+// fails for an independent provider reason.
+export const MAX_BATCH_CONCURRENCY = 1;
 
 // --- Cloud gallery (R2) ---
 export const GALLERY_PREFIX = "gallery/";

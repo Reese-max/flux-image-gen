@@ -55,6 +55,14 @@ test('buildProviderPrompt appends avoid text', () => {
   );
 });
 
+test('legacy history without a provider prompt requires compilation', () => {
+  const settings = loadGenerationSettings();
+
+  assert.equal(settings.shouldCompileProviderPrompt('一隻貓在草地上', ''), true);
+  assert.equal(settings.shouldCompileProviderPrompt('一隻貓在草地上', 'a cat in a meadow'), false);
+  assert.equal(settings.shouldCompileProviderPrompt('', ''), false);
+});
+
 test('serializeSettings includes validated custom dimensions', () => {
   const settings = loadGenerationSettings();
   const serialized = settings.serializeSettings({
@@ -70,6 +78,20 @@ test('serializeSettings includes validated custom dimensions', () => {
   assert.strictEqual(serialized.size, 'custom');
   assert.strictEqual(serialized.width, 1152);
   assert.strictEqual(serialized.height, 1536);
+});
+
+test('serializeSettings preserves the historical provider prompt during regeneration', () => {
+  const settings = loadGenerationSettings();
+  const serialized = settings.serializeSettings({
+    prompt: '一隻貓在草地上',
+    providerPrompt: 'a cat in a meadow, soft daylight',
+    avoid: 'blurry anatomy',
+    size: 'square',
+    seed: 0,
+  });
+
+  assert.equal(serialized.prompt, '一隻貓在草地上');
+  assert.equal(serialized.providerPrompt, 'a cat in a meadow, soft daylight, avoid blurry anatomy');
 });
 
 test('serializeSettings rejects invalid custom dimensions', () => {

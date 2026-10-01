@@ -19,6 +19,7 @@ from .image_service import (
     MAX_EDIT_IMAGES,
     EditRequest,
     GenerationRequest,
+    GenerationResult,
     ProviderError,
     SEED_ERROR_MESSAGE,
     edit_image,
@@ -441,6 +442,7 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
             ),
             count,
             settings=settings,
+            return_exceptions=True,
         )
     except ValueError as exc:
         record_usage_event(
@@ -469,7 +471,48 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
             error_code=str(body.get("code") or exc.code or "provider_error"),
         )
         return JSONResponse(body, status_code=status)
-    first_result = results[0] if results else None
+    successful_results = []
+    batch_errors = []
+    for index, outcome in enumerate(results):
+        if isinstance(outcome, GenerationResult):
+            successful_results.append(outcome)
+            continue
+        error = outcome if isinstance(outcome, ProviderError) else ProviderError(
+            "圖片生成失敗，請稍後再試",
+            status_code=502,
+            code="generation_failed",
+        )
+        error_body, error_status = to_http_error(error)
+        batch_errors.append(
+            {
+                "index": index,
+                "error": error_body.get("error", "圖片生成失敗，請稍後再試"),
+                "code": error_body.get("code", error.code),
+                "status": error_status,
+            }
+        )
+    if not successful_results:
+        first_error = batch_errors[0] if batch_errors else {
+            "error": "圖片生成失敗，請稍後再試",
+            "code": "generation_failed",
+            "status": 502,
+        }
+        record_usage_event(
+            request=request,
+            settings=settings,
+            route="generate_batch",
+            outcome="error",
+            status_code=first_error["status"],
+            duration_ms=elapsed_ms(started),
+            model=payload.model,
+            provider="unknown",
+            error_code=first_error["code"],
+        )
+        return JSONResponse(
+            {"error": first_error["error"], "code": first_error["code"]},
+            status_code=first_error["status"],
+        )
+    first_result = successful_results[0]
     record_usage_event(
         request=request,
         settings=settings,
@@ -479,10 +522,10 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
         duration_ms=elapsed_ms(started),
         model=first_result.model if first_result else payload.model,
         provider=first_result.provider if first_result else "unknown",
-        image_count=len(results),
+        image_count=len(successful_results),
     )
     images_payload = []
-    for result in results:
+    for result in successful_results:
         item = {
                 "image": result.image,
                 "provider": result.provider,
@@ -497,7 +540,11 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
             if vision_qa:
                 item["visionQa"] = vision_qa
         images_payload.append(item)
-    return {"images": images_payload}
+    return {
+        "images": images_payload,
+        "errors": batch_errors,
+        "partial": bool(batch_errors),
+    }
 
 
 @app.post("/edit")

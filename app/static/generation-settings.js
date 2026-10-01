@@ -31,6 +31,10 @@
     return avoid ? base + ', avoid ' + avoid : base;
   }
 
+  function shouldCompileProviderPrompt(prompt, providerPrompt) {
+    return !!toText(prompt) && !toText(providerPrompt);
+  }
+
   function normalizeCustomDimension(value, label) {
     var text = toText(value);
     var number;
@@ -71,6 +75,7 @@
     normalizeSeed: normalizeSeed,
     normalizeCustomDimension: normalizeCustomDimension,
     buildProviderPrompt: buildProviderPrompt,
+    shouldCompileProviderPrompt: shouldCompileProviderPrompt,
     serializeSettings: serializeSettings
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

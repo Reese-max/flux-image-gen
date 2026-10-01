@@ -44,6 +44,10 @@ jobs:
       - name: Install Playwright Chromium
         run: npm --prefix cloudflare run qa:browser:install
 
+      - name: Generate Cloudflare static assets
+        working-directory: cloudflare
+        run: npm run sync
+
       # verify.mjs includes Python tests, frontend tests, browser QA,
       # Cloudflare sync:check, syntax checks, and Worker tests.
       - name: Run full offline verify

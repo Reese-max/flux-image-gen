@@ -1,7 +1,7 @@
 // Cloudflare Worker entry: serves the static SPA and routes the JSON API.
 // Request handlers live here; pure helpers are split into sibling modules
 // (constants / http / prompt / image / gallery). Mirrors the Python backend.
-import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
+import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_BATCH_CONCURRENCY, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
 import {
   HttpError,
   checkRateLimit,
@@ -50,6 +50,24 @@ function providerAttemptCount(source, fallback = 0) {
   const raw = source && source.providerAttempts;
   const parsed = Number(raw == null ? fallback : raw);
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : Math.max(0, fallback);
+}
+
+async function settleBatch(tasks, concurrency = MAX_BATCH_CONCURRENCY) {
+  const settled = new Array(tasks.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), tasks.length) }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= tasks.length) return;
+      try {
+        settled[index] = { status: "fulfilled", value: await tasks[index]() };
+      } catch (reason) {
+        settled[index] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return settled;
 }
 
 function promptUsageTarget(env, route, provider, attempts = 0) {
@@ -392,14 +410,14 @@ async function handleGenerateBatch(request, env) {
   }
 
   try {
-    // The variations are independent network calls; run them concurrently so a
-    // 4-image batch costs one round-trip of latency instead of four.
+    // The variations are independent, but the shared provider transport is
+    // intentionally serialized for single-slot NVIDIA deployments.
     const tasks = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
-      tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
+      tasks.push(() => generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
     }
-    const settled = await Promise.allSettled(tasks);
+    const settled = await settleBatch(tasks);
     const images = [];
     const errors = [];
     const target = generationUsageTarget(env, model);
@@ -686,7 +704,7 @@ async function readGalleryMetaObject(bucket, key) {
     payload = {};
   }
   if (payload && typeof payload.id === "string") { id = payload.id; }
-  if (payload && payload.metadata && typeof payload.metadata === "object") { metadata = payload.metadata; }
+  if (payload && payload.metadata && typeof payload.metadata === "object") { metadata = sanitizeGalleryMeta(payload.metadata); }
   return {
     id,
     imageUrl: `/gallery/${encodeURIComponent(id)}`,
@@ -804,7 +822,9 @@ async function handleGalleryDeletePage(env, id, token) {
     });
   }
 
-  const metadata = payload && payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
+  const metadata = payload && payload.metadata && typeof payload.metadata === "object"
+    ? sanitizeGalleryMeta(payload.metadata)
+    : {};
   const title = String(metadata.title || "Fluxi 雲端作品");
   const imageUrl = `/gallery/${encodeURIComponent(id)}`;
   const html = `<!doctype html>
@@ -934,8 +954,10 @@ async function handleSharePage(env, id) {
   } catch {
     payload = {};
   }
-  const metadata = payload && payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
-  const promptPublic = payload.promptPublic === true;
+  const metadata = payload && payload.metadata && typeof payload.metadata === "object"
+    ? sanitizeGalleryMeta(payload.metadata)
+    : {};
+  const promptPublic = payload.promptPublic === true && metadata.promptPublic === "true";
   const prompt = promptPublic ? String(metadata.prompt || "") : "";
   const title = String(metadata.title || "Fluxi 作品分享");
   const model = String(metadata.model || "未記錄");
@@ -944,6 +966,19 @@ async function handleSharePage(env, id) {
   const styleLabel = String(metadata.styleLabel || metadata.style || "未記錄");
   const useCaseLabel = String(metadata.useCaseLabel || metadata.useCase || "未記錄");
   const mode = String(metadata.mode || "normal") === "agent" ? "智慧體模式" : "一般模式";
+  const provenance = metadata.provenance && typeof metadata.provenance === "object" ? metadata.provenance : {};
+  const provenanceReceiptHash = /^[a-f0-9]{64}$/.test(String(provenance.receiptHash || "")) ? String(provenance.receiptHash) : "";
+  const provenanceOutputSha256 = /^[a-f0-9]{64}$/.test(String(provenance.outputSha256 || "")) ? String(provenance.outputSha256) : "";
+  const provenanceOperation = provenance.operation === "edit" || provenance.operation === "generate" ? provenance.operation : "";
+  const provenanceInputHashScope = provenance.inputHashScope === "original_upload" || provenance.inputHashScope === "provider_input"
+    ? provenance.inputHashScope
+    : "";
+  // The Worker stores only a sanitized claim. A public page cannot validate
+  // C2PA against the browser's current image bytes, so it must never present
+  // an imported `verified` value as a trust decision.
+  const provenanceCredentialLabel = provenanceReceiptHash
+    ? "需在收到圖片後重新驗證"
+    : "未提供";
   const imageUrl = `/gallery/${encodeURIComponent(id)}`;
   const robots = payload.visibility === "public" ? "index,follow" : "noindex,nofollow";
   const templateUrl = shareTemplateUrl(promptPublic ? prompt : "", metadata);
@@ -991,6 +1026,17 @@ async function handleSharePage(env, id) {
         <span>Seed：${escapeHtml(seed)}</span>
         <span>Prompt：${promptPublic ? "公開" : "隱藏"}</span>
       </div>
+    </section>
+    <section class="card">
+      <h2>Provenance</h2>
+      <div class="meta">
+        <span>Receipt：${provenanceReceiptHash ? "已提供" : "未提供"}</span>
+        <span>Content Credentials：${escapeHtml(provenanceCredentialLabel)}</span>
+        ${provenanceOperation ? `<span>流程：${escapeHtml(provenanceOperation === "edit" ? "AI 編輯" : "生成")}</span>` : ""}
+        ${provenanceInputHashScope ? `<span>Input hash：${escapeHtml(provenanceInputHashScope)}</span>` : ""}
+      </div>
+      ${provenanceReceiptHash ? `<p>Receipt hash：<code>${escapeHtml(provenanceReceiptHash)}</code></p>` : ""}
+      ${provenanceOutputSha256 ? `<p>Output SHA-256：<code>${escapeHtml(provenanceOutputSha256)}</code></p>` : ""}
     </section>
     <section class="card">
       <h2>Prompt</h2>
