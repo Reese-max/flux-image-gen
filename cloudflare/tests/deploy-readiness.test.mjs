@@ -233,8 +233,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const tokenParserPath = new URL('../../scripts/parse_cloudflare_access_token.mjs', import.meta.url);
+const tokenParserPath = fileURLToPath(new URL('../scripts/parse_cloudflare_access_token.mjs', import.meta.url));
 
 function parseTokenResponse(body, status) {
   const directory = mkdtempSync(join(tmpdir(), 'cf-token-response-'));
