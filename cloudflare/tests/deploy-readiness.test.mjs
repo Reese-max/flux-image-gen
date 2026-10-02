@@ -240,6 +240,18 @@ test('assertProductionAbuseControls rejects a limiter without usable simple boun
   );
 });
 
+test('assertProductionAbuseControls applies the bounds rule to the sub-table form too', () => {
+  // A zero limit in the `[ratelimits.simple]` sub-table form is the same
+  // fail-open state as an inline `limit = 0`; both must be rejected.
+  const subTableZero =
+    "[vars]\nENVIRONMENT = 'production'\nTURNSTILE_REQUIRED = 'true'\nTURNSTILE_SITE_KEY = '0x_site'\n" +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\n[ratelimits.simple]\nlimit = 0\nperiod = 60\n';
+  assert.throws(
+    () => assertProductionAbuseControls(subTableZero),
+    /simple = \{ limit = N, period = M \}/,
+  );
+});
+
 test('validateReadinessInputs applies the abuse-control policy to the checked-in config', () => {
   // main() feeds the tracked wrangler.toml through this single validation
   // pass, so the policy must be enforced here and not only at a second site.
