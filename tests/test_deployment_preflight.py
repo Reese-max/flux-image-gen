@@ -59,6 +59,13 @@ def test_deployment_preflight_passes_current_repo_default_mode():
     assert "release acceptance checklist OK" in payload["checks"]
     assert payload["publicMode"] is False
 
+def test_deployment_preflight_public_mode_passes_checked_in_config():
+    result = run_preflight(ROOT, "--public")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["status"] == "PASS"
+    assert payload["publicMode"] is True
+
 
 def test_deployment_preflight_public_mode_allows_turnstile_opt_out(tmp_path):
     root = copy_repo_subset(tmp_path)
