@@ -194,17 +194,19 @@ test('assertProductionAbuseControls rejects a commented-out limiter binding', ()
     '# [[ratelimits]]\n# name = "GENERATE_RATE_LIMITER"\n# simple = { limit = 12, period = 60 }\n';
   assert.throws(
     () => assertProductionAbuseControls(commentedOut),
-    /GENERATE_RATE_LIMITER/,
+    /must declare the \[\[ratelimits\]\] GENERATE_RATE_LIMITER binding/,
   );
 });
 
 test('assertProductionAbuseControls ignores a limiter name declared under another table', () => {
+  // A whole-file name scan would accept this and only trip the later bounds
+  // check, so the fixture also carries a valid `simple` block.
   const foreign =
     '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
-    '[observability]\nname = "GENERATE_RATE_LIMITER"\n';
+    '[observability]\nname = "GENERATE_RATE_LIMITER"\nsimple = { limit = 12, period = 60 }\n';
   assert.throws(
     () => assertProductionAbuseControls(foreign),
-    /GENERATE_RATE_LIMITER/,
+    /must declare the \[\[ratelimits\]\] GENERATE_RATE_LIMITER binding/,
   );
 });
 
@@ -267,15 +269,15 @@ test('assertProductionAbuseControls rejects when no vars set', () => {
 });
 
 test('assertProductionAbuseControls ignores matching names outside the [vars] table', () => {
-  // An env-specific [env.staging.vars] table must not shadow the real [vars]
-  // deployment policy values.
+  // The env-specific table comes first so a whole-file scan would read the
+  // spoofed production value instead of the real [vars] deployment policy.
   const spoofed =
+    '[env.staging.vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
     '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\n' +
-    '[env.staging.vars]\nENVIRONMENT = "production"\n' +
     LIMITER_BINDING;
   assert.throws(
     () => assertProductionAbuseControls(spoofed),
-    /Production deployment rejected/,
+    /ENVIRONMENT must be "production"|TURNSTILE_REQUIRED must be "true"/,
   );
 });
 
@@ -374,14 +376,14 @@ test('GitHub Actions deploy jobs reference script paths that exist from their wo
     for (const step of body.slice(stepsIndex).split(/\n(?= {6}- )/)) {
       const stepWorkingDirectory =
         step.match(/^\s+working-directory:\s*(\S+)/m)?.[1] ?? jobWorkingDirectory;
-      for (const [, reference] of step.matchAll(/\bnode\s+([\w./-]+\.(?:mjs|js))/g)) {
+      for (const [, reference] of step.matchAll(/\b(?:node|python3?|bash|sh)\s+([\w./-]+\.(?:mjs|js|py|sh))/g)) {
         const resolved = new URL(
           stepWorkingDirectory ? `${stepWorkingDirectory}/${reference}` : reference,
           repoRoot,
         );
         assert.ok(
           existsSync(fileURLToPath(resolved)),
-          `${name}: node ${reference} does not exist from ${stepWorkingDirectory || 'the repository root'}`,
+          `${name}: ${reference} does not exist from ${stepWorkingDirectory || 'the repository root'}`,
         );
       }
     }

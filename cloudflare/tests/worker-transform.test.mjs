@@ -3345,3 +3345,19 @@ test('fail-closed rate-limit events record their real error code in usage metric
   assert.equal(usage.byRoute.generate.failures, 1);
 });
 
+test('fail-closed batch and edit events record their real status and error code', async () => {
+  // /generate/batch and /edit run the same gate as /generate, so their usage
+  // events must carry the fail-closed 503 rather than a hardcoded 429.
+  resetUsageMetrics();
+  const env = productionEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret', AI: fakeAi({ image: 'iVBORw0KGgo=' }) });
+  for (const request of [makeBatchRequest(), editRequest('make it green', 1)]) {
+    assert.equal((await worker.fetch(request, env)).status, 503);
+  }
+
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+  assert.equal(usage.byErrorCode.rate_limiter_unavailable, 2);
+  assert.equal(usage.byErrorCode.rate_limited || 0, 0);
+  assert.equal(usage.byRoute.generate_batch.failures, 1);
+  assert.equal(usage.byRoute.edit.failures, 1);
+});
+
