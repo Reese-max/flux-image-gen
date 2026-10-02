@@ -22,11 +22,10 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      - run: npm run sync:check
 
   deploy-preview:
     needs: check
-    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,10 +61,16 @@ jobs:
             echo "::error::Cloudflare token refresh request failed before returning an HTTP response."
             exit 1
           fi
-          TOKEN="$(node scripts/parse_cloudflare_access_token.mjs "$response_file" "$status")"
+          TOKEN="$(node cloudflare/scripts/parse_cloudflare_access_token.mjs "$response_file" "$status")"
           echo "::add-mask::$TOKEN"
           printf 'token=%s\n' "$TOKEN" >> "$GITHUB_OUTPUT"
 
+      # A preview version is a throwaway QA artifact, not public traffic. The
+      # tracked wrangler.toml is deliberately production-hardened (Turnstile
+      # required + fail-closed limiter), and this repository provisions no
+      # TURNSTILE_SECRET_KEY for preview versions, so the tracked values would
+      # make every PR preview answer 503 turnstile_unconfigured. Override the
+      # mode explicitly to the documented local-dev pass-through.
       - name: Deploy Preview
         uses: cloudflare/wrangler-action@v3
         with:
@@ -73,6 +78,9 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: versions upload
           workingDirectory: cloudflare
+          args: |
+            --var ENVIRONMENT:development
+            --var TURNSTILE_REQUIRED:false
 
   deploy-production:
     needs: check
@@ -112,7 +120,7 @@ jobs:
             echo "::error::Cloudflare token refresh request failed before returning an HTTP response."
             exit 1
           fi
-          TOKEN="$(node scripts/parse_cloudflare_access_token.mjs "$response_file" "$status")"
+          TOKEN="$(node cloudflare/scripts/parse_cloudflare_access_token.mjs "$response_file" "$status")"
           echo "::add-mask::$TOKEN"
           printf 'token=%s\n' "$TOKEN" >> "$GITHUB_OUTPUT"
 

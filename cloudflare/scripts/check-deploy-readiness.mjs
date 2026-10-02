@@ -111,7 +111,7 @@ export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerT
 // brackets inside comments can't truncate the section early, and [env.*]
 // tables can't shadow the deployment policy values.
 function varsTable(content) {
-  const lines = String(content || '').split('\n');
+  const lines = stripTomlComments(String(content || '')).split('\n');
   let inVars = false;
   const collected = [];
   for (const line of lines) {
@@ -122,6 +122,30 @@ function varsTable(content) {
     if (inVars) collected.push(line);
   }
   return collected.join('\n');
+}
+
+// Drop `#` comments so a commented-out binding cannot satisfy a required one.
+function stripTomlComments(content) {
+  return content
+    .split('\n')
+    .map((line) => (/^\s*\[/.test(line) ? line : line.replace(/(^|\s)#[^\n]*/, '$1')))
+    .join('\n');
+}
+
+// True only when a real (uncommented) [[ratelimits]] table declares this name.
+// A commented-out block, or the name appearing under a different table, does
+// not count: wrangler would deploy without the binding.
+function hasRatLimitBinding(content, name) {
+  const lines = stripTomlComments(String(content || '')).split('\n');
+  let inTarget = false;
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      inTarget = /^\s*\[\[\s*ratelimits\s*\]\]/.test(line);
+      continue;
+    }
+    if (inTarget && new RegExp(`^\\s*name\\s*=\\s*"${name}"`).test(line)) return true;
+  }
+  return false;
 }
 
 /**
@@ -149,8 +173,7 @@ export function assertProductionAbuseControls(tomlContent) {
   const hasProductionMode = environmentValue.trim().toLowerCase() === 'production';
   const hasTurnstile = turnstileValue.trim().toLowerCase() === 'true';
   const hasSiteKey = siteKeyValue.trim().length > 0;
-  const hasRateLimiterBinding =
-    /\[\[ratelimits\]\][^\[]*name\s*=\s*"GENERATE_RATE_LIMITER"/.test(content);
+  const hasRateLimiterBinding = hasRatLimitBinding(content, 'GENERATE_RATE_LIMITER');
 
   if (!hasRateLimiterBinding) {
     throw new Error(

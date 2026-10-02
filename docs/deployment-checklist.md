@@ -75,7 +75,9 @@ node cloudflare\scripts\check-deploy-readiness.mjs
 
 `npm run deploy` 與 `npm run deploy:dry-run` 都會先執行 `node scripts\verify.mjs`；正式 deploy 還會強制執行 `python scripts\check_deployment_preflight.py --public` 與 `check-deploy-readiness.mjs`。後者要求 Git worktree 完全乾淨（包含 staged、unstaged 與 untracked 檔案），再唯讀確認 production secrets，通過後才取得 HEAD 作為 tag／message；因此版本中繼資料一定對應實際上傳的已提交內容。Wrapper 固定部署 `wrangler.toml` 的 `flux-image-gen` production 與 `src/index.js`，外部唯一允許的參數是 `--dry-run`；`--env`、`--name`、`--config`、`--profile`、自訂 entrypoint、`--tag`、`--message` 等覆寫一律拒絕。不得以直接呼叫 `wrangler deploy` 規避 gate。
 
-GitHub Actions（`.github/workflows/deploy.yml`）走同一套硬化 gate：`deploy-production` 在 `wrangler-action` 的 `command: deploy` 之前依序執行 `python scripts/check_deployment_preflight.py --public` 與 `node scripts/check-deploy-readiness.mjs`（以臨時 `CLOUDFLARE_API_TOKEN` 唯讀確認 secrets），`deploy-preview` 在 `versions upload` 前也強制 `--public` preflight；`check` job 會先跑 `npm run check`、`npm test`、`npm run sync:check`。任一 gate 失敗即不會上傳，無法繞過追蹤的 production 設定發佈。
+GitHub Actions（`.github/workflows/deploy.yml`）走同一套硬化 gate：`deploy-production` 在 `wrangler-action` 的 `command: deploy` 之前依序執行 `python scripts/check_deployment_preflight.py --public` 與 `node scripts/check-deploy-readiness.mjs`（以臨時 `CLOUDFLARE_API_TOKEN` 唯讀確認 secrets），`deploy-preview` 在 `versions upload` 前也強制 `--public` preflight；`check` job 會先跑 `npm run check` 與 `npm test`。任一 gate 失敗即不會上傳，無法繞過追蹤的 production 設定發佈。
+
+`deploy-preview` 上傳的是 QA 用版本而非公開流量，因此該 step 明確帶 `--var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false` 覆寫：repo 未替 preview 版本配置 `TURNSTILE_SECRET_KEY`，若直接沿用追蹤的 production 值，PR preview 會一律回 503 `turnstile_unconfigured`。preview preflight 仍檢查追蹤的 production 合約，避免未來 PR 把 `wrangler.toml` 改回開發值。
 
 `check:wrangler` 會先跑 `wrangler whoami`，再跑 `wrangler deploy --dry-run` 做登入與部署設定診斷；預設不輸出帳號 email / account id / token。若失敗，先處理 `npx wrangler login`、`CLOUDFLARE_API_TOKEN`、帳號權限、R2 bucket、AI binding 或 rate limit binding；需要更多診斷時可用 `npm --prefix cloudflare run check:wrangler -- --verbose`，輸出仍會遮罩敏感資訊。
 

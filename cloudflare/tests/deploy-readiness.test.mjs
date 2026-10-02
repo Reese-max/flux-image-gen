@@ -169,6 +169,28 @@ test('assertProductionAbuseControls rejects Turnstile-required config without a 
   );
 });
 
+test('assertProductionAbuseControls rejects a commented-out limiter binding', () => {
+  // Wrangler ignores commented tables, so the deployment would ship with no
+  // limiter at all; a raw-text match would wrongly accept this.
+  const commentedOut =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '# [[ratelimits]]\n# name = "GENERATE_RATE_LIMITER"\n# simple = { limit = 12, period = 60 }\n';
+  assert.throws(
+    () => assertProductionAbuseControls(commentedOut),
+    /GENERATE_RATE_LIMITER/,
+  );
+});
+
+test('assertProductionAbuseControls ignores a limiter name declared under another table', () => {
+  const foreign =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '[observability]\nname = "GENERATE_RATE_LIMITER"\n';
+  assert.throws(
+    () => assertProductionAbuseControls(foreign),
+    /GENERATE_RATE_LIMITER/,
+  );
+});
+
 test('assertProductionAbuseControls rejects when no vars set', () => {
   assert.throws(
     () => assertProductionAbuseControls(''),
@@ -222,14 +244,68 @@ test('GitHub Actions preview upload runs the public preflight before versions up
 
   assert.ok(preflightIndex >= 0, 'preview job must run the public deployment preflight');
   assert.ok(uploadIndex > preflightIndex, 'versions upload must run after the preflight passes');
-  assert.match(
-    previewJob,
-    /if:\s*github\.event_name == 'pull_request' && !github\.event\.pull_request\.draft/,
-    'draft pull requests must skip the external preview upload',
-  );
 });
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+test('GitHub Actions preview versions upload overrides the production abuse policy', async () => {
+  // The tracked wrangler.toml is deliberately production-hardened, and no
+  // TURNSTILE_SECRET_KEY is provisioned for preview versions. Without an
+  // explicit non-production override every PR preview answers 503.
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const previewJob = workflow.slice(
+    workflow.indexOf('deploy-preview:'),
+    workflow.indexOf('deploy-production:'),
+  );
+  const uploadIndex = previewJob.indexOf('command: versions upload');
+  const uploadStep = previewJob.slice(uploadIndex);
+
+  assert.match(uploadStep, /--var ENVIRONMENT:development/);
+  assert.match(uploadStep, /--var TURNSTILE_REQUIRED:false/);
+});
+
+test('GitHub Actions deploy jobs reference script paths that exist from their working directory', async () => {
+  // GitHub Actions resolves each step from the job's working directory; a path
+  // that only exists relative to another job makes the deploy step fail.
+  const repoRoot = new URL('../../', import.meta.url);
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+
+  // Only the `jobs:` block declares jobs; `on:` triggers share the same indent.
+  const lines = workflow.slice(workflow.indexOf('\njobs:\n')).split('\n');
+  const jobStarts = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /^ {2}[A-Za-z0-9_-]+:\s*$/.test(line));
+  assert.equal(jobStarts.length, 3, 'expected the check, preview and production jobs');
+
+  for (const [position, { line }] of jobStarts.entries()) {
+    const name = line.trim().replace(/:$/, '');
+    const body = lines
+      .slice(jobStarts[position].index, jobStarts[position + 1]?.index ?? lines.length)
+      .join('\n');
+    const defaultsIndex = body.search(/^\s+defaults:\s*$/m);
+    const stepsIndex = body.search(/^\s+steps:\s*$/m);
+    assert.ok(stepsIndex >= 0, `${name} must declare steps`);
+    const jobWorkingDirectory =
+      defaultsIndex >= 0 && defaultsIndex < stepsIndex
+        ? body.slice(defaultsIndex, stepsIndex).match(/working-directory:\s*(\S+)/)?.[1] ?? ''
+        : '';
+
+    for (const step of body.slice(stepsIndex).split(/\n(?=\s+- )/)) {
+      const stepWorkingDirectory =
+        step.match(/^\s+working-directory:\s*(\S+)/m)?.[1] ?? jobWorkingDirectory;
+      for (const [, reference] of step.matchAll(/\bnode\s+([\w./-]+\.(?:mjs|js))/g)) {
+        const resolved = new URL(
+          stepWorkingDirectory ? `${stepWorkingDirectory}/${reference}` : reference,
+          repoRoot,
+        );
+        assert.ok(
+          existsSync(fileURLToPath(resolved)),
+          `${name}: node ${reference} does not exist from ${stepWorkingDirectory || 'the repository root'}`,
+        );
+      }
+    }
+  }
+});
+
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

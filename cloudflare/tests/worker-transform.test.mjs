@@ -38,6 +38,9 @@ function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
   });
 }
 
+// "test" is an explicit pass-through mode, so the rate limiter stays a no-op
+// when the binding is absent. Abuse-control assertions must use productionEnv()
+// instead, which leaves the limiter fail-closed.
 function fakeEnv(extra = {}) {
   return {
     ENVIRONMENT: 'test',

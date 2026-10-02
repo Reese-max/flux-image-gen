@@ -133,7 +133,7 @@ def test_deployment_preflight_public_mode_allows_fail_closed_limiter_alternative
 
 def test_deployment_preflight_public_mode_rejects_missing_environment_and_turnstile_off(tmp_path):
     """Removing ENVIRONMENT entirely must not silently pass: without the flag the
-    limiter cannot fail closed, so Turnstile must be the active gate."""
+    limiter cannot fail closed, so public mode must still reject the deploy."""
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
     text = wrangler.read_text(encoding="utf-8")
@@ -142,6 +142,31 @@ def test_deployment_preflight_public_mode_rejects_missing_environment_and_turnst
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
     result = run_preflight(root, "--public")
     assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    # The missing-var check alone would pass this test, so assert the public
+    # fail-closed policy check fired as well.
+    assert (
+        '--public 模式要求 ENVIRONMENT = "production"（/prompt/* 路由不驗證 Turnstile，rate limiter 必須 fail-closed）'
+        in payload["errors"]
+    )
+
+
+def test_deployment_preflight_public_mode_rejects_unknown_environment_mode(tmp_path):
+    """A present but unrecognised ENVIRONMENT must not pass as production: only an
+    explicit "production" enables the fail-closed limiter policy."""
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "ENVIRONMENT", "staging")
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert (
+        '--public 模式要求 ENVIRONMENT = "production"（/prompt/* 路由不驗證 Turnstile，rate limiter 必須 fail-closed）'
+        in payload["errors"]
+    )
+    # ENVIRONMENT is present, so only the public-mode policy check can reject it.
+    assert not [error for error in payload["errors"] if error.startswith("[vars] 缺少")]
 
 
 def test_deployment_preflight_rejects_secret_in_public_vars(tmp_path):
