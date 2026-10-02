@@ -7,6 +7,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+async function readDeployWorkflow() {
+  const contents = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  return contents.replace(/\r\n?/g, '\n');
+}
+
 import {
   REQUIRED_PRODUCTION_SECRETS,
   assertCleanWorktree,
@@ -299,7 +304,7 @@ test('assertProductionAbuseControls accepts the tracked production wrangler.toml
 });
 
 test('GitHub Actions production deploy runs the hardened abuse gates before wrangler deploy', async () => {
-  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const workflow = await readDeployWorkflow();
   const productionJob = workflow.slice(workflow.indexOf('deploy-production:'));
 
   const preflightIndex = productionJob.indexOf('check_deployment_preflight.py --public');
@@ -314,61 +319,47 @@ test('GitHub Actions production deploy runs the hardened abuse gates before wran
   );
 });
 
-test('GitHub Actions preview upload runs the public preflight before versions upload', async () => {
-  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
-  const previewJob = workflow.slice(
-    workflow.indexOf('deploy-preview:'),
-    workflow.indexOf('deploy-production:'),
-  );
+test('GitHub Actions PR workflow does not upload a production Worker version', async () => {
+  const workflow = await readDeployWorkflow();
 
-  const preflightIndex = previewJob.indexOf('check_deployment_preflight.py --public');
-  const uploadIndex = previewJob.indexOf('command: versions upload');
-
-  assert.ok(preflightIndex >= 0, 'preview job must run the public deployment preflight');
-  assert.ok(uploadIndex > preflightIndex, 'versions upload must run after the preflight passes');
+  assert.match(workflow, /pull_request:/);
+  assert.doesNotMatch(workflow, /^  deploy-preview:/m);
+  assert.doesNotMatch(workflow, /command:\s*versions upload/);
 });
 
-test('GitHub Actions preview versions upload overrides the production abuse policy', async () => {
-  // The tracked wrangler.toml is deliberately production-hardened, and no
-  // TURNSTILE_SECRET_KEY is provisioned for preview versions. Without an
-  // explicit non-production override every PR preview answers 503.
-  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
-  const previewJob = workflow.slice(
-    workflow.indexOf('deploy-preview:'),
-    workflow.indexOf('deploy-production:'),
-  );
-  const uploadIndex = previewJob.indexOf('command: versions upload');
-  const uploadStep = previewJob.slice(uploadIndex);
+test('GitHub Actions PR workflow never weakens the production abuse policy', async () => {
+  const workflow = await readDeployWorkflow();
 
-  assert.match(uploadStep, /--var ENVIRONMENT:development/);
-  assert.match(uploadStep, /--var TURNSTILE_REQUIRED:false/);
+  assert.doesNotMatch(workflow, /command:\s*versions upload/);
+  assert.doesNotMatch(workflow, /ENVIRONMENT:development/);
+  assert.doesNotMatch(workflow, /TURNSTILE_REQUIRED:false/);
 });
 
 test('GitHub Actions deploy jobs run the Worker checks before any upload', async () => {
   // `npx tsc --noEmit || true` could never fail, so the gate job previously
   // uploaded whatever was on the branch. Lock in the real checks.
-  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
-  const checkJob = workflow.slice(workflow.indexOf('\n  check:\n'), workflow.indexOf('\n  deploy-preview:\n'));
+  const workflow = await readDeployWorkflow();
+  const checkJob = workflow.slice(workflow.indexOf('\n  check:\n'), workflow.indexOf('\n  deploy-production:\n'));
 
   assert.match(checkJob, /- run: npm run check/);
   assert.match(checkJob, /- run: npm test/);
   assert.doesNotMatch(checkJob, /tsc --noEmit \|\| true/);
-  assert.match(workflow, /deploy-preview:\n\s+needs: check/);
   assert.match(workflow, /deploy-production:\n\s+needs: check/);
+  assert.doesNotMatch(workflow, /command:\s*versions upload/);
 });
 
 test('GitHub Actions deploy jobs reference script paths that exist from their working directory', async () => {
   // GitHub Actions resolves each step from the job's working directory; a path
   // that only exists relative to another job makes the deploy step fail.
   const repoRoot = new URL('../../', import.meta.url);
-  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const workflow = await readDeployWorkflow();
 
   // Only the `jobs:` block declares jobs; `on:` triggers share the same indent.
   const lines = workflow.slice(workflow.indexOf('\njobs:\n')).split('\n');
   const jobStarts = lines
     .map((line, index) => ({ line, index }))
     .filter(({ line }) => /^ {2}[A-Za-z0-9_-]+:\s*$/.test(line));
-  assert.equal(jobStarts.length, 3, 'expected the check, preview and production jobs');
+  assert.equal(jobStarts.length, 2, 'expected the check and production jobs');
 
   for (const [position, { line }] of jobStarts.entries()) {
     const name = line.trim().replace(/:$/, '');
@@ -456,19 +447,16 @@ test('Cloudflare token response parser rejects missing, empty, or newline-bearin
   }
 });
 
-test('both Cloudflare deploy jobs validate refreshed tokens and mask before exporting', async () => {
-  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
-  const preview = workflow.slice(workflow.indexOf('  deploy-preview:'), workflow.indexOf('  deploy-production:'));
+test('production deploy validates the refreshed token and masks it before exporting', async () => {
+  const workflow = await readDeployWorkflow();
   const production = workflow.slice(workflow.indexOf('  deploy-production:'));
-  for (const job of [preview, production]) {
-    const stepStart = job.indexOf('      - name: Refresh Cloudflare Token');
-    assert.ok(stepStart >= 0, "each deploy job must refresh its token");
-    const nextStep = job.indexOf('\n      - name:', stepStart + 1);
-    const step = job.slice(stepStart, nextStep < 0 ? undefined : nextStep);
-    assert.match(step, /CF_REFRESH_TOKEN: \$\{\{ secrets\.CF_REFRESH_TOKEN \}\}/);
-    assert.match(step, /--write-out '%\{http_code\}'/);
-    assert.match(step, /parse_cloudflare_access_token\.mjs/);
-    assert.ok(step.indexOf('::add-mask::') >= 0 && step.indexOf('::add-mask::') < step.indexOf('$GITHUB_OUTPUT'));
-    assert.doesNotMatch(step, /jq -r '\.access_token'/);
-  }
+  const stepStart = production.indexOf('      - name: Refresh Cloudflare Token');
+  assert.ok(stepStart >= 0, 'production deploy must refresh its token');
+  const nextStep = production.indexOf('\n      - name:', stepStart + 1);
+  const step = production.slice(stepStart, nextStep < 0 ? undefined : nextStep);
+  assert.match(step, /CF_REFRESH_TOKEN: \$\{\{ secrets\.CF_REFRESH_TOKEN \}\}/);
+  assert.match(step, /--write-out '%\{http_code\}'/);
+  assert.match(step, /parse_cloudflare_access_token\.mjs/);
+  assert.ok(step.indexOf('::add-mask::') >= 0 && step.indexOf('::add-mask::') < step.indexOf('$GITHUB_OUTPUT'));
+  assert.doesNotMatch(step, /jq -r '\.access_token'/);
 });
