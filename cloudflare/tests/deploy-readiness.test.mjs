@@ -228,3 +228,80 @@ test('GitHub Actions preview upload runs the public preflight before versions up
     'draft pull requests must skip the external preview upload',
   );
 });
+
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const tokenParserPath = new URL('../../scripts/parse_cloudflare_access_token.mjs', import.meta.url);
+
+function parseTokenResponse(body, status) {
+  const directory = mkdtempSync(join(tmpdir(), 'cf-token-response-'));
+  const responsePath = join(directory, 'response.json');
+  try {
+    writeFileSync(responsePath, body, 'utf8');
+    return spawnSync(process.execPath, [tokenParserPath, responsePath, String(status)], { encoding: 'utf8' });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('Cloudflare token response parser emits only a valid synthetic token', () => {
+  const result = parseTokenResponse(JSON.stringify({ access_token: 'synthetic-access-token' }), 200);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, 'synthetic-access-token');
+  assert.equal(result.stderr, '');
+});
+
+test('Cloudflare token response parser rejects non-200 responses without echoing response bodies', () => {
+  const result = parseTokenResponse(JSON.stringify({ access_token: 'SYNTHETIC_SECRET_SENTINEL' }), 400);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /HTTP 400/);
+  assert.doesNotMatch(result.stderr, /SYNTHETIC_SECRET_SENTINEL/);
+});
+
+test('Cloudflare token response parser rejects malformed JSON without echoing it', () => {
+  const result = parseTokenResponse('{"access_token":"SYNTHETIC_SECRET_SENTINEL"', 200);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /invalid JSON/);
+  assert.doesNotMatch(result.stderr, /SYNTHETIC_SECRET_SENTINEL/);
+});
+
+test('Cloudflare token response parser rejects missing, empty, or newline-bearing access tokens', (t) => {
+  const cases = [
+    ['missing', {}],
+    ['null', { access_token: null }],
+    ['number', { access_token: 1 }],
+    ['empty', { access_token: '' }],
+    ['whitespace', { access_token: ' ' }],
+    ['newline', { access_token: 'synthetic-token\\ninjected=value' }],
+  ];
+  for (const [name, body] of cases) {
+    t.test(name, () => {
+      const result = parseTokenResponse(JSON.stringify(body), 200);
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /usable access token/);
+    });
+  }
+});
+
+test('both Cloudflare deploy jobs validate refreshed tokens and mask before exporting', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const preview = workflow.slice(workflow.indexOf('  deploy-preview:'), workflow.indexOf('  deploy-production:'));
+  const production = workflow.slice(workflow.indexOf('  deploy-production:'));
+  for (const job of [preview, production]) {
+    const stepStart = job.indexOf('      - name: Refresh Cloudflare Token');
+    assert.ok(stepStart >= 0, "each deploy job must refresh its token");
+    const nextStep = job.indexOf('\n      - name:', stepStart + 1);
+    const step = job.slice(stepStart, nextStep < 0 ? undefined : nextStep);
+    assert.match(step, /CF_REFRESH_TOKEN: \$\{\{ secrets\.CF_REFRESH_TOKEN \}\}/);
+    assert.match(step, /--write-out '%\{http_code\}'/);
+    assert.match(step, /parse_cloudflare_access_token\.mjs/);
+    assert.ok(step.indexOf('::add-mask::') >= 0 && step.indexOf('::add-mask::') < step.indexOf('$GITHUB_OUTPUT'));
+    assert.doesNotMatch(step, /jq -r '\.access_token'/);
+  }
+});
