@@ -67,13 +67,17 @@ def test_deployment_preflight_public_mode_passes_checked_in_config():
     assert payload["publicMode"] is True
 
 
-def test_deployment_preflight_public_mode_allows_turnstile_opt_out(tmp_path):
+def test_deployment_preflight_public_mode_rejects_turnstile_opt_out(tmp_path):
+    """Turnstile opt-out must not survive the public gate: the per-IP limiter
+    alone is trivially rotated, so it cannot stand in for the human check."""
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
     set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "")
     result = run_preflight(root, "--public")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert '--public 模式要求 TURNSTILE_REQUIRED = "true"（單靠 per-IP rate limit 可被輪替 IP 繞過）' in payload["errors"]
 
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
     result = run_preflight(root, "--public")
@@ -120,15 +124,29 @@ def test_deployment_preflight_public_mode_rejects_when_all_abuse_controls_off(tm
     assert any("ENVIRONMENT" in e or "TURNSTILE" in e for e in payload["errors"])
 
 
-def test_deployment_preflight_public_mode_allows_fail_closed_limiter_alternative(tmp_path):
-    """ENVIRONMENT=production plus the required limiter binding is the documented
-    equivalent abuse-control policy when Turnstile is opted out."""
+def test_deployment_preflight_public_mode_requires_turnstile_not_just_the_limiter(tmp_path):
+    """ENVIRONMENT=production plus the limiter binding is not enough: the image
+    routes must also verify a human token."""
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
     set_wrangler_var(wrangler, "ENVIRONMENT", "production")
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
     result = run_preflight(root, "--public")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert '--public 模式要求 TURNSTILE_REQUIRED = "true"（單靠 per-IP rate limit 可被輪替 IP 繞過）' in payload["errors"]
+
+
+def test_deployment_preflight_public_mode_requires_site_key_when_turnstile_is_on(tmp_path):
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "ENVIRONMENT", "production")
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
+    set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白" in payload["errors"]
 
 
 def test_deployment_preflight_public_mode_rejects_missing_environment_and_turnstile_off(tmp_path):

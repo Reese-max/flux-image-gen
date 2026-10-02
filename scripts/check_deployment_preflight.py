@@ -226,6 +226,13 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
             '--public 模式要求 ENVIRONMENT = "production"（/prompt/* 路由不驗證 Turnstile，rate limiter 必須 fail-closed）',
             errors,
         )
+        # The per-IP limiter is trivially rotated, so it cannot stand in for
+        # the human-verification gate on the image routes.
+        require(
+            str(vars_section.get("TURNSTILE_REQUIRED", "")).strip().lower() == "true",
+            '--public 模式要求 TURNSTILE_REQUIRED = "true"（單靠 per-IP rate limit 可被輪替 IP 繞過）',
+            errors,
+        )
 
     checks.append("wrangler bindings OK")
 

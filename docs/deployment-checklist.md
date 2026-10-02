@@ -83,7 +83,7 @@ GitHub Actions（`.github/workflows/deploy.yml`）走同一套硬化 gate：`dep
 
 若 `check:wrangler` 回報 Wrangler / Node 子程序 crash，優先切到 Node 20 或 22 LTS 再重跑；Node 25 曾在 Windows 上讓 Wrangler 4.106 的 `deploy --dry-run` 只印 banner 後非正常結束。
 
-公開正式部署前，請確認追蹤的 `wrangler.toml` 維持 `ENVIRONMENT = "production"`、`TURNSTILE_REQUIRED = "true"` 與正式 `TURNSTILE_SITE_KEY`，再跑嚴格模式（兩項都是追蹤預設，若曾被改動會在此步被擋下）：
+公開正式部署前，請確認追蹤的 `wrangler.toml` 維持 `ENVIRONMENT = "production"`、`TURNSTILE_REQUIRED = "true"` 與正式 `TURNSTILE_SITE_KEY`，再跑嚴格模式（這些值若曾被改回，會在此步被擋下）：
 
 ```powershell
 python scripts\check_deployment_preflight.py --public

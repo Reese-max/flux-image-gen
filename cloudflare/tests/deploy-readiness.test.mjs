@@ -120,11 +120,23 @@ test('assertProductionAbuseControls rejects development mode even when Turnstile
   );
 });
 
-test('assertProductionAbuseControls passes on a durable fail-closed limiter alone', () => {
-  assert.doesNotThrow(() =>
-    assertProductionAbuseControls(
+test('assertProductionAbuseControls rejects a production config that opts out of Turnstile', () => {
+  // The per-IP limiter is trivially rotated, so it cannot stand in for the
+  // human-verification gate on /generate, /generate/batch and /edit.
+  assert.throws(
+    () => assertProductionAbuseControls(
       `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"\n${LIMITER_BINDING}`,
-    )
+    ),
+    /TURNSTILE_REQUIRED must be "true"/,
+  );
+});
+
+test('assertProductionAbuseControls rejects a production config with no site key', () => {
+  assert.throws(
+    () => assertProductionAbuseControls(
+      '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\n' + LIMITER_BINDING,
+    ),
+    /TURNSTILE_SITE_KEY/,
   );
 });
 
@@ -168,7 +180,7 @@ test('assertProductionAbuseControls rejects a Turnstile-only config without the 
 test('assertProductionAbuseControls rejects Turnstile-required config without a site key', () => {
   assert.throws(
     () => assertProductionAbuseControls(
-      `[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\n${LIMITER_BINDING}`,
+      `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\n${LIMITER_BINDING}`,
     ),
     /TURNSTILE_SITE_KEY/,
   );
@@ -208,7 +220,7 @@ test('assertProductionAbuseControls rejects a limiter without usable simple boun
   );
 
   const zeroLimit =
-    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"\n' +
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
     '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nsimple = { limit = 0, period = 60 }\n';
   assert.throws(
     () => assertProductionAbuseControls(zeroLimit),
@@ -231,7 +243,9 @@ test('validateReadinessInputs applies the abuse-control policy to the checked-in
   assert.doesNotThrow(() => validateReadinessInputs({
     gitStatus: '',
     secretListOutput: JSON.stringify(completeSecretList),
-    wranglerTomlContent: '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"\n' + LIMITER_BINDING,
+    wranglerTomlContent:
+      '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n'
+      + LIMITER_BINDING,
   }));
 });
 

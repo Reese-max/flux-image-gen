@@ -175,13 +175,12 @@ function hasUsableRateLimitBounds(content, name) {
 /**
  * Reject a production deployment configuration that cannot gate abuse.
  *
- * The [[ratelimits]] GENERATE_RATE_LIMITER binding is mandatory — the Python
- * --public preflight requires it too, and without it the Gemini-backed
- * /prompt/* routes have no Turnstile equivalent to fall back on.
- *
- * Production mode is mandatory so a broken or missing limiter fails closed.
- * Turnstile remains an additional gate for image routes, but it is not checked
- * by the Gemini-backed /prompt/* routes and cannot replace the limiter policy.
+ * Every layer is mandatory, not interchangeable: the [[ratelimits]]
+ * GENERATE_RATE_LIMITER binding is the only hard request gate the
+ * Gemini-backed /prompt/* routes have (they never verify Turnstile), and
+ * Turnstile is the bot gate for the image routes. Production mode makes a
+ * missing or broken limiter fail closed instead of silently allowing the
+ * request.
  */
 export function assertProductionAbuseControls(tomlContent) {
   const content = String(tomlContent || '');
@@ -209,6 +208,19 @@ export function assertProductionAbuseControls(tomlContent) {
   if (hasTurnstile && !hasSiteKey) {
     throw new Error(
       'Production deployment rejected: TURNSTILE_REQUIRED is "true" but TURNSTILE_SITE_KEY is missing or empty.',
+    );
+  }
+
+  if (!hasTurnstile) {
+    throw new Error(
+      'Production deployment rejected: TURNSTILE_REQUIRED must be "true" so /generate, /generate/batch ' +
+      'and /edit verify a human token; the per-IP limiter alone is trivially rotated.',
+    );
+  }
+
+  if (!hasSiteKey) {
+    throw new Error(
+      'Production deployment rejected: TURNSTILE_SITE_KEY must be a nonempty public site key.',
     );
   }
 
