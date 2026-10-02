@@ -271,22 +271,20 @@ test('Cloudflare token response parser rejects malformed JSON without echoing it
   assert.doesNotMatch(result.stderr, /SYNTHETIC_SECRET_SENTINEL/);
 });
 
-test('Cloudflare token response parser rejects missing, empty, or newline-bearing access tokens', async (t) => {
+test('Cloudflare token response parser rejects missing, empty, or newline-bearing access tokens', () => {
   const cases = [
     ['missing', {}],
     ['null', { access_token: null }],
     ['number', { access_token: 1 }],
     ['empty', { access_token: '' }],
     ['whitespace', { access_token: ' ' }],
-    ['newline', { access_token: 'synthetic-token\\ninjected=value' }],
+    ['newline', { access_token: 'synthetic-token\ninjected=value' }],
   ];
   for (const [name, body] of cases) {
-    await t.test(name, () => {
-      const result = parseTokenResponse(JSON.stringify(body), 200);
-      assert.equal(result.status, 1);
-      assert.equal(result.stdout, '');
-      assert.match(result.stderr, /usable access token/);
-    });
+    const result = parseTokenResponse(JSON.stringify(body), 200);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /usable access token/);
   }
 });
 
