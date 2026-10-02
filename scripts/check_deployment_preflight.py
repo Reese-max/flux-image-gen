@@ -179,8 +179,13 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
         simple = limiter.get("simple")
         require(isinstance(simple, dict), "GENERATE_RATE_LIMITER 必須設定 simple limit/period", errors)
         if isinstance(simple, dict):
-            require(int(simple.get("limit", 0)) > 0, "rate limit simple.limit 必須大於 0", errors)
-            require(int(simple.get("period", 0)) > 0, "rate limit simple.period 必須大於 0", errors)
+            for bound in ("limit", "period"):
+                try:
+                    value = int(simple.get(bound, 0))
+                except (TypeError, ValueError):
+                    errors.append(f"rate limit simple.{bound} 必須是整數")
+                    continue
+                require(value > 0, f"rate limit simple.{bound} 必須大於 0", errors)
 
     vars_section = data.get("vars")
     require(isinstance(vars_section, dict), "wrangler 必須設定 [vars]", errors)

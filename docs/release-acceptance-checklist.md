@@ -22,6 +22,7 @@
 | [ ] | GitHub Actions CI | `.github/workflows/ci.yml` 的 `verify` job 在目標 commit 通過；repo 尚無 remote 時不得勾選 | 是 |
 | [ ] | Version metadata／observability | `wrangler.toml` 有 `CF_VERSION_METADATA` 與取樣後 Workers Logs；部署後 health 可對應 active Version ID | 是 |
 | [ ] | Rollback rehearsal | 依 `docs/deployment-checklist.md` 執行 `wrangler versions list`／`wrangler versions view` 的唯讀步驟，確認已知正常版本與 `wrangler rollback <VERSION_ID>` 指令；不要為演練真的 rollback | 是 |
+| [ ] | Rollback 不會解除濫用防護 | 確認回滾目標版本的 `ENVIRONMENT`／`TURNSTILE_REQUIRED` 仍是 production／true；舊值版本不得回滾（`ENVIRONMENT`、`TURNSTILE_REQUIRED` 隨版本部署，兩個 gate 只驗證 repo 設定、看不到目標版本的實際 vars） | 是 |
 
 ## 1. 正式網域與 health / provider 一致性
 

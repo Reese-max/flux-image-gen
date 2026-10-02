@@ -208,6 +208,16 @@ test('assertProductionAbuseControls ignores a limiter name declared under anothe
   );
 });
 
+test('assertProductionAbuseControls accepts the equivalent TOML spellings of a hardened config', () => {
+  // Wrangler accepts a [ratelimits.simple] sub-table and TOML literal strings;
+  // the Python preflight does too, so the JS gate must not reject either.
+  const subTable =
+    "[vars]\nENVIRONMENT = 'production'\nTURNSTILE_REQUIRED = 'true'\nTURNSTILE_SITE_KEY = '0x_site'\n" +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\n' +
+    '[ratelimits.simple]\nlimit = 12\nperiod = 60\n';
+  assert.doesNotThrow(() => assertProductionAbuseControls(subTable));
+});
+
 test('assertProductionAbuseControls rejects a limiter without usable simple bounds', () => {
   // `[[ratelimits]]` with no `simple` block is the same fail-open state as a
   // missing binding: the gate allows every request. Mirrors the Python gate.
@@ -320,6 +330,19 @@ test('GitHub Actions preview versions upload overrides the production abuse poli
   assert.match(uploadStep, /--var TURNSTILE_REQUIRED:false/);
 });
 
+test('GitHub Actions deploy jobs run the Worker checks before any upload', async () => {
+  // `npx tsc --noEmit || true` could never fail, so the gate job previously
+  // uploaded whatever was on the branch. Lock in the real checks.
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const checkJob = workflow.slice(workflow.indexOf('\n  check:\n'), workflow.indexOf('\n  deploy-preview:\n'));
+
+  assert.match(checkJob, /- run: npm run check/);
+  assert.match(checkJob, /- run: npm test/);
+  assert.doesNotMatch(checkJob, /tsc --noEmit \|\| true/);
+  assert.match(workflow, /deploy-preview:\n\s+needs: check/);
+  assert.match(workflow, /deploy-production:\n\s+needs: check/);
+});
+
 test('GitHub Actions deploy jobs reference script paths that exist from their working directory', async () => {
   // GitHub Actions resolves each step from the job's working directory; a path
   // that only exists relative to another job makes the deploy step fail.
@@ -347,8 +370,8 @@ test('GitHub Actions deploy jobs reference script paths that exist from their wo
         : '';
 
     // Steps start at the six-space `-` indent; run-block continuation lines are
-// indented further, so anchoring the split keeps them inside their own step.
-for (const step of body.slice(stepsIndex).split(/\n(?= {6}- )/)) {
+    // indented further, so anchoring the split keeps them inside their own step.
+    for (const step of body.slice(stepsIndex).split(/\n(?= {6}- )/)) {
       const stepWorkingDirectory =
         step.match(/^\s+working-directory:\s*(\S+)/m)?.[1] ?? jobWorkingDirectory;
       for (const [, reference] of step.matchAll(/\bnode\s+([\w./-]+\.(?:mjs|js))/g)) {

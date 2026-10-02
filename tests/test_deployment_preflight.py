@@ -86,6 +86,34 @@ def test_deployment_preflight_public_mode_rejects_turnstile_opt_out(tmp_path):
     assert "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白" in payload["errors"]
 
 
+def test_deployment_preflight_requires_positive_rate_limit_bounds(tmp_path):
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    text = wrangler.read_text(encoding="utf-8")
+    text = text.replace("simple = { limit = 12, period = 60 }", "simple = { limit = 0, period = 0 }")
+    wrangler.write_text(text, encoding="utf-8")
+    result = run_preflight(root)
+    assert result.returncode == 1
+    payload = json.loads(result.stderr)
+    assert "rate limit simple.limit 必須大於 0" in payload["errors"]
+    assert "rate limit simple.period 必須大於 0" in payload["errors"]
+
+
+def test_deployment_preflight_reports_non_numeric_rate_limit_bounds_as_json(tmp_path):
+    """A non-numeric bound must produce the FAIL envelope on stderr, not a
+    traceback: the release gate parses this JSON."""
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    text = wrangler.read_text(encoding="utf-8")
+    text = text.replace("simple = { limit = 12, period = 60 }", 'simple = { limit = "many", period = 60 }')
+    wrangler.write_text(text, encoding="utf-8")
+    result = run_preflight(root)
+    assert result.returncode == 1
+    assert "Traceback" not in result.stderr
+    payload = json.loads(result.stderr)
+    assert "rate limit simple.limit 必須是整數" in payload["errors"]
+
+
 def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"

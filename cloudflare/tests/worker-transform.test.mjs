@@ -3296,6 +3296,43 @@ test('POST /generate rejects before provider call when limiter is absent AND Tur
 
 // ── Usage telemetry records the real failure code ───────────────────────────
 
+test('POST /gallery is fail-closed when the limiter is absent in production', async () => {
+  // The gate must run before the R2 write, otherwise an unprotected deployment
+  // can still be used to fill the gallery bucket.
+  const bucket = fakeBucket();
+  const env = productionEnv({ IMAGE_BUCKET: bucket, GALLERY_TOKEN_SECRET: TEST_GALLERY_SECRET });
+  const response = await worker.fetch(
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat' } }),
+    env,
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_unavailable');
+  assert.equal(bucket.store.size, 0, 'must not write to R2 when the abuse gate rejects');
+});
+
+test('fail-closed prompt-route events record their real status and error code', async () => {
+  // /prompt/* use recordPromptEvent rather than recordUsageEvent; both must log
+  // the fail-closed 503 instead of a hardcoded 429 rate_limited.
+  resetUsageMetrics();
+  const env = productionEnv({ GEMINI_API_KEY: 'test-gemini-key', GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  for (const route of ['/prompt/transform', '/prompt/complete', '/prompt/enhance']) {
+    const body = route === '/prompt/enhance'
+      ? { prompt: 'a cat', effect: '更夢幻' }
+      : route === '/prompt/complete'
+        ? { prompt: '一張貓的圖' }
+        : { prompt: 'a cat' };
+    const response = await worker.fetch(jsonRequest(route, body), env);
+    assert.equal(response.status, 503, `${route} must fail closed`);
+  }
+
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+  assert.equal(usage.byErrorCode.rate_limiter_unavailable, 3);
+  assert.equal(usage.byErrorCode.rate_limited || 0, 0);
+  for (const route of ['prompt_transform', 'prompt_complete', 'prompt_enhance']) {
+    assert.equal(usage.byRoute[route].failures, 1, `${route} must record its fail-closed rejection`);
+  }
+});
+
 test('fail-closed rate-limit events record their real error code in usage metrics', async () => {
   resetUsageMetrics();
   const env = productionEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret' });

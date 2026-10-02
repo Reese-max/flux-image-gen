@@ -107,11 +107,18 @@ export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerT
   }
 }
 
+// A TOML basic or literal string. Only line-anchored assignments are matched
+// anywhere in this module, so commented-out values can never satisfy a gate.
+function tomlString(line, key) {
+  const match = line.match(new RegExp(`^\\s*${key}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`));
+  return match ? match[1] ?? match[2] : undefined;
+}
+
 // Extract the [vars] table body: section headers only count at line start, so
 // brackets inside comments can't truncate the section early, and [env.*]
 // tables can't shadow the deployment policy values.
 function varsTable(content) {
-  const lines = stripTomlComments(String(content || '')).split('\n');
+  const lines = String(content || '').split('\n');
   let inVars = false;
   const collected = [];
   for (const line of lines) {
@@ -124,52 +131,58 @@ function varsTable(content) {
   return collected.join('\n');
 }
 
-// Drop `#` comments so a commented-out binding cannot satisfy a required one.
-function stripTomlComments(content) {
-  return content
-    .split('\n')
-    .map((line) => (/^\s*\[/.test(line) ? line : line.replace(/(^|\s)#[^\n]*/, '$1')))
-    .join('\n');
-}
-
-// Bodies of every real [[ratelimits]] block, as arrays of uncommented lines.
+// Every real [[ratelimits]] block, with the `[ratelimits.simple]` sub-table form
+// recorded separately from the block's own keys. Commented-out headers and keys
+// are excluded by the same line anchors, so they never open or populate a block.
 function ratelimitBlocks(content) {
-  const lines = stripTomlComments(String(content || '')).split('\n');
-  let current = null;
+  const lines = String(content || '').split('\n');
   const blocks = [];
+  let current = null;
   for (const line of lines) {
     if (/^\s*\[/.test(line)) {
-      current = /^\s*\[\[\s*ratelimits\s*\]\]/.test(line) ? [] : null;
-      if (current) blocks.push(current);
+      if (/^\s*\[\[\s*ratelimits\s*\]\]/.test(line)) {
+        current = { keys: [], simple: null };
+        blocks.push(current);
+      } else if (current && /^\s*\[\s*ratelimits\s*\.\s*"?simple"?\s*\]/.test(line)) {
+        current.simple = [];
+      } else {
+        current = null;
+      }
       continue;
     }
-    if (current) current.push(line);
+    if (!current) continue;
+    if (current.simple) current.simple.push(line);
+    else current.keys.push(line);
   }
   return blocks;
 }
 
-// True only when a real (uncommented) [[ratelimits]] table declares this name.
-// A commented-out block, or the name appearing under a different table, does
-// not count: wrangler would deploy without the binding, which is exactly the
-// fail-open state this gate exists to prevent.
-function hasRatLimitBinding(content, name) {
-  const pattern = new RegExp(`^\\s*name\\s*=\\s*"${name}"`);
-  return ratelimitBlocks(content).some((block) => block.some((line) => pattern.test(line)));
+function namedRateLimitBlocks(content, name) {
+  return ratelimitBlocks(content).filter((block) => block.keys.some((line) => tomlString(line, 'name') === name));
 }
 
-// `simple = { limit = 12, period = 60 }` — both bounds must be positive, matching
-// scripts/check_deployment_preflight.py so the two gates cannot disagree.
+// True only when a real [[ratelimits]] table declares this name. A commented-out
+// block, or the name appearing under a different table, does not count: wrangler
+// would deploy without the binding, which is exactly the fail-open state this
+// gate exists to prevent.
+function hasRatLimitBinding(content, name) {
+  return namedRateLimitBlocks(content, name).length > 0;
+}
+
+// Both `simple = { limit = 12, period = 60 }` and the equivalent
+// `[ratelimits.simple]` sub-table need positive bounds, matching
+// scripts/check_deployment_preflight.py.
 function hasUsableRateLimitBounds(content, name) {
-  const namePattern = new RegExp(`^\\s*name\\s*=\\s*"${name}"`);
-  return ratelimitBlocks(content)
-    .filter((block) => block.some((line) => namePattern.test(line)))
-    .some((block) => {
-      const simple = block.map((line) => line.match(/^\s*simple\s*=\s*\{(.*)\}/)?.[1]).find(Boolean);
-      if (!simple) return false;
-      const limit = Number(simple.match(/\blimit\s*=\s*(\d+)/)?.[1]);
-      const period = Number(simple.match(/\bperiod\s*=\s*(\d+)/)?.[1]);
-      return Number.isFinite(limit) && limit > 0 && Number.isFinite(period) && period > 0;
-    });
+  return namedRateLimitBlocks(content, name).some(({ keys, simple }) => {
+    const inline = keys.map((line) => line.match(/^\s*simple\s*=\s*\{(.*)\}/)?.[1]).find(Boolean);
+    const bounds = inline
+      ? { limit: inline.match(/\blimit\s*=\s*(\d+)/)?.[1], period: inline.match(/\bperiod\s*=\s*(\d+)/)?.[1] }
+      : {
+        limit: simple?.map((line) => line.match(/^\s*limit\s*=\s*(\d+)/)?.[1]).find(Boolean),
+        period: simple?.map((line) => line.match(/^\s*period\s*=\s*(\d+)/)?.[1]).find(Boolean),
+      };
+    return Number(bounds.limit) > 0 && Number(bounds.period) > 0;
+  });
 }
 
 /**
@@ -185,13 +198,10 @@ function hasUsableRateLimitBounds(content, name) {
 export function assertProductionAbuseControls(tomlContent) {
   const content = String(tomlContent || '');
   const varsSection = varsTable(content);
-  const environmentMatch = varsSection.match(/^\s*ENVIRONMENT\s*=\s*"([^"]*)"/m);
-  const turnstileMatch = varsSection.match(/^\s*TURNSTILE_REQUIRED\s*=\s*"([^"]*)"/m);
-  const siteKeyMatch = varsSection.match(/^\s*TURNSTILE_SITE_KEY\s*=\s*"([^"]*)"/m);
 
-  const environmentValue = (environmentMatch && environmentMatch[1]) || 'development';
-  const turnstileValue = (turnstileMatch && turnstileMatch[1]) || 'false';
-  const siteKeyValue = (siteKeyMatch && siteKeyMatch[1]) || '';
+  const environmentValue = varsSection.split('\n').map((line) => tomlString(line, 'ENVIRONMENT')).find(Boolean) ?? 'development';
+  const turnstileValue = varsSection.split('\n').map((line) => tomlString(line, 'TURNSTILE_REQUIRED')).find(Boolean) ?? 'false';
+  const siteKeyValue = varsSection.split('\n').map((line) => tomlString(line, 'TURNSTILE_SITE_KEY')).find(Boolean) ?? '';
 
   const hasProductionMode = environmentValue.trim().toLowerCase() === 'production';
   const hasTurnstile = turnstileValue.trim().toLowerCase() === 'true';
@@ -202,12 +212,6 @@ export function assertProductionAbuseControls(tomlContent) {
     throw new Error(
       'Production deployment rejected: wrangler.toml must declare the ' +
       '[[ratelimits]] GENERATE_RATE_LIMITER binding so generation routes keep a hard request gate.',
-    );
-  }
-
-  if (hasTurnstile && !hasSiteKey) {
-    throw new Error(
-      'Production deployment rejected: TURNSTILE_REQUIRED is "true" but TURNSTILE_SITE_KEY is missing or empty.',
     );
   }
 

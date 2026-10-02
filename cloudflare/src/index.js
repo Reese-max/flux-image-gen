@@ -80,12 +80,12 @@ async function recordPromptEvent(env, request, route, started, event) {
 // is absent/broken in production). Telemetry must record the real status and
 // code instead of hardcoding the 429 shape.
 async function rateLimitFailureEvent(response) {
-  let code = "rate_limited";
+  let code = response.status === 429 ? "rate_limited" : "rate_limiter_error";
   try {
     const body = await response.clone().json();
     if (body && body.code) code = String(body.code);
   } catch {
-    // keep the default code when the body is unreadable
+    // keep the status-derived code when the body is unreadable
   }
   return { outcome: "error", statusCode: response.status, errorCode: code };
 }

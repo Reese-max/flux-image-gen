@@ -153,6 +153,8 @@ $TargetVersion = "<已確認的 VERSION_ID>"
 
 檢查目標版本的建立時間、tag、message 與 bindings；若 R2 bucket、rate limiter、Workers AI 或其他資源已刪除／改名，不可直接回滾。Cloudflare rollback 只切換 Worker 版本，不會復原 R2 內容、secret 或其他平台資源。
 
+`ENVIRONMENT` 與 `TURNSTILE_REQUIRED` 是隨版本部署的 `[vars]`，所以回滾到本次硬化之前的版本，會把正式站切回 `ENVIRONMENT="development"` + `TURNSTILE_REQUIRED="false"`：limiter 變回 no-op、Turnstile 不再驗證，而 `check_deployment_preflight.py --public` 與 `check-deploy-readiness.mjs` 只驗證 repo 內追蹤的設定、不驗證目標版本的實際 vars，因此 gate 仍會全綠。回滾前必須用 `wrangler versions view <VERSION_ID> --json` 確認目標版本的 abuse-control vars；若是舊值，應改為 forward fix 或先重建帶硬化 vars 的版本，不得直接回滾。
+
 ### 6.2 執行回滾
 
 ```powershell
