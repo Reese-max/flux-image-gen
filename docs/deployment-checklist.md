@@ -33,7 +33,7 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 - `[ai] binding = "AI"` 已存在，供 Workers AI FLUX.2 klein 快速模型與 AI 改圖使用。
 - `[[r2_buckets]] binding = "IMAGE_BUCKET"` 已存在，bucket 名稱為 `flux-image-gallery` 或正式環境指定名稱。
 - `[[ratelimits]] name = "GENERATE_RATE_LIMITER"` 已存在，公開站必須保留後端硬限制。
-- `ENVIRONMENT = "production"`：追蹤值即部署值。production mode 下 rate limiter binding 缺失或錯誤會在有 provider key 時回 503（fail closed）。本機開發只能透過明確旗標回到 dev pass-through：`npx wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false`；`.dev.vars` 不會覆寫 `[vars]`，不能用它切回 dev。
+- `ENVIRONMENT = "production"`：追蹤值即部署值。production mode 下 rate limiter binding 缺失或錯誤會在有 provider key 時回 503（fail closed）。本機開發只能透過明確旗標回到 dev pass-through：`npx wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false`；`.dev.vars` 會覆寫 `[vars]` 的同名鍵，同樣可用，但部署路徑不讀 `.dev.vars`。
 - `TURNSTILE_REQUIRED = "true"`、`TURNSTILE_SITE_KEY` 填入公開 site key：追蹤值即部署值，公開站一律啟用。`TURNSTILE_REQUIRED="true"` 但 secret 或 site key 缺失時 Worker 回 503 `turnstile_unconfigured`（fail closed），不會放行。
 - `USAGE_ESTIMATED_COST_USD_PER_IMAGE`、`USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 與 `USAGE_ALERT_DAILY_GENERATIONS` 已設定；prompt／Vision 單價未校準時維持 `0`，但 Provider 嘗試仍會持久記錄，不得誤稱為完整成本。
 - `[version_metadata] binding = "CF_VERSION_METADATA"` 已存在，讓 health／記錄可對應 Cloudflare Version ID。
@@ -77,7 +77,7 @@ node cloudflare\scripts\check-deploy-readiness.mjs
 
 GitHub Actions（`.github/workflows/deploy.yml`）走同一套硬化 gate：`deploy-production` 在 `wrangler-action` 的 `command: deploy` 之前依序執行 `python scripts/check_deployment_preflight.py --public` 與 `node scripts/check-deploy-readiness.mjs`（以臨時 `CLOUDFLARE_API_TOKEN` 唯讀確認 secrets），`deploy-preview` 在 `versions upload` 前也強制 `--public` preflight；`check` job 會先跑 `npm run check` 與 `npm test`。任一 gate 失敗即不會上傳，無法繞過追蹤的 production 設定發佈。
 
-`deploy-preview` 上傳的是 QA 用版本而非公開流量，因此該 step 明確帶 `--var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false` 覆寫：repo 未替 preview 版本配置 `TURNSTILE_SECRET_KEY`，若直接沿用追蹤的 production 值，PR preview 會一律回 503 `turnstile_unconfigured`。preview preflight 仍檢查追蹤的 production 合約，避免未來 PR 把 `wrangler.toml` 改回開發值。
+`deploy-preview` 上傳的是 QA 用版本而非公開流量，因此該 step 明確帶 `--var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false` 覆寫：repo 未替 preview 版本配置 `TURNSTILE_SECRET_KEY`，若直接沿用追蹤的 production 值，PR preview 會一律回 503 `turnstile_unconfigured`。preview preflight 仍檢查追蹤的 production 合約，避免未來 PR 把 `wrangler.toml` 改回開發值。兩個 gate 都只驗證 repo 內追蹤的設定，不驗證已上傳版本的實際 vars，因此絕對不可用 `wrangler versions deploy <preview-id> 100%` 把 preview 版本提升成正式流量。
 
 `check:wrangler` 會先跑 `wrangler whoami`，再跑 `wrangler deploy --dry-run` 做登入與部署設定診斷；預設不輸出帳號 email / account id / token。若失敗，先處理 `npx wrangler login`、`CLOUDFLARE_API_TOKEN`、帳號權限、R2 bucket、AI binding 或 rate limit binding；需要更多診斷時可用 `npm --prefix cloudflare run check:wrangler -- --verbose`，輸出仍會遮罩敏感資訊。
 

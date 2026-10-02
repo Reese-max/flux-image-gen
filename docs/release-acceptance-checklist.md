@@ -14,6 +14,7 @@
 | [ ] | Wrangler 登入與設定診斷 | `npm --prefix cloudflare run check:wrangler`，需確認 `wrangler whoami` 與 `wrangler deploy --dry-run` 都可驗證；診斷輸出需遮罩帳號 email / account id / token | 是 |
 | [ ] | 全量 verify | `node scripts\verify.mjs` | 是 |
 | [ ] | Wrangler dry-run | `npm --prefix cloudflare run deploy:dry-run` | 是 |
+| [ ] | 不得提升 preview 版本 | `deploy-preview` 以 `--var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false` 上傳 QA 版本；確認沒有把該版本用 `wrangler versions deploy <preview-id> 100%` 推上正式流量 | 是 |
 | [ ] | Node LTS for Wrangler | 若 Wrangler dry-run crash，需改用 Node 20 或 22 LTS 後重跑 `check:wrangler` 與 `deploy:dry-run` | 是 |
 | [ ] | 乾淨部署來源 | 正式 deploy 前 `git status --porcelain` 必須無輸出；wrapper 通過 readiness gate 後才可用 HEAD 標記版本 | 是 |
 | [ ] | 固定 production 目標 | Wrapper 只接受無參數正式 deploy 或 `--dry-run`；不得用 `--env`、`--name`、`--config`、自訂 entrypoint、`--tag` 或 `--message` 改寫目標／版本對照 | 是 |

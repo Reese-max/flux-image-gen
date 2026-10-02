@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import {
   REQUIRED_PRODUCTION_SECRETS,
   assertCleanWorktree,
   assertFixedProductionDeployArgs,
+  assertProductionAbuseControls,
   findMissingSecrets,
   parseSecretNames,
   validateReadinessInputs,
@@ -101,7 +107,6 @@ test('both real deployment paths invoke readiness before resolving the commit', 
 });
 
 
-import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness.mjs';
 
 const LIMITER_BINDING = '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\nsimple = { limit = 12, period = 60 }';
 
@@ -189,6 +194,45 @@ test('assertProductionAbuseControls ignores a limiter name declared under anothe
     () => assertProductionAbuseControls(foreign),
     /GENERATE_RATE_LIMITER/,
   );
+});
+
+test('assertProductionAbuseControls rejects a limiter without usable simple bounds', () => {
+  // `[[ratelimits]]` with no `simple` block is the same fail-open state as a
+  // missing binding: the gate allows every request. Mirrors the Python gate.
+  const unbounded =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\n';
+  assert.throws(
+    () => assertProductionAbuseControls(unbounded),
+    /simple = \{ limit = N, period = M \}/,
+  );
+
+  const zeroLimit =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"\n' +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nsimple = { limit = 0, period = 60 }\n';
+  assert.throws(
+    () => assertProductionAbuseControls(zeroLimit),
+    /simple = \{ limit = N, period = M \}/,
+  );
+});
+
+test('validateReadinessInputs applies the abuse-control policy to the checked-in config', () => {
+  // main() feeds the tracked wrangler.toml through this single validation
+  // pass, so the policy must be enforced here and not only at a second site.
+  const insecure = '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\n' + LIMITER_BINDING;
+  assert.throws(
+    () => validateReadinessInputs({
+      gitStatus: '',
+      secretListOutput: JSON.stringify(completeSecretList),
+      wranglerTomlContent: insecure,
+    }),
+    /Production deployment rejected/,
+  );
+  assert.doesNotThrow(() => validateReadinessInputs({
+    gitStatus: '',
+    secretListOutput: JSON.stringify(completeSecretList),
+    wranglerTomlContent: '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"\n' + LIMITER_BINDING,
+  }));
 });
 
 test('assertProductionAbuseControls rejects when no vars set', () => {
@@ -288,7 +332,9 @@ test('GitHub Actions deploy jobs reference script paths that exist from their wo
         ? body.slice(defaultsIndex, stepsIndex).match(/working-directory:\s*(\S+)/)?.[1] ?? ''
         : '';
 
-    for (const step of body.slice(stepsIndex).split(/\n(?=\s+- )/)) {
+    // Steps start at the six-space `-` indent; run-block continuation lines are
+// indented further, so anchoring the split keeps them inside their own step.
+for (const step of body.slice(stepsIndex).split(/\n(?= {6}- )/)) {
       const stepWorkingDirectory =
         step.match(/^\s+working-directory:\s*(\S+)/m)?.[1] ?? jobWorkingDirectory;
       for (const [, reference] of step.matchAll(/\bnode\s+([\w./-]+\.(?:mjs|js))/g)) {
@@ -305,11 +351,6 @@ test('GitHub Actions deploy jobs reference script paths that exist from their wo
   }
 });
 
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 const tokenParserPath = fileURLToPath(new URL('../scripts/parse_cloudflare_access_token.mjs', import.meta.url));
 

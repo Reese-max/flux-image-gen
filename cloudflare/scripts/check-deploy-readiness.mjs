@@ -132,20 +132,44 @@ function stripTomlComments(content) {
     .join('\n');
 }
 
-// True only when a real (uncommented) [[ratelimits]] table declares this name.
-// A commented-out block, or the name appearing under a different table, does
-// not count: wrangler would deploy without the binding.
-function hasRatLimitBinding(content, name) {
+// Bodies of every real [[ratelimits]] block, as arrays of uncommented lines.
+function ratelimitBlocks(content) {
   const lines = stripTomlComments(String(content || '')).split('\n');
-  let inTarget = false;
+  let current = null;
+  const blocks = [];
   for (const line of lines) {
     if (/^\s*\[/.test(line)) {
-      inTarget = /^\s*\[\[\s*ratelimits\s*\]\]/.test(line);
+      current = /^\s*\[\[\s*ratelimits\s*\]\]/.test(line) ? [] : null;
+      if (current) blocks.push(current);
       continue;
     }
-    if (inTarget && new RegExp(`^\\s*name\\s*=\\s*"${name}"`).test(line)) return true;
+    if (current) current.push(line);
   }
-  return false;
+  return blocks;
+}
+
+// True only when a real (uncommented) [[ratelimits]] table declares this name.
+// A commented-out block, or the name appearing under a different table, does
+// not count: wrangler would deploy without the binding, which is exactly the
+// fail-open state this gate exists to prevent.
+function hasRatLimitBinding(content, name) {
+  const pattern = new RegExp(`^\\s*name\\s*=\\s*"${name}"`);
+  return ratelimitBlocks(content).some((block) => block.some((line) => pattern.test(line)));
+}
+
+// `simple = { limit = 12, period = 60 }` — both bounds must be positive, matching
+// scripts/check_deployment_preflight.py so the two gates cannot disagree.
+function hasUsableRateLimitBounds(content, name) {
+  const namePattern = new RegExp(`^\\s*name\\s*=\\s*"${name}"`);
+  return ratelimitBlocks(content)
+    .filter((block) => block.some((line) => namePattern.test(line)))
+    .some((block) => {
+      const simple = block.map((line) => line.match(/^\s*simple\s*=\s*\{(.*)\}/)?.[1]).find(Boolean);
+      if (!simple) return false;
+      const limit = Number(simple.match(/\blimit\s*=\s*(\d+)/)?.[1]);
+      const period = Number(simple.match(/\bperiod\s*=\s*(\d+)/)?.[1]);
+      return Number.isFinite(limit) && limit > 0 && Number.isFinite(period) && period > 0;
+    });
 }
 
 /**
@@ -185,6 +209,13 @@ export function assertProductionAbuseControls(tomlContent) {
   if (hasTurnstile && !hasSiteKey) {
     throw new Error(
       'Production deployment rejected: TURNSTILE_REQUIRED is "true" but TURNSTILE_SITE_KEY is missing or empty.',
+    );
+  }
+
+  if (!hasUsableRateLimitBounds(content, 'GENERATE_RATE_LIMITER')) {
+    throw new Error(
+      'Production deployment rejected: the GENERATE_RATE_LIMITER binding needs a positive ' +
+      '`simple = { limit = N, period = M }`, otherwise the gate allows every request.',
     );
   }
 
@@ -233,13 +264,8 @@ function main() {
     fail('Unable to verify production secret names with Wrangler.');
   }
 
-  try {
-    validateReadinessInputs({ gitStatus: gitStatus.stdout, secretListOutput: secretList.stdout });
-  } catch (error) {
-    fail(error.message);
-  }
-
-  // Read wrangler.toml to verify abuse controls are configured.
+  // Read the tracked wrangler.toml; the abuse-control policy is part of the
+  // same readiness input set, so one validation pass covers every gate.
   let wranglerTomlContent;
   try {
     wranglerTomlContent = readFileSync(path.join(rootDir, 'wrangler.toml'), 'utf8');
@@ -248,7 +274,11 @@ function main() {
   }
 
   try {
-    assertProductionAbuseControls(wranglerTomlContent);
+    validateReadinessInputs({
+      gitStatus: gitStatus.stdout,
+      secretListOutput: secretList.stdout,
+      wranglerTomlContent,
+    });
   } catch (error) {
     fail(error.message);
   }

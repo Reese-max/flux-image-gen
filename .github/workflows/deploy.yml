@@ -97,7 +97,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Verify public production abuse controls and bindings
+      - name: Verify public production abuse-control configuration
         run: python scripts/check_deployment_preflight.py --public
       - name: Refresh Cloudflare Token
         id: cf_token
