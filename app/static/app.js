@@ -1086,6 +1086,9 @@ function clearAutoProviderPrompt(){
 }
 function setGenerationSettings(settings){
   var source = settings || {};
+  var autoSource;
+  var avoid = String(source.avoid || '').trim();
+  var avoidSuffix = ', avoid ' + avoid;
   if(Object.prototype.hasOwnProperty.call(source, 'prompt')){
     if(el('plainPrompt')){ el('plainPrompt').value = source.prompt || ''; }
     if(el('prompt')){
@@ -1094,8 +1097,21 @@ function setGenerationSettings(settings){
     }
   }
   if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
-    el('prompt').value = source.providerPrompt || '';
-    el('prompt').removeAttribute('data-auto-source');
+    if(source.providerPrompt){
+      el('prompt').value = source.providerPrompt;
+      if(avoid && el('prompt').value.slice(-avoidSuffix.length) === avoidSuffix){
+        el('prompt').value = el('prompt').value.slice(0, -avoidSuffix.length);
+      }
+      autoSource = el('plainPrompt') ? el('plainPrompt').value.trim() : '';
+      if(autoSource){
+        el('prompt').setAttribute('data-auto-source', autoSource);
+      }else{
+        el('prompt').removeAttribute('data-auto-source');
+      }
+    }else{
+      el('prompt').value = '';
+      el('prompt').removeAttribute('data-auto-source');
+    }
   }
   if(Object.prototype.hasOwnProperty.call(source, 'avoid') && el('avoid')){ el('avoid').value = source.avoid || ''; }
   if(Object.prototype.hasOwnProperty.call(source, 'model')){ el('model').value = source.model || 'schnell'; }
@@ -1245,9 +1261,14 @@ function regenerate(){
   setSeedMode('random');
   setGenerationSettings({
     prompt: lastGeneration.prompt,
+    providerPrompt: lastGeneration.providerPrompt,
     avoid: lastGeneration.avoid,
     model: lastGeneration.model,
     size: lastGeneration.size,
+    width: lastGeneration.width,
+    height: lastGeneration.height,
+    steps: lastGeneration.steps,
+    cfgScale: lastGeneration.cfgScale,
     seed: ''
   });
   generate();
@@ -1260,9 +1281,14 @@ function lockCompositionFromRecord(record){
   }
   setGenerationSettings({
     prompt: record.prompt,
+    providerPrompt: record.providerPrompt,
     avoid: record.avoid,
     model: record.model,
     size: record.size,
+    width: record.width,
+    height: record.height,
+    steps: record.steps,
+    cfgScale: record.cfgScale,
     seed: record.seed
   });
   if(lockCompositionSeed(record.seed)){

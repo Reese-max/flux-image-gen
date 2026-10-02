@@ -43,6 +43,7 @@
 - 防止隱性重複計費：Workers AI 生圖／改圖每個使用者請求最多一次 `AI.run`，啟動後不自動重送或跨供應商；NVIDIA、Gemini 與 Vision QA 則記錄實際 Provider 嘗試次數與保守估算成本。
 - Batch 改用完整收斂結果：部分成功回傳成功圖片與逐張錯誤，全部失敗維持非 2xx；前端會顯示成功／失敗張數，不再把空結果當成功。
 - Turnstile 加入 5 秒預設 timeout、bounded 設定與 `action=turnstile-spin-v1` 驗證；缺少 `GALLERY_TOKEN_SECRET` 時 R2 圖庫寫入改為 fail-closed。
+- 修正歷史／結果「再生一張」誤用目前輸入框：恢復作品自己的中文描述、最終 Provider prompt、排除描述、尺寸、解析度與畫質調參；編輯還原描述後會重新整理英文提示詞，避免產出與原作品無關的圖片。
 - 手機切換分頁後回到新 panel 起點；歷史再生完整帶回中文／Provider prompt、負面提示、尺寸與解析度，且先顯示生成分頁再送出。
 - Service Worker 不再安裝後自行接管；只有本分頁按下更新才 `skipWaiting` 並重載，network-first 快取寫入也納入事件生命週期。
 - 成本 Dashboard 共用 `GALLERY_ADMIN_TOKEN` 呼叫受保護的 `/api/usage`，新增 Provider 嘗試與成功事件，並修正手機查詢列遮擋／壓縮。
