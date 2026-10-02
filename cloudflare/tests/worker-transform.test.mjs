@@ -40,6 +40,7 @@ function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
 
 function fakeEnv(extra = {}) {
   return {
+    ENVIRONMENT: 'test',
     ASSETS: {
       fetch() {
         return new Response('asset fallback', { status: 200 });
@@ -3120,6 +3121,26 @@ function throwingLimiter() {
   };
 }
 
+test('POST /generate fail-closed when environment mode is missing or unknown', async () => {
+  for (const environment of [undefined, 'staging']) {
+    await assertProductionAbuseGateRejectsBeforeProvider(
+      makeGenerateRequest(),
+      'rate_limiter_unavailable',
+      { ENVIRONMENT: environment },
+    );
+  }
+});
+
+test('POST /generate keeps pass-through with server-funded provider only in explicit development mode', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    makeGenerateRequest(),
+    fakeEnv({ ENVIRONMENT: 'development', AI: ai }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(ai.calls.length, 1);
+});
+
 test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER throws in production mode', async () => {
   await assertProductionAbuseGateRejectsBeforeProvider(
     makeGenerateRequest(),
@@ -3131,9 +3152,10 @@ test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER throws in prod
 // ── Dev mode keeps pass-through (no regression) ───────────────────────────────
 
 test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER is absent in dev mode', async () => {
-  // Dev mode: no ENVIRONMENT=production. Without provider keys, there's also no
+  // Explicit development mode keeps local requests usable without the binding.
+  // Without provider keys, there's also no
   // live billing risk, so the worker proceeds past rate limit to serve the request.
-  const env = fakeEnv({});
+  const env = fakeEnv({ ENVIRONMENT: 'development' });
   const response = await worker.fetch(makeGenerateRequest(), env);
   // Should NOT be 503 – pass-through means the request proceeds normally.
   // Without API keys it will fail at the provider step (not rate limit), which is a different code.
@@ -3144,7 +3166,7 @@ test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER is absent in 
 });
 
 test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER throws in dev mode', async () => {
-  const env = fakeEnv({ GENERATE_RATE_LIMITER: throwingLimiter() });
+  const env = fakeEnv({ ENVIRONMENT: 'development', GENERATE_RATE_LIMITER: throwingLimiter() });
   const response = await worker.fetch(makeGenerateRequest(), env);
   assert.notEqual(response.status, 503);
   const body = await response.json().catch(() => ({}));
@@ -3184,7 +3206,7 @@ test('POST /generate fail-closed (503) when the limiter resolves to null in prod
 });
 
 test('POST /generate keeps pass-through on a malformed limiter outcome in dev mode', async () => {
-  const env = fakeEnv({ GENERATE_RATE_LIMITER: { limit: async () => ({}) } });
+  const env = fakeEnv({ ENVIRONMENT: 'development', GENERATE_RATE_LIMITER: { limit: async () => ({}) } });
   const response = await worker.fetch(makeGenerateRequest(), env);
   assert.notEqual(response.status, 503);
   const body = await response.json().catch(() => ({}));
