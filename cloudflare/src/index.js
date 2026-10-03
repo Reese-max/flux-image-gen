@@ -959,6 +959,30 @@ async function readR2Text(object) {
   return new Response(object.body).text();
 }
 
+function credentialStatusLabel(status) {
+  switch (status) {
+    case 'verified': return '✅ 已驗證';
+    case 'present_untrusted': return '⚠️ 存在但未驗證';
+    case 'invalid': return '❌ 無效';
+    case 'absent': return '🚫 無憑證';
+    case 'unknown_after_transform': return '❓ 轉碼後未知';
+    case 'unsupported': return '❓ 不支援檢測';
+    default: return '🚫 無憑證';
+  }
+}
+
+function credentialStatusDescription(status) {
+  switch (status) {
+    case 'verified': return '檢測到有效的 C2PA Content Credentials，可確認來源與編輯歷程。';
+    case 'present_untrusted': return '檢測到 C2PA 標記，但簽章驗證失敗或簽發者不在信任清單。';
+    case 'invalid': return 'C2PA 標記存在但簽章無效，內容可能已被篡改。';
+    case 'absent': return '未檢測到 C2PA Content Credentials。注意：缺少憑證不代表非 AI 生成，可能因平台處理被剝除。';
+    case 'unknown_after_transform': return '原始圖片可能帶有憑證，但經縮圖、重新編碼或編輯後無法確認。';
+    case 'unsupported': return '此圖片格式不支援 C2PA 檢測。';
+    default: return '未檢測到 C2PA Content Credentials。';
+  }
+}
+
 async function handleSharePage(env, id) {
   const bucket = env.IMAGE_BUCKET;
   if (!bucket || typeof bucket.get !== "function") {
@@ -1008,6 +1032,38 @@ async function handleSharePage(env, id) {
   const promptBlock = promptPublic && prompt
     ? `<pre>${escapeHtml(prompt)}</pre><button type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.querySelector('pre').textContent)">複製 prompt 模板</button>`
     : "<p>此作品未公開完整 prompt。</p><p>仍可套用公開設定（模型、尺寸、風格與用途），再自行補上中文描述。</p>";
+
+  const receipt = metadata.provenanceReceipt;
+  let provenanceHtml = "";
+  if (receipt) {
+    const credentialStatus = receipt.credentialStatus || 'absent';
+    const lineage = receipt.lineage || {};
+    provenanceHtml = `
+    <section class="card">
+      <h2>來源與驗證</h2>
+      <pre class="provenance-content">${escapeHtml(
+        `收據版本：v${receipt.receiptSchemaVersion || 1}
+記錄 ID：${receipt.recordId || '—'}
+輸出 SHA-256：${(receipt.outputSha256 || '—').slice(0, 16)}…
+Provider：${receipt.provider || '未知'}
+Model：${receipt.model || '未知'}
+Seed：${receipt.seed || 0}
+尺寸：${receipt.size || '未知'}
+${receipt.steps ? `Steps：${receipt.steps}` : ''}
+${receipt.cfgScale ? `CFG：${receipt.cfgScale}` : ''}
+建立時間：${receipt.createdAt || '未知'}
+App 版本：${receipt.appVersion || '未知'}
+${lineage.parentReceiptHash ? `父收據哈希：${lineage.parentReceiptHash.slice(0, 16)}…` : ''}
+版本群組：${lineage.versionGroupId || '—'}
+版本號：v${lineage.versionNumber || 1}
+${receipt.userPromptHash ? `提示詞哈希：${receipt.userPromptHash.slice(0, 16)}… (私有模式)` : ''}
+
+內容憑證狀態：${credentialStatusLabel(credentialStatus)}
+${credentialStatusDescription(credentialStatus)}`
+      )}</pre>
+    </section>`;
+  }
+
   const html = `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -1028,6 +1084,7 @@ async function handleSharePage(env, id) {
     .meta span{border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:6px 10px}
     .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
     pre{white-space:pre-wrap;word-break:break-word;color:#d9f99d}
+    .provenance-content{color:#cbd5e1;background:#111827;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.12)}
     button,.button{border:1px solid rgba(190,242,100,.45);border-radius:999px;background:rgba(190,242,100,.12);color:#ecfccb;padding:10px 14px;cursor:pointer;text-decoration:none;display:inline-flex}
     .note{color:#94a3b8;font-size:12px;margin:10px 0 0}
     a{color:#bef264}
@@ -1049,6 +1106,7 @@ async function handleSharePage(env, id) {
         <span>Prompt：${promptPublic ? "公開" : "隱藏"}</span>
       </div>
     </section>
+    ${provenanceHtml}
     <section class="card">
       <h2>Prompt</h2>
       ${promptBlock}

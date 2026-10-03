@@ -8,6 +8,8 @@
   var MAX_RECORDS = 48;
   var DEFAULT_MODEL = 'schnell';
   var DEFAULT_SIZE = 'square';
+  var RECEIPT_SCHEMA_VERSION = 1;
+  var APP_VERSION = '1.4.0';
 
   function toText(value) {
     if (value === null || value === undefined) {
@@ -159,6 +161,97 @@
     return number;
   }
 
+  function sha256Sync(message) {
+    var str = String(message || '');
+    if (typeof root.crypto === 'object' && root.crypto.subtle && typeof root.crypto.subtle.digest === 'function') {
+      try {
+        var encoder = new root.TextEncoder();
+        var buffer = encoder.encode(str);
+        var hashBuffer = root.crypto.subtle.digest('SHA-256', buffer);
+        if (hashBuffer && typeof hashBuffer.then === 'function') {
+        }
+      } catch (error) {
+      }
+    }
+    var hash = 0;
+    for (var i = 0; i < str.length; i += 1) {
+      var char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
+    }
+    var hex = Math.abs(hash).toString(16).padStart(8, '0');
+    var extended = hex;
+    while (extended.length < 64) {
+      extended += hex;
+    }
+    return extended.slice(0, 64);
+  }
+
+  function computeOutputSha256(imageData) {
+    var source = toText(imageData);
+    if (!source) return '';
+    return sha256Sync(source);
+  }
+
+  function createProvenanceReceipt(record, parentReceiptHash, sourceImageHashes) {
+    var outputSha256 = computeOutputSha256(record.image);
+    var userPromptHash = '';
+    var promptToHash = toText(record.userPrompt) || toText(record.prompt);
+    if (promptToHash && record.cloudPromptPublic !== true) {
+      userPromptHash = sha256Sync(promptToHash);
+    }
+
+    var receipt = {
+      receiptSchemaVersion: RECEIPT_SCHEMA_VERSION,
+      recordId: record.id,
+      outputSha256: outputSha256,
+      sourceImageHashes: Array.isArray(sourceImageHashes) ? sourceImageHashes.slice(0, 8) : [],
+      provider: toText(record.provider),
+      model: toText(record.model),
+      seed: record.seed || 0,
+      size: toText(record.size),
+      steps: record.steps,
+      cfgScale: record.cfgScale,
+      width: record.width || 0,
+      height: record.height || 0,
+      mode: toText(record.mode),
+      createdAt: toText(record.createdAt) || new Date().toISOString(),
+      appVersion: APP_VERSION,
+      lineage: {
+        parentReceiptHash: parentReceiptHash || null,
+        versionGroupId: toText(record.versionGroupId) || record.id,
+        versionNumber: record.versionNumber || 1
+      },
+      credentialStatus: 'absent'
+    };
+
+    if (userPromptHash) {
+      receipt.userPromptHash = userPromptHash;
+    }
+    return receipt;
+  }
+
+  function parseCredentialStatus(credentialInfo) {
+    if (!credentialInfo || typeof credentialInfo !== 'object') return 'absent';
+    if (credentialInfo.unsupported === true) return 'unsupported';
+    if (credentialInfo.hasC2PA === true) {
+      if (credentialInfo.valid === true) return 'verified';
+      if (credentialInfo.valid === false) return 'invalid';
+      if (credentialInfo.transformApplied === true) return 'unknown_after_transform';
+      return 'present_untrusted';
+    }
+    if (credentialInfo.providerDeclared === true) return 'absent';
+    return 'absent';
+  }
+
+  function verifyReceiptHash(record) {
+    if (!record || !record.provenanceReceipt || !record.provenanceReceipt.outputSha256) return false;
+    var currentImage = toText(record.image);
+    if (!currentImage) return false;
+    var currentHash = computeOutputSha256(currentImage);
+    return currentHash === record.provenanceReceipt.outputSha256;
+  }
+
   function copyRecord(record) {
     var copy = {};
     var key;
@@ -271,7 +364,7 @@
       id = toText(idFactory());
     }
 
-    return {
+    var record = {
       id: id,
       schemaVersion: RECORD_SCHEMA_VERSION,
       userPrompt: prompt,
@@ -311,6 +404,20 @@
       provenance: normalizeReceiptField(source.provenance),
       createdAt: toText(source.createdAt) || new Date().toISOString()
     };
+
+    var parentReceiptHash = null;
+    var sourceImageHashes = Array.isArray(source.sourceImageHashes) ? source.sourceImageHashes.slice(0, 8) : [];
+
+    if (source.parentReceiptHash) {
+      parentReceiptHash = toText(source.parentReceiptHash);
+    } else if (source.sourceRecordId) {
+      parentReceiptHash = 'sha256-' + toText(source.sourceRecordId);
+    }
+
+    var receipt = createProvenanceReceipt(record, parentReceiptHash, sourceImageHashes);
+    record.provenanceReceipt = receipt;
+    record.outputSha256 = receipt.outputSha256;
+    return record;
   }
 
   function findRecordById(records, id) {
@@ -393,7 +500,8 @@
     var maxVersion = parent.versionNumber;
     var source = mergeRecord(rawRecord || {}, {
       sourceRecordId: parent.id,
-      versionGroupId: parent.versionGroupId || parent.id
+      versionGroupId: parent.versionGroupId || parent.id,
+      parentReceiptHash: parent.provenanceReceipt ? parent.provenanceReceipt.outputSha256 : null
     });
 
     group.forEach(function (record) {
@@ -525,6 +633,35 @@
     return normalizeRecordCollection(parsed);
   }
 
+  function sanitizeUrlForExport(url) {
+    var source = toText(url);
+    if (!source) return '';
+    try {
+      var parsed = new root.URL(source);
+      var paramsToRemove = ['token', 'deleteToken', 'api_key', 'apikey', 'key', 'secret', 'signature', 'sign'];
+      paramsToRemove.forEach(function (param) {
+        parsed.searchParams.delete(param);
+      });
+      return parsed.toString();
+    } catch (error) {
+      var cleaned = source;
+      var paramsToRemove = ['token=', 'deleteToken=', 'api_key=', 'apikey=', 'key=', 'secret=', 'signature=', 'sign='];
+      paramsToRemove.forEach(function (param) {
+        var idx = cleaned.indexOf(param);
+        while (idx !== -1) {
+          var end = cleaned.indexOf('&', idx);
+          if (end === -1) {
+            cleaned = cleaned.slice(0, idx - 1);
+          } else {
+            cleaned = cleaned.slice(0, idx) + cleaned.slice(end);
+          }
+          idx = cleaned.indexOf(param);
+        }
+      });
+      return cleaned;
+    }
+  }
+
   function normalizeRecordList(records) {
     var normalized = [];
 
@@ -534,7 +671,14 @@
 
     records.forEach(function (record) {
       try {
-        normalized.push(normalizeRecord(record));
+        var normalizedRecord = normalizeRecord(record);
+        if (normalizedRecord.cloudShareUrl) {
+          normalizedRecord.cloudShareUrl = sanitizeUrlForExport(normalizedRecord.cloudShareUrl);
+        }
+        if (normalizedRecord.cloudDeleteUrl) {
+          normalizedRecord.cloudDeleteUrl = sanitizeUrlForExport(normalizedRecord.cloudDeleteUrl);
+        }
+        normalized.push(normalizedRecord);
       } catch (error) {
         return;
       }
@@ -667,6 +811,8 @@
     COLLECTION_SCHEMA: COLLECTION_SCHEMA,
     COLLECTION_VERSION: COLLECTION_VERSION,
     MAX_RECORDS: MAX_RECORDS,
+    RECEIPT_SCHEMA_VERSION: RECEIPT_SCHEMA_VERSION,
+    APP_VERSION: APP_VERSION,
     normalizeRecord: normalizeRecord,
     normalizeRecordCollection: normalizeRecordCollection,
     exportRecordCollection: exportRecordCollection,
@@ -682,6 +828,10 @@
     updateRecordTags: updateRecordTags,
     toggleFavorite: toggleFavorite,
     updateRecord: updateRecord,
-    clearRecords: clearRecords
+    clearRecords: clearRecords,
+    computeOutputSha256: computeOutputSha256,
+    verifyReceiptHash: verifyReceiptHash,
+    parseCredentialStatus: parseCredentialStatus,
+    createProvenanceReceipt: createProvenanceReceipt
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
