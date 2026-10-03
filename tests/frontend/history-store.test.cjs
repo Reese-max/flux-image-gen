@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
 
 const scriptPath = path.resolve(__dirname, '../../app/static/history-store.js');
 
@@ -10,9 +11,13 @@ function readHistoryStoreSource() {
   return fs.readFileSync(scriptPath, 'utf8');
 }
 
-function loadHistoryStore() {
+function loadHistoryStore(options = {}) {
   const source = readHistoryStoreSource();
-  const context = vm.createContext({ console });
+  const context = vm.createContext({ console, URL: options.withoutUrl ? undefined : URL, atob: (value) => Buffer.from(value, 'base64').toString('binary') });
+  const provenancePath = path.resolve(__dirname, '../../app/static/provenance.js');
+  if (!options.withoutProvenance) {
+    vm.runInContext(fs.readFileSync(provenancePath, 'utf8'), context, { filename: provenancePath });
+  }
 
   vm.runInContext(source, context, { filename: scriptPath });
 
@@ -67,7 +72,7 @@ test('normalizeRecord trims fields, uses injected id factory, and applies defaul
 
   const record = store.normalizeRecord({
     id: '   ',
-    image: '  data:image/png;base64,abc  ',
+    image: '  ' + SHA_PNG + '  ',
     thumbnail: '   ',
     prompt: '  一隻太空貓  ',
     providerPrompt: '',
@@ -379,7 +384,7 @@ test('saveRecords writes normalized JSON to storage key', () => {
   const result = store.saveRecords([
     {
       id: ' save-me ',
-      image: ' data:image/png;base64,saved ',
+      image: ' ' + SHA_PNG + ' ',
       prompt: ' 儲存提示詞 ',
       model: '',
       size: ''
@@ -513,13 +518,15 @@ test('normalizeRecord for AI edit includes source image hashes', () => {
     sourceRecordId: 'parent-1',
     versionGroupId: 'group-1',
     versionNumber: 2,
-    sourceImageHashes: ['sha256-abc123', 'sha256-def456']
+    recordAction: 'edit',
+    sourceImageHashes: ['a'.repeat(64), 'b'.repeat(64)]
   });
 
   assert.ok(record.provenanceReceipt);
   const receipt = record.provenanceReceipt;
-  assert.deepEqual(receipt.sourceImageHashes, ['sha256-abc123', 'sha256-def456']);
-  assert.equal(receipt.lineage.parentReceiptHash, 'sha256-parent-1');
+  assert.deepEqual(plain(receipt.sourceImageHashes), ['a'.repeat(64), 'b'.repeat(64)]);
+  assert.equal(receipt.lineage.parentReceiptHash, null);
+  assert.deepEqual(plain(record.provenance.sourceRecordIds), ['parent-1']);
   assert.equal(receipt.lineage.versionGroupId, 'group-1');
   assert.equal(receipt.lineage.versionNumber, 2);
 });
@@ -551,7 +558,7 @@ test('createVersionRecord creates new receipt pointing to parent receipt hash', 
 
   assert.ok(version.provenanceReceipt);
   const receipt = version.provenanceReceipt;
-  assert.equal(receipt.lineage.parentReceiptHash, parent.provenanceReceipt.outputSha256);
+  assert.equal(receipt.lineage.parentReceiptHash, parent.provenanceReceipt.receiptHash);
   assert.equal(receipt.lineage.versionGroupId, 'group-1');
   assert.equal(receipt.lineage.versionNumber, 3);
   assert.notEqual(receipt.outputSha256, parent.provenanceReceipt.outputSha256);
@@ -579,7 +586,7 @@ test('parseCredentialStatus returns expected status values', () => {
 
   assert.equal(store.parseCredentialStatus(null), 'absent');
   assert.equal(store.parseCredentialStatus({}), 'absent');
-  assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: true }), 'verified');
+  assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: true }), 'present_untrusted');
   assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: false }), 'invalid');
   assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: null, transformApplied: true }), 'unknown_after_transform');
   assert.equal(store.parseCredentialStatus({ hasC2PA: false, providerDeclared: true }), 'absent');
@@ -657,4 +664,153 @@ test('source avoids ES6-only finite helpers for ES5 compatibility', () => {
   assert.doesNotMatch(source, /Number\.isSafeInteger/);
   assert.doesNotMatch(source, /=>/);
   assert.doesNotMatch(source, /\?\./);
+});
+
+const SHA_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+test('history output hashes are SHA-256 of decoded image bytes', () => {
+  const store = loadHistoryStore();
+  const bytes = Buffer.from(SHA_PNG.split(',')[1], 'base64');
+  const expected = crypto.createHash('sha256').update(bytes).digest('hex');
+  const record = store.normalizeRecord({ id: 'real-hash', image: SHA_PNG, prompt: 'synthetic fixture' });
+  assert.equal(store.computeOutputSha256(SHA_PNG), expected);
+  assert.equal(record.provenanceReceipt.outputSha256, expected);
+  assert.equal(record.provenance.outputSha256, expected);
+  assert.equal(store.verifyReceiptHash(record), true);
+});
+
+test('remote image URLs do not fabricate an output digest', () => {
+  const store = loadHistoryStore();
+  assert.equal(store.computeOutputSha256('https://example.invalid/image.png'), '');
+  const record = store.normalizeRecord({ id: 'remote-hash', image: 'https://example.invalid/image.png', prompt: 'fixture' });
+  assert.equal(record.provenance.outputHashStatus, 'remote_url');
+  assert.equal(store.verifyReceiptHash(record), false);
+});
+
+test('credential booleans cannot mint a verified trust status', () => {
+  const store = loadHistoryStore();
+  assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: true }), 'present_untrusted');
+  const record = store.normalizeRecord({ id: 'claimed-verified', image: SHA_PNG, prompt: 'fixture' });
+  record.provenance.credentialStatus = 'verified';
+  const restored = store.normalizeRecord(record);
+  assert.notEqual(restored.provenance.credentialStatus, 'verified');
+  assert.notEqual(restored.provenanceReceipt.credentialStatus, 'verified');
+});
+
+test('importing a tampered receipt does not reseal it as valid', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'tampered-metadata', image: SHA_PNG, prompt: 'fixture' });
+  record.provenance.seed += 1;
+  const restored = store.normalizeRecord(record);
+  assert.equal(store.verifyReceiptHash(restored), false);
+});
+
+test('missing provenance support preserves history without fabricated hashes', () => {
+  const context = vm.createContext({ console });
+  vm.runInContext(readHistoryStoreSource(), context, { filename: scriptPath });
+  const record = context.ImageHistoryStore.normalizeRecord({ id: 'module-missing', image: SHA_PNG, prompt: 'fixture' });
+  assert.equal(record.image, SHA_PNG);
+  assert.equal(record.provenance, null);
+  assert.equal(record.outputSha256, '');
+});
+
+test('a receipt bound to another record is not resealed as valid', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'original-binding', image: SHA_PNG, prompt: 'fixture' });
+  record.id = 'different-binding';
+  const restored = store.normalizeRecord(record);
+  assert.equal(store.verifyReceiptHash(restored), false);
+});
+
+test('a malformed imported receipt remains unavailable', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'invalid-receipt', image: SHA_PNG, prompt: 'fixture', provenance: { schemaVersion: 99 } });
+  assert.equal(record.image, SHA_PNG);
+  assert.equal(record.provenance, null);
+  assert.equal(store.verifyReceiptHash(record), false);
+});
+
+test('private storage retains delete capability while exports remove credentials', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'private-delete', image: SHA_PNG, prompt: 'fixture', cloudDeleteUrl: 'https://example.invalid/delete?token=fake-delete-capability' });
+  let saved = '';
+  const storage = { setItem: (_, value) => { saved = value; }, getItem: () => saved };
+  store.saveRecords([record], storage);
+  const restored = store.loadRecords(storage);
+  assert.equal(restored[0].cloudDeleteUrl, record.cloudDeleteUrl);
+  assert.ok(!JSON.stringify(store.exportRecordCollection(restored)).includes('fake-delete-capability'));
+});
+
+test('export URL filtering handles encoded and mixed-case credential names', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'mixed-case-token', image: SHA_PNG, prompt: 'fixture', cloudShareUrl: 'https://example.invalid/share?%54oken=fake-encoded-capability&Access_Token=fake-access-capability&view=public#fake-fragment', cloudDeleteUrl: 'https://example.invalid/delete/fake-path-capability' });
+  const exported = store.exportRecordCollection([record]);
+  assert.equal(exported.records[0].cloudShareUrl, 'https://example.invalid/share?view=public');
+  const text = JSON.stringify(exported);
+  assert.ok(!text.includes('fake-encoded-capability'));
+  assert.ok(!text.includes('fake-access-capability'));
+  assert.ok(!text.includes('fake-fragment'));
+  assert.ok(!text.includes('fake-path-capability'));
+});
+
+test('export URL fallback removes query credentials without URL support', () => {
+  const store = loadHistoryStore({ withoutUrl: true });
+  const record = store.normalizeRecord({ id: 'fallback-url', image: SHA_PNG, prompt: 'fixture', cloudShareUrl: 'https://example.invalid/share?token=fake-capability#fake-fragment' });
+  assert.equal(store.exportRecordCollection([record]).records[0].cloudShareUrl, 'https://example.invalid/share');
+});
+
+test('invalid imported receipts stay invalid through repeated normalization and export', () => {
+  const store = loadHistoryStore();
+  let record = store.normalizeRecord({ id: 'repeat-invalid', image: SHA_PNG, prompt: 'fixture', provenance: { schemaVersion: 99 } });
+  for (let i = 0; i < 3; i += 1) {
+    record = store.normalizeRecord(record);
+    assert.equal(store.verifyReceiptHash(record), false);
+  }
+  const restored = store.parseRecords(JSON.stringify(store.exportRecordCollection([record])))[0];
+  assert.equal(store.verifyReceiptHash(restored), false);
+  assert.equal(restored.provenance, null);
+});
+
+test('module failure preserves private imported receipt, inputs and tamper evidence', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'missing-module-import', image: SHA_PNG, prompt: 'fixture', recordAction: 'edit', editInputHashes: ['a'.repeat(64)] });
+  record.provenance.seed += 1;
+  const original = plain(record.provenance);
+  assert.equal(store.verifyReceiptHash(record), false);
+  let saved = '';
+  const storage = { setItem: (_, value) => { saved = value; }, getItem: () => saved };
+  const missing = loadHistoryStore({ withoutProvenance: true });
+  missing.saveRecords([record], storage);
+  assert.deepEqual(JSON.parse(saved).records[0].provenance, original);
+  const restored = store.loadRecords(storage)[0];
+  assert.equal(restored.provenance.action, 'edit');
+  assert.equal(restored.provenance.inputs.length, 1);
+  assert.equal(restored.provenance.receiptHash, original.receiptHash);
+  assert.equal(store.verifyReceiptHash(restored), false);
+});
+
+test('module failure cannot export unvalidated receipt claims or later mint a new receipt', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'missing-module-export', image: SHA_PNG, prompt: 'fixture' });
+  record.provenance.credentialStatus = 'verified';
+  const missing = loadHistoryStore({ withoutProvenance: true });
+  const exported = missing.exportRecordCollection([record]);
+  assert.equal(exported.records[0].provenance, null);
+  assert.ok(!JSON.stringify(exported).includes('verified'));
+  const restored = store.parseRecords(JSON.stringify(exported))[0];
+  assert.equal(store.verifyReceiptHash(restored), false);
+});
+
+test('imported input credential claims cannot mint verified trust', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({ id: 'verified-input', image: SHA_PNG, prompt: 'fixture', recordAction: 'edit', editInputHashes: ['a'.repeat(64)] });
+  record.provenance.inputs[0].credentialStatus = 'verified';
+  const context = vm.createContext({ console });
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../app/static/provenance.js'), 'utf8'), context);
+  record.provenance.receiptHash = context.ImageProvenance.computeReceiptHash(record.provenance);
+  assert.equal(store.verifyReceiptHash(record), true);
+  const restored = store.normalizeRecord(record);
+  assert.notEqual(restored.provenance.inputs[0].credentialStatus, 'verified');
+  assert.equal(store.verifyReceiptHash(restored), false);
+  assert.notEqual(store.exportRecordCollection([restored]).records[0].provenance.inputs[0].credentialStatus, 'verified');
 });

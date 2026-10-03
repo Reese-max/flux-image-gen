@@ -20,7 +20,9 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit || true
+      - run: npm run sync:check
+      - run: npm run check
+      - run: npm test
 
   deploy-preview:
     needs: check
@@ -36,12 +38,9 @@ jobs:
       - run: cd cloudflare && npm ci
       - name: Refresh Cloudflare Token
         id: cf_token
-        run: |
-          RESP=$(curl -s -X POST "https://dash.cloudflare.com/oauth2/token" \
-            -d "grant_type=refresh_token&refresh_token=${{ secrets.CF_REFRESH_TOKEN }}&client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7")
-          TOKEN=$(echo "$RESP" | jq -r '.access_token')
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+        env:
+          CF_REFRESH_TOKEN: ${{ secrets.CF_REFRESH_TOKEN }}
+        run: node scripts/refresh-cloudflare-token.mjs
 
       - name: Deploy Preview
         uses: cloudflare/wrangler-action@v3
@@ -65,12 +64,9 @@ jobs:
       - run: cd cloudflare && npm ci
       - name: Refresh Cloudflare Token
         id: cf_token
-        run: |
-          RESP=$(curl -s -X POST "https://dash.cloudflare.com/oauth2/token" \
-            -d "grant_type=refresh_token&refresh_token=${{ secrets.CF_REFRESH_TOKEN }}&client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7")
-          TOKEN=$(echo "$RESP" | jq -r '.access_token')
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+        env:
+          CF_REFRESH_TOKEN: ${{ secrets.CF_REFRESH_TOKEN }}
+        run: node scripts/refresh-cloudflare-token.mjs
 
       - name: Deploy Production
         uses: cloudflare/wrangler-action@v3
@@ -79,5 +75,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy
           workingDirectory: cloudflare
-
-

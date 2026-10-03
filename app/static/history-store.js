@@ -161,95 +161,74 @@
     return number;
   }
 
-  function sha256Sync(message) {
-    var str = String(message || '');
-    if (typeof root.crypto === 'object' && root.crypto.subtle && typeof root.crypto.subtle.digest === 'function') {
-      try {
-        var encoder = new root.TextEncoder();
-        var buffer = encoder.encode(str);
-        var hashBuffer = root.crypto.subtle.digest('SHA-256', buffer);
-        if (hashBuffer && typeof hashBuffer.then === 'function') {
-        }
-      } catch (error) {
-      }
-    }
-    var hash = 0;
-    for (var i = 0; i < str.length; i += 1) {
-      var char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    var hex = Math.abs(hash).toString(16).padStart(8, '0');
-    var extended = hex;
-    while (extended.length < 64) {
-      extended += hex;
-    }
-    return extended.slice(0, 64);
+  function computeOutputSha256(imageData) {
+    var P = root.ImageProvenance;
+    return P && typeof P.hashImage === 'function' ? P.hashImage(imageData).sha256 : '';
   }
 
-  function computeOutputSha256(imageData) {
-    var source = toText(imageData);
-    if (!source) return '';
-    return sha256Sync(source);
+  function legacyReceipt(receipt, record) {
+    if (!receipt) { return null; }
+    var hashes = [];
+    receipt.inputs.forEach(function (input) { hashes.push(input.sha256); });
+    var legacy = {
+      receiptSchemaVersion: receipt.schemaVersion,
+      recordId: receipt.recordId,
+      outputSha256: receipt.outputSha256,
+      outputHashStatus: receipt.outputHashStatus,
+      receiptHash: receipt.receiptHash,
+      sourceImageHashes: hashes,
+      provider: receipt.provider,
+      model: receipt.model,
+      seed: receipt.seed,
+      size: receipt.size,
+      steps: receipt.steps,
+      cfgScale: receipt.cfgScale,
+      width: record.width || 0,
+      height: record.height || 0,
+      mode: receipt.mode,
+      createdAt: receipt.createdAt,
+      appVersion: receipt.appVersion,
+      lineage: {
+        parentReceiptHash: receipt.parentReceiptHash || null,
+        versionGroupId: receipt.versionGroupId,
+        versionNumber: receipt.versionNumber
+      },
+      credentialStatus: receipt.credentialStatus
+    };
+    if (record.cloudPromptPublic !== true && receipt.promptSha256) {
+      legacy.userPromptHash = receipt.promptSha256;
+    }
+    return legacy;
   }
 
   function createProvenanceReceipt(record, parentReceiptHash, sourceImageHashes) {
-    var outputSha256 = computeOutputSha256(record.image);
-    var userPromptHash = '';
-    var promptToHash = toText(record.userPrompt) || toText(record.prompt);
-    if (promptToHash && record.cloudPromptPublic !== true) {
-      userPromptHash = sha256Sync(promptToHash);
+    var P = root.ImageProvenance;
+    if (!P || typeof P.buildReceipt !== 'function') { return null; }
+    var receipt = P.buildReceipt(record, { inputImageHashes: sourceImageHashes });
+    if (/^[a-f0-9]{64}$/i.test(toText(parentReceiptHash))) {
+      receipt.parentReceiptHash = toText(parentReceiptHash).toLowerCase();
+      receipt.receiptHash = P.computeReceiptHash(receipt);
     }
-
-    var receipt = {
-      receiptSchemaVersion: RECEIPT_SCHEMA_VERSION,
-      recordId: record.id,
-      outputSha256: outputSha256,
-      sourceImageHashes: Array.isArray(sourceImageHashes) ? sourceImageHashes.slice(0, 8) : [],
-      provider: toText(record.provider),
-      model: toText(record.model),
-      seed: record.seed || 0,
-      size: toText(record.size),
-      steps: record.steps,
-      cfgScale: record.cfgScale,
-      width: record.width || 0,
-      height: record.height || 0,
-      mode: toText(record.mode),
-      createdAt: toText(record.createdAt) || new Date().toISOString(),
-      appVersion: APP_VERSION,
-      lineage: {
-        parentReceiptHash: parentReceiptHash || null,
-        versionGroupId: toText(record.versionGroupId) || record.id,
-        versionNumber: record.versionNumber || 1
-      },
-      credentialStatus: 'absent'
-    };
-
-    if (userPromptHash) {
-      receipt.userPromptHash = userPromptHash;
-    }
-    return receipt;
+    return legacyReceipt(receipt, record);
   }
 
   function parseCredentialStatus(credentialInfo) {
-    if (!credentialInfo || typeof credentialInfo !== 'object') return 'absent';
-    if (credentialInfo.unsupported === true) return 'unsupported';
+    if (!credentialInfo || typeof credentialInfo !== 'object') { return 'absent'; }
+    if (credentialInfo.unsupported === true) { return 'unsupported'; }
     if (credentialInfo.hasC2PA === true) {
-      if (credentialInfo.valid === true) return 'verified';
-      if (credentialInfo.valid === false) return 'invalid';
-      if (credentialInfo.transformApplied === true) return 'unknown_after_transform';
+      if (credentialInfo.transformApplied === true) { return 'unknown_after_transform'; }
+      if (credentialInfo.valid === false) { return 'invalid'; }
+      // A boolean is no signer certificate or trust-chain verification.
       return 'present_untrusted';
     }
-    if (credentialInfo.providerDeclared === true) return 'absent';
     return 'absent';
   }
 
   function verifyReceiptHash(record) {
-    if (!record || !record.provenanceReceipt || !record.provenanceReceipt.outputSha256) return false;
-    var currentImage = toText(record.image);
-    if (!currentImage) return false;
-    var currentHash = computeOutputSha256(currentImage);
-    return currentHash === record.provenanceReceipt.outputSha256;
+    var P = root.ImageProvenance;
+    return !!(P && record && record.provenance
+      && P.verifyReceiptHash(record.provenance)
+      && P.verifyOutput(record.provenance, record.image) === 'match');
   }
 
   function copyRecord(record) {
@@ -362,21 +341,51 @@
       sourceRecordId: toText(source.sourceRecordId),
       versionGroupId: toText(source.versionGroupId) || id,
       versionNumber: normalizeVersionNumber(source.versionNumber),
+      provenanceUnavailable: normalizeBoolean(source.provenanceUnavailable),
       createdAt: toText(source.createdAt) || new Date().toISOString()
     };
 
-    var parentReceiptHash = null;
-    var sourceImageHashes = Array.isArray(source.sourceImageHashes) ? source.sourceImageHashes.slice(0, 8) : [];
-
-    if (source.parentReceiptHash) {
-      parentReceiptHash = toText(source.parentReceiptHash);
-    } else if (source.sourceRecordId) {
-      parentReceiptHash = 'sha256-' + toText(source.sourceRecordId);
+    var P = root.ImageProvenance;
+    var receipt = null;
+    if (P && typeof P.buildReceipt === 'function') {
+      receipt = P.normalizeReceipt(source.provenance);
+      if (!receipt && source.provenance == null && !record.provenanceUnavailable) {
+        receipt = P.buildReceipt(mergeRecord(record, {
+          recordAction: source.recordAction,
+          editInputHashes: source.editInputHashes || source.inputImageHashes || source.sourceImageHashes,
+          sourceRecordIds: source.sourceRecordIds,
+          providerModelRevision: source.providerModelRevision,
+          providerProvenance: source.providerProvenance,
+          transforms: source.transforms
+        }), { parentReceipt: source.parentProvenance });
+      } else if (!receipt) {
+        // Keep the failed-import state across normalize/save/load/export cycles.
+        record.provenanceUnavailable = true;
+      }
+      if (receipt) {
+        // Imported claims cannot supply a trust chain; do not reseal the claim.
+        if (receipt.credentialStatus === 'verified') {
+          receipt.credentialStatus = P.inspectCredential(record.image).status;
+        }
+        receipt.inputs.forEach(function (input) {
+          if (input.credentialStatus === 'verified') {
+            input.credentialStatus = 'present_untrusted';
+          }
+        });
+      }
+      if (receipt && receipt.recordId !== record.id) { receipt.receiptHash = ''; }
+    } else {
+      // A transient module failure must not erase private lineage or tamper evidence.
+      try {
+        receipt = source.provenance == null ? null : JSON.parse(JSON.stringify(source.provenance));
+      } catch (error) {
+        receipt = null;
+      }
+      record.provenanceUnavailable = true;
     }
-
-    var receipt = createProvenanceReceipt(record, parentReceiptHash, sourceImageHashes);
-    record.provenanceReceipt = receipt;
-    record.outputSha256 = receipt.outputSha256;
+    record.provenance = receipt;
+    record.provenanceReceipt = P ? legacyReceipt(receipt, record) : null;
+    record.outputSha256 = P && receipt ? receipt.outputSha256 : '';
     return record;
   }
 
@@ -461,7 +470,8 @@
     var source = mergeRecord(rawRecord || {}, {
       sourceRecordId: parent.id,
       versionGroupId: parent.versionGroupId || parent.id,
-      parentReceiptHash: parent.provenanceReceipt ? parent.provenanceReceipt.outputSha256 : null
+      parentProvenance: parent.provenance,
+      recordAction: rawRecord && rawRecord.recordAction ? rawRecord.recordAction : 'regenerate'
     });
 
     group.forEach(function (record) {
@@ -572,13 +582,32 @@
     return records.slice(0, MAX_RECORDS);
   }
 
-  function exportRecordCollection(records) {
+  function recordCollection(records, forExport) {
+    var normalized = normalizeRecordList(records);
+    if (forExport) {
+      normalized.forEach(function (record) {
+        record.cloudShareUrl = sanitizeUrlForExport(record.cloudShareUrl);
+        // Delete URLs may carry capability secrets in either path or query.
+        record.cloudDeleteUrl = '';
+        if (!root.ImageProvenance) {
+          // Unvalidated private receipts are retained in storage, not exported as claims.
+          record.provenance = null;
+          record.provenanceReceipt = null;
+          record.outputSha256 = '';
+          record.provenanceUnavailable = true;
+        }
+      });
+    }
     return {
       schema: COLLECTION_SCHEMA,
       version: COLLECTION_VERSION,
       migratedAt: new Date().toISOString(),
-      records: normalizeRecordList(records)
+      records: normalized
     };
+  }
+
+  function exportRecordCollection(records) {
+    return recordCollection(records, true);
   }
 
   function parseRecords(text) {
@@ -595,30 +624,21 @@
 
   function sanitizeUrlForExport(url) {
     var source = toText(url);
-    if (!source) return '';
+    if (!source) { return ''; }
     try {
       var parsed = new root.URL(source);
-      var paramsToRemove = ['token', 'deleteToken', 'api_key', 'apikey', 'key', 'secret', 'signature', 'sign'];
-      paramsToRemove.forEach(function (param) {
-        parsed.searchParams.delete(param);
-      });
-      return parsed.toString();
-    } catch (error) {
-      var cleaned = source;
-      var paramsToRemove = ['token=', 'deleteToken=', 'api_key=', 'apikey=', 'key=', 'secret=', 'signature=', 'sign='];
-      paramsToRemove.forEach(function (param) {
-        var idx = cleaned.indexOf(param);
-        while (idx !== -1) {
-          var end = cleaned.indexOf('&', idx);
-          if (end === -1) {
-            cleaned = cleaned.slice(0, idx - 1);
-          } else {
-            cleaned = cleaned.slice(0, idx) + cleaned.slice(end);
-          }
-          idx = cleaned.indexOf(param);
+      var remove = [];
+      parsed.searchParams.forEach(function (value, key) {
+        if (/^(token|deletetoken|api_key|apikey|key|secret|signature|sign|access_token|authorization)$/i.test(key)) {
+          remove.push(key);
         }
       });
-      return cleaned;
+      remove.forEach(function (key) { parsed.searchParams.delete(key); });
+      parsed.hash = '';
+      return parsed.toString();
+    } catch (error) {
+      // Older browsers without URL support export the public path only.
+      return source.split(/[?#]/)[0];
     }
   }
 
@@ -632,12 +652,6 @@
     records.forEach(function (record) {
       try {
         var normalizedRecord = normalizeRecord(record);
-        if (normalizedRecord.cloudShareUrl) {
-          normalizedRecord.cloudShareUrl = sanitizeUrlForExport(normalizedRecord.cloudShareUrl);
-        }
-        if (normalizedRecord.cloudDeleteUrl) {
-          normalizedRecord.cloudDeleteUrl = sanitizeUrlForExport(normalizedRecord.cloudDeleteUrl);
-        }
         normalized.push(normalizedRecord);
       } catch (error) {
         return;
@@ -679,7 +693,7 @@
 
     while (true) {
       try {
-        store.setItem(STORAGE_KEY, JSON.stringify(exportRecordCollection(nextRecords)));
+        store.setItem(STORAGE_KEY, JSON.stringify(recordCollection(nextRecords, false)));
         return nextRecords;
       } catch (error) {
         if (!nextRecords.length) {
