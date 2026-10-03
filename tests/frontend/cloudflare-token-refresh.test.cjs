@@ -84,7 +84,7 @@ test("CLI masks a successful token before appending the step output", async () =
     const output = join(directory, "output");
     await writeFile(preload, "globalThis.fetch = async () => ({ ok: true, json: async () => JSON.parse(process.env.TEST_OAUTH_REPLY) });\n");
     await writeFile(output, "existing=value\n");
-    const run = spawnSync(process.execPath, ["--import", preload, fileURLToPath(moduleUrl)], {
+    const run = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, fileURLToPath(moduleUrl)], {
       encoding: "utf8",
       env: { ...process.env, CF_REFRESH_TOKEN: refreshToken, GITHUB_OUTPUT: output, TEST_OAUTH_REPLY: JSON.stringify({ access_token: accessToken }) },
     });
@@ -104,7 +104,7 @@ test("CLI leaves the output unchanged when refresh returns no usable token", asy
     const output = join(directory, "output");
     await writeFile(preload, "globalThis.fetch = async () => ({ ok: true, json: async () => ({ error: 'invalid_grant', error_description: process.env.CF_REFRESH_TOKEN }) });\n");
     await writeFile(output, "existing=value\n");
-    const run = spawnSync(process.execPath, ["--import", preload, fileURLToPath(moduleUrl)], {
+    const run = spawnSync(process.execPath, ["--import", pathToFileURL(preload).href, fileURLToPath(moduleUrl)], {
       encoding: "utf8", env: { ...process.env, CF_REFRESH_TOKEN: refreshToken, GITHUB_OUTPUT: output },
     });
     assert.equal(run.status, 1);
