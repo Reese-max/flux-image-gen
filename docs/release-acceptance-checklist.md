@@ -10,10 +10,11 @@
 |---|---|---|---|
 | [ ] | 公開 bundle secret scan | `python scripts\scan_public_secrets.py` | 是 |
 | [ ] | Cloudflare deployment preflight | `python scripts\check_deployment_preflight.py` | 是 |
-| [ ] | Public Turnstile preflight | `python scripts\check_deployment_preflight.py --public`，需先設定 `TURNSTILE_REQUIRED = "true"` 與正式 `TURNSTILE_SITE_KEY` | 是 |
+| [ ] | Public Turnstile preflight | `python scripts\check_deployment_preflight.py --public`，追蹤的 `wrangler.toml` 已預設 `TURNSTILE_REQUIRED = "true"`、`ENVIRONMENT = "production"` 與正式 `TURNSTILE_SITE_KEY`；此步確認未被改回 | 是 |
 | [ ] | Wrangler 登入與設定診斷 | `npm --prefix cloudflare run check:wrangler`，需確認 `wrangler whoami` 與 `wrangler deploy --dry-run` 都可驗證；診斷輸出需遮罩帳號 email / account id / token | 是 |
 | [ ] | 全量 verify | `node scripts\verify.mjs` | 是 |
 | [ ] | Wrangler dry-run | `npm --prefix cloudflare run deploy:dry-run` | 是 |
+| [ ] | Preview runtime isolation | PR workflow does not upload a version of the production Worker; only restore preview deployment after a separate Worker, bindings, secrets and access controls isolate it from production quota | 是 |
 | [ ] | Node LTS for Wrangler | 若 Wrangler dry-run crash，需改用 Node 20 或 22 LTS 後重跑 `check:wrangler` 與 `deploy:dry-run` | 是 |
 | [ ] | 乾淨部署來源 | 正式 deploy 前 `git status --porcelain` 必須無輸出；wrapper 通過 readiness gate 後才可用 HEAD 標記版本 | 是 |
 | [ ] | 固定 production 目標 | Wrapper 只接受無參數正式 deploy 或 `--dry-run`；不得用 `--env`、`--name`、`--config`、自訂 entrypoint、`--tag` 或 `--message` 改寫目標／版本對照 | 是 |
@@ -21,6 +22,7 @@
 | [ ] | GitHub Actions CI | `.github/workflows/ci.yml` 的 `verify` job 在目標 commit 通過；repo 尚無 remote 時不得勾選 | 是 |
 | [ ] | Version metadata／observability | `wrangler.toml` 有 `CF_VERSION_METADATA` 與取樣後 Workers Logs；部署後 health 可對應 active Version ID | 是 |
 | [ ] | Rollback rehearsal | 依 `docs/deployment-checklist.md` 執行 `wrangler versions list`／`wrangler versions view` 的唯讀步驟，確認已知正常版本與 `wrangler rollback <VERSION_ID>` 指令；不要為演練真的 rollback | 是 |
+| [ ] | Rollback 不會解除濫用防護 | 確認回滾目標版本的 `ENVIRONMENT`／`TURNSTILE_REQUIRED` 仍是 production／true；舊值版本不得回滾（`ENVIRONMENT`、`TURNSTILE_REQUIRED` 隨版本部署，兩個 gate 只驗證 repo 設定、看不到目標版本的實際 vars） | 是 |
 
 ## 1. 正式網域與 health / provider 一致性
 

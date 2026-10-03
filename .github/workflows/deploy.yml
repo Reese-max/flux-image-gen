@@ -20,37 +20,12 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit || true
+      - run: npm run check
+      - run: npm test
 
-  deploy-preview:
-    needs: check
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: cloudflare/package-lock.json
-      - run: cd cloudflare && npm ci
-      - name: Refresh Cloudflare Token
-        id: cf_token
-        run: |
-          RESP=$(curl -s -X POST "https://dash.cloudflare.com/oauth2/token" \
-            -d "grant_type=refresh_token&refresh_token=${{ secrets.CF_REFRESH_TOKEN }}&client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7")
-          TOKEN=$(echo "$RESP" | jq -r '.access_token')
-          echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
-      - name: Deploy Preview
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ steps.cf_token.outputs.token }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload
-          workingDirectory: cloudflare
-
+  # Pull requests run validation only. Do not upload versions of this production Worker
+  # until an isolated preview Worker with separate bindings and secrets is configured.
   deploy-production:
     needs: check
     if: github.event_name == 'push' && github.ref == 'refs/heads/production'
@@ -63,14 +38,42 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
       - run: cd cloudflare && npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify public production abuse-control configuration
+        run: python scripts/check_deployment_preflight.py --public
       - name: Refresh Cloudflare Token
         id: cf_token
+        env:
+          CF_REFRESH_TOKEN: ${{ secrets.CF_REFRESH_TOKEN }}
         run: |
-          RESP=$(curl -s -X POST "https://dash.cloudflare.com/oauth2/token" \
-            -d "grant_type=refresh_token&refresh_token=${{ secrets.CF_REFRESH_TOKEN }}&client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7")
-          TOKEN=$(echo "$RESP" | jq -r '.access_token')
+          set -euo pipefail
+          if [[ -z "${CF_REFRESH_TOKEN:-}" ]]; then
+            echo "::error::Cloudflare refresh credential is unavailable."
+            exit 1
+          fi
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+          if ! status="$(curl --silent --show-error --output "$response_file" --write-out '%{http_code}' \
+            --connect-timeout 15 --max-time 30 \
+            --request POST "https://dash.cloudflare.com/oauth2/token" \
+            --data-urlencode "grant_type=refresh_token" \
+            --data-urlencode "refresh_token=$CF_REFRESH_TOKEN" \
+            --data-urlencode "client_id=54d11594-84e4-41aa-b438-e81b8fa78ee7")"; then
+            echo "::error::Cloudflare token refresh request failed before returning an HTTP response."
+            exit 1
+          fi
+          TOKEN="$(node cloudflare/scripts/parse_cloudflare_access_token.mjs "$response_file" "$status")"
           echo "::add-mask::$TOKEN"
-          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+          printf 'token=%s\n' "$TOKEN" >> "$GITHUB_OUTPUT"
+
+      - name: Verify production deployment readiness
+        working-directory: cloudflare
+        run: node scripts/check-deploy-readiness.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ steps.cf_token.outputs.token }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy Production
         uses: cloudflare/wrangler-action@v3

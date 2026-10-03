@@ -33,7 +33,8 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 - `[ai] binding = "AI"` 已存在，供 Workers AI FLUX.2 klein 快速模型與 AI 改圖使用。
 - `[[r2_buckets]] binding = "IMAGE_BUCKET"` 已存在，bucket 名稱為 `flux-image-gallery` 或正式環境指定名稱。
 - `[[ratelimits]] name = "GENERATE_RATE_LIMITER"` 已存在，公開站必須保留後端硬限制。
-- `TURNSTILE_REQUIRED = "true"`、`TURNSTILE_SITE_KEY` 填入公開 site key；只有本機或內部預覽可暫時維持 `false`。
+- `ENVIRONMENT = "production"`：追蹤值即部署值。production mode 下 rate limiter binding 缺失或錯誤會在有 provider key 時回 503（fail closed）。本機開發只能透過明確旗標回到 dev pass-through：`npx wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false`；`.dev.vars` 會覆寫 `[vars]` 的同名鍵，同樣可用，但部署路徑不讀 `.dev.vars`。
+- `TURNSTILE_REQUIRED = "true"`、`TURNSTILE_SITE_KEY` 填入公開 site key：追蹤值即部署值，公開站一律啟用。`TURNSTILE_REQUIRED="true"` 但 secret 或 site key 缺失時 Worker 回 503 `turnstile_unconfigured`（fail closed），不會放行。
 - `USAGE_ESTIMATED_COST_USD_PER_IMAGE`、`USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 與 `USAGE_ALERT_DAILY_GENERATIONS` 已設定；prompt／Vision 單價未校準時維持 `0`，但 Provider 嘗試仍會持久記錄，不得誤稱為完整成本。
 - `[version_metadata] binding = "CF_VERSION_METADATA"` 已存在，讓 health／記錄可對應 Cloudflare Version ID。
 - `[observability]` 與 `[observability.logs]` 已啟用，並使用明確取樣率控制記錄量。
@@ -74,11 +75,15 @@ node cloudflare\scripts\check-deploy-readiness.mjs
 
 `npm run deploy` 與 `npm run deploy:dry-run` 都會先執行 `node scripts\verify.mjs`；正式 deploy 還會強制執行 `python scripts\check_deployment_preflight.py --public` 與 `check-deploy-readiness.mjs`。後者要求 Git worktree 完全乾淨（包含 staged、unstaged 與 untracked 檔案），再唯讀確認 production secrets，通過後才取得 HEAD 作為 tag／message；因此版本中繼資料一定對應實際上傳的已提交內容。Wrapper 固定部署 `wrangler.toml` 的 `flux-image-gen` production 與 `src/index.js`，外部唯一允許的參數是 `--dry-run`；`--env`、`--name`、`--config`、`--profile`、自訂 entrypoint、`--tag`、`--message` 等覆寫一律拒絕。不得以直接呼叫 `wrangler deploy` 規避 gate。
 
+GitHub Actions（`.github/workflows/deploy.yml`）的 PR 路徑只跑 `check`（`npm run check` 與 `npm test`），不會上傳 Cloudflare Worker 版本。正式 `production` branch 部署在 `wrangler-action` 的 `command: deploy` 之前依序執行 `python scripts/check_deployment_preflight.py --public` 與 `node scripts/check-deploy-readiness.mjs`（唯讀確認必要 secret 名稱、乾淨 worktree 與 abuse-control 設定）；任一 gate 失敗即停止部署。
+
+PR preview 目前不會上傳版本到 production Worker。`wrangler versions upload` 產生的版本可能使用該 Worker 的 bindings 與 secrets，且其 Version URL 可能公開；在同一個 Worker 上以 development／Turnstile 關閉設定上傳會暴露 server-funded 路由，因此 runtime preview 驗證暫緩。只有先配置獨立 Worker、隔離 bindings 與 secrets、並確認存取控制後，才可恢復 preview upload。
+
 `check:wrangler` 會先跑 `wrangler whoami`，再跑 `wrangler deploy --dry-run` 做登入與部署設定診斷；預設不輸出帳號 email / account id / token。若失敗，先處理 `npx wrangler login`、`CLOUDFLARE_API_TOKEN`、帳號權限、R2 bucket、AI binding 或 rate limit binding；需要更多診斷時可用 `npm --prefix cloudflare run check:wrangler -- --verbose`，輸出仍會遮罩敏感資訊。
 
 若 `check:wrangler` 回報 Wrangler / Node 子程序 crash，優先切到 Node 20 或 22 LTS 再重跑；Node 25 曾在 Windows 上讓 Wrangler 4.106 的 `deploy --dry-run` 只印 banner 後非正常結束。
 
-公開正式部署前，請在設定好 `TURNSTILE_REQUIRED = "true"` 與 `TURNSTILE_SITE_KEY` 後再跑嚴格模式：
+公開正式部署前，請確認追蹤的 `wrangler.toml` 維持 `ENVIRONMENT = "production"`、`TURNSTILE_REQUIRED = "true"` 與正式 `TURNSTILE_SITE_KEY`，再跑嚴格模式（這些值若曾被改回，會在此步被擋下）：
 
 ```powershell
 python scripts\check_deployment_preflight.py --public
@@ -147,6 +152,8 @@ $TargetVersion = "<已確認的 VERSION_ID>"
 ```
 
 檢查目標版本的建立時間、tag、message 與 bindings；若 R2 bucket、rate limiter、Workers AI 或其他資源已刪除／改名，不可直接回滾。Cloudflare rollback 只切換 Worker 版本，不會復原 R2 內容、secret 或其他平台資源。
+
+`ENVIRONMENT` 與 `TURNSTILE_REQUIRED` 是隨版本部署的 `[vars]`，所以回滾到本次硬化之前的版本，會把正式站切回 `ENVIRONMENT="development"` + `TURNSTILE_REQUIRED="false"`：limiter 變回 no-op、Turnstile 不再驗證，而 `check_deployment_preflight.py --public` 與 `check-deploy-readiness.mjs` 只驗證 repo 內追蹤的設定、不驗證目標版本的實際 vars，因此 gate 仍會全綠。回滾前必須用 `wrangler versions view <VERSION_ID> --json` 確認目標版本的 abuse-control vars；若是舊值，應改為 forward fix 或先重建帶硬化 vars 的版本，不得直接回滾。
 
 ### 6.2 執行回滾
 
