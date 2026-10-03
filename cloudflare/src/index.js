@@ -6,6 +6,7 @@ import {
   HttpError,
   checkRateLimit,
   httpErrorJson,
+  isPreviewReadOnly,
   json,
   makeRequestId,
   readJsonPayload,
@@ -145,7 +146,58 @@ function buildHealthResponse(env) {
     ...(versionId ? { versionId } : {}),
     ...(versionTag ? { versionTag } : {}),
     ...(versionTimestamp ? { versionTimestamp } : {}),
+    ...(isPreviewReadOnly(env) ? {
+      previewReadOnly: true,
+      provider: "demo",
+      providerStatus: "offline",
+      mode: "demo",
+      providers: { nvidia: false, workersAI: false },
+      providerList: [],
+      hasApiKey: false,
+      storageAvailable: false,
+      visionQa: false,
+      message: "唯讀預覽：僅提供靜態頁面與健康檢查，生成及雲端資料功能已停用",
+    } : {}),
   };
+}
+
+const PREVIEW_STATIC_PATHS = new Set(["/", "/index.html", "/manifest.webmanifest", "/service-worker.js"]);
+
+function previewResponse(response, request) {
+  const result = new Response(request.method === "HEAD" ? null : response.body, response);
+  result.headers.set("access-control-allow-origin", "*");
+  return result;
+}
+
+async function handleReadOnlyPreview(request, env, url) {
+  const health = url.pathname === "/health" || url.pathname === "/api/health";
+  const staticAsset = PREVIEW_STATIC_PATHS.has(url.pathname) || url.pathname.startsWith("/static/");
+  const safeRoute = health || staticAsset;
+  const safeMethod = request.method === "GET" || request.method === "HEAD";
+  const requestedMethod = (request.headers.get("access-control-request-method") || "GET").toUpperCase();
+
+  if (request.method === "OPTIONS" && safeRoute && ["GET", "HEAD"].includes(requestedMethod)) {
+    return previewResponse(new Response(null, {
+      status: 204,
+      headers: {
+        "allow": "GET, HEAD, OPTIONS",
+        "access-control-allow-methods": "GET, HEAD, OPTIONS",
+        "access-control-allow-headers": "Content-Type",
+        "cache-control": "no-store",
+      },
+    }), request);
+  }
+  if (!safeRoute || !safeMethod) {
+    const response = json({ error: "唯讀預覽已停用此功能", code: "preview_read_only" }, 403);
+    response.headers.set("cache-control", "no-store");
+    return previewResponse(response, request);
+  }
+  if (health) {
+    const response = json(buildHealthResponse(env));
+    response.headers.set("cache-control", "no-store");
+    return previewResponse(response, request);
+  }
+  return previewResponse(await env.ASSETS.fetch(request), request);
 }
 
 async function handleClientError(request) {
@@ -1348,6 +1400,9 @@ export { completePlainPrompt, enhancePrompt, transformPlainPrompt };
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // Must precede rate limits, provider calls, gallery access and usage writes.
+    // A new dynamic route stays blocked unless it is explicitly a safe asset.
+    if (isPreviewReadOnly(env)) return handleReadOnlyPreview(request, env, url);
     if (url.pathname === "/health" || url.pathname === "/api/health") {
       const response = json(buildHealthResponse(env));
       response.headers.set("cache-control", "no-store");

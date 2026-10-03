@@ -45,6 +45,12 @@ function envFlag(value) {
   return String(value || "").trim().toLowerCase() === "true";
 }
 
+// Uploaded preview versions can inherit production bindings and secrets. This
+// explicit flag disables all dynamic routes before they can touch those bindings.
+export function isPreviewReadOnly(env) {
+  return envFlag(env && env.PREVIEW_READ_ONLY);
+}
+
 /**
  * Return true when the Worker is running in an explicit production deployment.
  *

@@ -106,32 +106,32 @@ import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness
 
 test('assertProductionAbuseControls passes when ENVIRONMENT=production', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"')
+    assertProductionAbuseControls('[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"')
   );
 });
 
 test('assertProductionAbuseControls passes when TURNSTILE_REQUIRED=true', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"')
+    assertProductionAbuseControls('[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"')
   );
 });
 
 test('assertProductionAbuseControls passes when both are enabled', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"')
+    assertProductionAbuseControls('[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"')
   );
 });
 
 test('assertProductionAbuseControls rejects when neither abuse control is active', () => {
   assert.throws(
-    () => assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"'),
+    () => assertProductionAbuseControls('[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"'),
     /Production deployment rejected/,
   );
 });
 
 test('assertProductionAbuseControls rejects when ENVIRONMENT is missing and TURNSTILE is false', () => {
   assert.throws(
-    () => assertProductionAbuseControls('TURNSTILE_REQUIRED = "false"'),
+    () => assertProductionAbuseControls('[vars]\nTURNSTILE_REQUIRED = "false"'),
     /Production deployment rejected/,
   );
 });
@@ -141,4 +141,109 @@ test('assertProductionAbuseControls rejects when no vars set', () => {
     () => assertProductionAbuseControls(''),
     /Production deployment rejected/,
   );
+});
+
+test('fixed production deploy rejects read-only preview even with both abuse controls', () => {
+  for (const previewValue of ['"true"', "'true'", 'true', '" TRUE "']) {
+    assert.throws(() => assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nPREVIEW_READ_ONLY = ${previewValue}`,
+    ), /PREVIEW_READ_ONLY is for isolated uploaded previews only/);
+  }
+  assert.doesNotThrow(() => assertProductionAbuseControls(
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nPREVIEW_READ_ONLY = "false"',
+  ));
+  assert.throws(() => assertProductionAbuseControls(
+    '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\nPREVIEW_READ_ONLY = "false"',
+  ), /At least one abuse control must be active/);
+});
+
+test('production preview guard fails closed on quoted keys and noncanonical flag values', () => {
+  for (const assignment of [
+    '"PREVIEW_READ_ONLY" = "true"', "'PREVIEW_READ_ONLY' = 'true'",
+    'vars.PREVIEW_READ_ONLY = "true"', 'PREVIEW_READ_ONLY = "\\u0074rue"',
+    'PREVIEW_READ_ONLY = """true"""', 'PREVIEW_READ_ONLY = "typo"',
+  ]) {
+    const config = assignment.startsWith('vars.')
+      ? `vars.ENVIRONMENT = "production"\nvars.TURNSTILE_REQUIRED = "true"\n${assignment}`
+      : `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\n${assignment}`;
+    assert.throws(() => assertProductionAbuseControls(
+      config,
+    ), /PREVIEW_READ_ONLY is for isolated uploaded previews only/);
+  }
+});
+
+test('production readiness rejects escaped root preview key decoded by TOML', () => {
+  assert.throws(() => assertProductionAbuseControls(String.raw`main = "src/index.js"
+[vars]
+ENVIRONMENT = "production"
+TURNSTILE_REQUIRED = "true"
+"\u0050REVIEW_READ_ONLY" = "true"
+`), /PREVIEW_READ_ONLY is for isolated uploaded previews only/);
+});
+
+test('production readiness uses root vars rather than preceding named environment vars', () => {
+  assert.throws(() => assertProductionAbuseControls(`main = "src/index.js"
+[env.staging.vars]
+ENVIRONMENT = "production"
+TURNSTILE_REQUIRED = "true"
+PREVIEW_READ_ONLY = "false"
+[vars]
+ENVIRONMENT = "production"
+TURNSTILE_REQUIRED = "true"
+PREVIEW_READ_ONLY = "true"
+`), /PREVIEW_READ_ONLY is for isolated uploaded previews only/);
+});
+
+test('automatic PR preview always opts into isolation and production command remains fixed', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const preview = workflow.slice(workflow.indexOf('      - name: Deploy Preview'), workflow.indexOf('      - name: Deploy Production'));
+  const production = workflow.slice(workflow.indexOf('      - name: Deploy Production'));
+  assert.match(preview, /command: versions upload --var PREVIEW_READ_ONLY:true/);
+  assert.match(production, /command: deploy/);
+  assert.doesNotMatch(production, /PREVIEW_READ_ONLY:true/);
+});
+
+test('root TOML controls support quoted, escaped, dotted, inline and multiline false values', () => {
+  const configs = [
+    String.raw`["\u0076ars"]
+"\u0045NVIRONMENT" = "\u0070roduction"
+TURNSTILE_REQUIRED = 'true'
+"\u0050REVIEW_READ_ONLY" = "\u0066alse"
+`,
+    `vars = { ENVIRONMENT = 'production', TURNSTILE_REQUIRED = 'true', PREVIEW_READ_ONLY = 'false' }`,
+    `vars.ENVIRONMENT = 'production'\nvars.TURNSTILE_REQUIRED = true\nvars.PREVIEW_READ_ONLY = false`,
+    `[vars]\nENVIRONMENT = 'production'\nTURNSTILE_REQUIRED = 'true'\nPREVIEW_READ_ONLY = """false"""`,
+    `main = "src/index.js"
+[env.staging.vars]
+PREVIEW_READ_ONLY = "true"
+ENVIRONMENT = "development"
+[vars]
+PREVIEW_READ_ONLY = "false"
+ENVIRONMENT = "production"
+TURNSTILE_REQUIRED = "false"
+`,
+  ];
+  for (const config of configs) assert.doesNotThrow(() => assertProductionAbuseControls(config));
+});
+
+test('malformed TOML is rejected without leaking parser diagnostics or config content', () => {
+  for (const config of [
+    '[vars]\nPREVIEW_READ_ONLY = "false"\nPREVIEW_READ_ONLY = "true"',
+    '[vars]\nENVIRONMENT = "do-not-print-this-config-value',
+    'vars = []',
+  ]) {
+    assert.throws(() => assertProductionAbuseControls(config),
+      /^Error: Production deployment rejected: unable to parse root \[vars\] in Wrangler TOML\.$/);
+  }
+});
+
+test('non-root environment flags cannot satisfy production abuse controls', () => {
+  assert.throws(() => assertProductionAbuseControls(`[env.staging.vars]
+ENVIRONMENT = "production"
+TURNSTILE_REQUIRED = "true"
+[vars]
+PREVIEW_READ_ONLY = "false"
+ENVIRONMENT = "development"
+TURNSTILE_REQUIRED = "false"
+`), /At least one abuse control must be active/);
 });

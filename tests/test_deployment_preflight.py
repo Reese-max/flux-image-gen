@@ -87,6 +87,29 @@ def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tm
     assert payload["publicMode"] is True
 
 
+def test_preflight_identifies_read_only_public_preview_without_bypassing_existing_gates(tmp_path):
+    root = copy_repo_subset(tmp_path)
+    wrangler = root / "cloudflare" / "wrangler.toml"
+    set_wrangler_var(wrangler, "PREVIEW_READ_ONLY", "true")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert "preview read-only isolation enabled: static/health reads only; provider and R2 routes disabled" in payload["checks"]
+    set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
+    set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "")
+    result = run_preflight(root, "--public")
+    assert result.returncode == 1
+    assert "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白" in json.loads(result.stderr)["errors"]
+
+
+def test_preflight_rejects_invalid_read_only_flag(tmp_path):
+    root = copy_repo_subset(tmp_path)
+    set_wrangler_var(root / "cloudflare" / "wrangler.toml", "PREVIEW_READ_ONLY", "typo")
+    result = run_preflight(root)
+    assert result.returncode == 1
+    assert "PREVIEW_READ_ONLY 必須是 true/false 字串" in json.loads(result.stderr)["errors"]
+
+
 def test_deployment_preflight_rejects_secret_in_public_vars(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"

@@ -47,7 +47,7 @@ jobs:
         with:
           apiToken: ${{ steps.cf_token.outputs.token }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: versions upload
+          command: versions upload --var PREVIEW_READ_ONLY:true
           workingDirectory: cloudflare
 
   deploy-production:
