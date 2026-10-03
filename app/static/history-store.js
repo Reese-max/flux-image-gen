@@ -305,45 +305,6 @@
     return null;
   }
 
-  function normalizeReceiptField(value) {
-    if (root.ImageProvenance && typeof root.ImageProvenance.normalizeReceipt === 'function') {
-      return root.ImageProvenance.normalizeReceipt(value);
-    }
-    return value && typeof value === 'object' ? value : null;
-  }
-
-  // 每筆新記錄建立 ProvenanceReceipt（issue #18）；provenance.js 未載入時降級為 null。
-  // 收據在這裡建立而非 normalizeRecord，因為只有「新增」語意才該產生新收據。
-  function attachReceipt(record, rawRecord, records) {
-    var P = root.ImageProvenance;
-    var parent = null;
-    var action = 'generate';
-
-    if (!record || record.provenance || !P || typeof P.buildReceipt !== 'function') {
-      return record;
-    }
-    if (rawRecord && (toText(rawRecord.recordAction) === 'edit'
-        || (Array.isArray(rawRecord.editInputHashes) && rawRecord.editInputHashes.length))) {
-      action = 'edit';
-    } else if (record.sourceRecordId) {
-      action = 'regenerate';
-    }
-    if (record.sourceRecordId && Array.isArray(records)) {
-      parent = findRecordById(records, record.sourceRecordId);
-    }
-    try {
-      record.provenance = P.buildReceipt(record, {
-        action: action,
-        parentReceipt: parent ? parent.provenance : null,
-        inputImageHashes: rawRecord ? rawRecord.editInputHashes : null,
-        providerProvenance: rawRecord ? rawRecord.providerProvenance : null
-      });
-    } catch (error) {
-      record.provenance = null;
-    }
-    return record;
-  }
-
   function normalizeRecord(raw, makeId) {
     var source = raw || {};
     var imageUrl = toText(source.imageUrl);
@@ -401,7 +362,6 @@
       sourceRecordId: toText(source.sourceRecordId),
       versionGroupId: toText(source.versionGroupId) || id,
       versionNumber: normalizeVersionNumber(source.versionNumber),
-      provenance: normalizeReceiptField(source.provenance),
       createdAt: toText(source.createdAt) || new Date().toISOString()
     };
 
@@ -512,7 +472,7 @@
 
     source.versionNumber = maxVersion + 1;
 
-    return attachReceipt(normalizeRecord(source, makeId), source, records);
+    return normalizeRecord(source, makeId);
   }
 
   function updateRecord(records, id, patch) {
@@ -732,7 +692,7 @@
 
   function addRecord(records, rawRecord, makeId) {
     var existing = normalizeRecordList(records);
-    var nextRecords = [attachReceipt(normalizeRecord(rawRecord, makeId), rawRecord, existing)];
+    var nextRecords = [normalizeRecord(rawRecord, makeId)];
 
     existing.forEach(function (record) {
       nextRecords.push(record);

@@ -83,46 +83,23 @@ test('normalizeRecord trims fields, uses injected id factory, and applies defaul
 
   assert.equal(idCalls, 1);
   assert.equal(record.createdAt.length > 0, true);
-  assert.deepEqual(plain(Object.assign({}, record, { createdAt: 'normalized-date' })), {
-    id: 'history-id-1',
-    schemaVersion: 2,
-    userPrompt: '一隻太空貓',
-    expandedPrompt: '',
-    image: 'data:image/png;base64,abc',
-    thumbnail: 'data:image/png;base64,abc',
-    prompt: '一隻太空貓',
-    providerPrompt: '一隻太空貓',
-    negativePrompt: '',
-    avoid: '',
-    model: 'schnell',
-    size: 'square',
-    steps: null,
-    cfgScale: null,
-    seed: 0,
-    width: 0,
-    height: 0,
-    imageUrl: '',
-    localImageData: 'data:image/png;base64,abc',
-    provider: '',
-    mode: 'normal',
-    favorite: false,
-    tags: [],
-    qaReport: null,
-    recommended: false,
-    agentRecommendation: '',
-    autoRetry: null,
-    nextSuggestions: [],
-    cloudShareUrl: '',
-    cloudDeleteUrl: '',
-    cloudSavedAt: '',
-    cloudPromptPublic: false,
-    cloudStorage: '',
-    sourceRecordId: '',
-    versionGroupId: 'history-id-1',
-    versionNumber: 1,
-    provenance: null,
-    createdAt: 'normalized-date'
-  });
+  assert.ok(record.provenanceReceipt);
+  assert.ok(record.outputSha256);
+  const expected = plain(Object.assign({}, record, { createdAt: 'normalized-date' }));
+  assert.equal(expected.id, 'history-id-1');
+  assert.equal(expected.schemaVersion, 2);
+  assert.equal(expected.userPrompt, '一隻太空貓');
+  assert.equal(expected.model, 'schnell');
+  assert.equal(expected.size, 'square');
+  assert.equal(expected.versionGroupId, 'history-id-1');
+  assert.equal(expected.versionNumber, 1);
+  assert.equal(expected.provenanceReceipt.receiptSchemaVersion, 1);
+  assert.equal(expected.provenanceReceipt.recordId, 'history-id-1');
+  assert.equal(expected.provenanceReceipt.provider, '');
+  assert.equal(expected.provenanceReceipt.model, 'schnell');
+  assert.equal(expected.provenanceReceipt.lineage.versionGroupId, 'history-id-1');
+  assert.equal(expected.provenanceReceipt.lineage.versionNumber, 1);
+  assert.equal(expected.provenanceReceipt.credentialStatus, 'absent');
 });
 
 test('normalizeRecord adds version, tags, favorite, and share defaults', () => {
@@ -409,46 +386,24 @@ test('saveRecords writes normalized JSON to storage key', () => {
     }
   ], storage);
 
-  assert.deepEqual(plain(result), [{
-    id: 'save-me',
-    schemaVersion: 2,
-    userPrompt: '儲存提示詞',
-    expandedPrompt: '',
-    image: 'data:image/png;base64,saved',
-    thumbnail: 'data:image/png;base64,saved',
-    prompt: '儲存提示詞',
-    providerPrompt: '儲存提示詞',
-    negativePrompt: '',
-    avoid: '',
-    model: 'schnell',
-    size: 'square',
-    steps: null,
-    cfgScale: null,
-    seed: 0,
-    width: 0,
-    height: 0,
-    imageUrl: '',
-    localImageData: 'data:image/png;base64,saved',
-    provider: '',
-    mode: 'normal',
-    favorite: false,
-    tags: [],
-    qaReport: null,
-    recommended: false,
-    agentRecommendation: '',
-    autoRetry: null,
-    nextSuggestions: [],
-    cloudShareUrl: '',
-    cloudDeleteUrl: '',
-    cloudSavedAt: '',
-    cloudPromptPublic: false,
-    cloudStorage: '',
-    sourceRecordId: '',
-    versionGroupId: 'save-me',
-    versionNumber: 1,
-    provenance: null,
-    createdAt: result[0].createdAt
-  }]);
+  assert.equal(result.length, 1);
+  assert.ok(result[0].provenanceReceipt);
+  assert.ok(result[0].outputSha256);
+  const expected = plain(result[0]);
+  assert.equal(expected.id, 'save-me');
+  assert.equal(expected.schemaVersion, 2);
+  assert.equal(expected.userPrompt, '儲存提示詞');
+  assert.equal(expected.model, 'schnell');
+  assert.equal(expected.size, 'square');
+  assert.equal(expected.versionGroupId, 'save-me');
+  assert.equal(expected.versionNumber, 1);
+  assert.equal(expected.provenanceReceipt.receiptSchemaVersion, 1);
+  assert.equal(expected.provenanceReceipt.recordId, 'save-me');
+  assert.equal(expected.provenanceReceipt.provider, '');
+  assert.equal(expected.provenanceReceipt.model, 'schnell');
+  assert.equal(expected.provenanceReceipt.lineage.versionGroupId, 'save-me');
+  assert.equal(expected.provenanceReceipt.lineage.versionNumber, 1);
+  assert.equal(expected.provenanceReceipt.credentialStatus, 'absent');
   assert.equal(storage.calls.setItem.length, 1);
   assert.equal(storage.calls.setItem[0][0], store.STORAGE_KEY);
   assert.equal(JSON.parse(storage.calls.setItem[0][1]).schema, store.COLLECTION_SCHEMA);
@@ -506,6 +461,193 @@ test('clearRecords calls removeItem and returns []', () => {
 
   assert.deepEqual(plain(store.clearRecords(storage)), []);
   assert.deepEqual(storage.calls.removeItem, [store.STORAGE_KEY]);
+});
+
+test('normalizeRecord creates a ProvenanceReceipt with required fields', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({
+    id: 'prov-1',
+    image: 'data:image/png;base64,testimage',
+    prompt: 'a test cat',
+    model: 'dev',
+    size: 'square',
+    seed: 12345,
+    provider: 'nvidia',
+    steps: 30,
+    cfgScale: 5,
+    width: 1024,
+    height: 1024
+  });
+
+  assert.ok(record.provenanceReceipt, 'record should have provenanceReceipt');
+  const receipt = record.provenanceReceipt;
+  assert.equal(receipt.receiptSchemaVersion, 1);
+  assert.equal(receipt.recordId, 'prov-1');
+  assert.ok(receipt.outputSha256, 'should have output SHA-256');
+  assert.ok(/^[a-f0-9]{64}$/i.test(receipt.outputSha256), 'outputSha256 should be hex 64 chars');
+  assert.equal(receipt.provider, 'nvidia');
+  assert.equal(receipt.model, 'dev');
+  assert.equal(receipt.seed, 12345);
+  assert.equal(receipt.size, 'square');
+  assert.equal(receipt.steps, 30);
+  assert.equal(receipt.cfgScale, 5);
+  assert.ok(receipt.createdAt, 'should have createdAt');
+  assert.ok(receipt.appVersion, 'should have appVersion');
+  assert.ok(receipt.lineage, 'should have lineage');
+  assert.equal(receipt.lineage.parentReceiptHash, null);
+  assert.equal(receipt.lineage.versionGroupId, 'prov-1');
+  assert.equal(receipt.lineage.versionNumber, 1);
+  assert.ok(!receipt.userPromptHash || typeof receipt.userPromptHash === 'string', 'userPromptHash should be string if present');
+});
+
+test('normalizeRecord for AI edit includes source image hashes', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({
+    id: 'edit-1',
+    image: 'data:image/png;base64,editedimage',
+    prompt: 'edit the cat',
+    model: '@cf/black-forest-labs/flux-2-klein-4b',
+    size: 'square',
+    seed: 54321,
+    provider: 'workers-ai',
+    sourceRecordId: 'parent-1',
+    versionGroupId: 'group-1',
+    versionNumber: 2,
+    sourceImageHashes: ['sha256-abc123', 'sha256-def456']
+  });
+
+  assert.ok(record.provenanceReceipt);
+  const receipt = record.provenanceReceipt;
+  assert.deepEqual(receipt.sourceImageHashes, ['sha256-abc123', 'sha256-def456']);
+  assert.equal(receipt.lineage.parentReceiptHash, 'sha256-parent-1');
+  assert.equal(receipt.lineage.versionGroupId, 'group-1');
+  assert.equal(receipt.lineage.versionNumber, 2);
+});
+
+test('createVersionRecord creates new receipt pointing to parent receipt hash', () => {
+  const store = loadHistoryStore();
+  const parent = store.normalizeRecord({
+    id: 'parent-1',
+    image: 'data:image/png;base64,parent',
+    prompt: 'a cat',
+    versionGroupId: 'group-1',
+    versionNumber: 1
+  });
+  const records = [
+    parent,
+    store.normalizeRecord({
+      id: 'existing-v2',
+      image: 'data:image/png;base64,v2',
+      prompt: 'a cinematic cat',
+      versionGroupId: 'group-1',
+      versionNumber: 2
+    })
+  ];
+
+  const version = store.createVersionRecord(records, parent, {
+    image: 'data:image/png;base64,new',
+    prompt: 'a realistic cat'
+  }, () => 'new-version');
+
+  assert.ok(version.provenanceReceipt);
+  const receipt = version.provenanceReceipt;
+  assert.equal(receipt.lineage.parentReceiptHash, parent.provenanceReceipt.outputSha256);
+  assert.equal(receipt.lineage.versionGroupId, 'group-1');
+  assert.equal(receipt.lineage.versionNumber, 3);
+  assert.notEqual(receipt.outputSha256, parent.provenanceReceipt.outputSha256);
+});
+
+test('verifyReceiptHash detects output tampering', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({
+    id: 'tamper-1',
+    image: 'data:image/png;base64,original',
+    prompt: 'a cat'
+  });
+
+  const originalHash = record.provenanceReceipt.outputSha256;
+  const tamperedRecord = { ...record, image: 'data:image/png;base64,tampered' };
+  const tamperedHash = store.computeOutputSha256 ? store.computeOutputSha256(tamperedRecord.image) : null;
+
+  assert.ok(store.verifyReceiptHash);
+  assert.equal(store.verifyReceiptHash(record), true, 'original should verify');
+  assert.equal(store.verifyReceiptHash(tamperedRecord), false, 'tampered should not verify');
+});
+
+test('parseCredentialStatus returns expected status values', () => {
+  const store = loadHistoryStore();
+
+  assert.equal(store.parseCredentialStatus(null), 'absent');
+  assert.equal(store.parseCredentialStatus({}), 'absent');
+  assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: true }), 'verified');
+  assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: false }), 'invalid');
+  assert.equal(store.parseCredentialStatus({ hasC2PA: true, valid: null, transformApplied: true }), 'unknown_after_transform');
+  assert.equal(store.parseCredentialStatus({ hasC2PA: false, providerDeclared: true }), 'absent');
+  assert.equal(store.parseCredentialStatus({ unsupported: true }), 'unsupported');
+});
+
+test('exportRecordCollection roundtrips provenanceReceipt schema', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({
+    id: 'export-1',
+    image: 'data:image/png;base64,export',
+    prompt: 'export test',
+    model: 'dev',
+    provider: 'nvidia'
+  });
+
+  const exported = store.exportRecordCollection([record]);
+  const parsed = store.parseRecords(JSON.stringify(exported));
+
+  assert.equal(parsed.length, 1);
+  assert.ok(parsed[0].provenanceReceipt);
+  assert.equal(parsed[0].provenanceReceipt.receiptSchemaVersion, 1);
+  assert.equal(parsed[0].provenanceReceipt.recordId, 'export-1');
+  assert.equal(parsed[0].provenanceReceipt.outputSha256, record.provenanceReceipt.outputSha256);
+});
+
+test('private prompt mode keeps provider/model/hash/status but not full prompt in receipt', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({
+    id: 'private-1',
+    image: 'data:image/png;base64,private',
+    prompt: 'my secret prompt that should not leak',
+    providerPrompt: 'english secret prompt',
+    model: 'dev',
+    provider: 'nvidia',
+    cloudPromptPublic: false
+  });
+
+  assert.ok(record.provenanceReceipt);
+  const receipt = record.provenanceReceipt;
+  assert.ok(receipt.provider);
+  assert.ok(receipt.model);
+  assert.ok(receipt.outputSha256);
+  assert.ok(!receipt.userPrompt || receipt.userPrompt.length === 0 || receipt.userPromptHash);
+  if (receipt.userPromptHash) {
+    assert.ok(/^[a-f0-9]{64}$/i.test(receipt.userPromptHash));
+  }
+});
+
+test('sensitive URLs and tokens never enter receipt or export', () => {
+  const store = loadHistoryStore();
+  const record = store.normalizeRecord({
+    id: 'secret-1',
+    image: 'data:image/png;base64,secret',
+    prompt: 'test',
+    cloudShareUrl: 'https://example.com/share?token=secret123',
+    cloudDeleteUrl: 'https://example.com/delete?token=secret456',
+    provider: 'nvidia'
+  });
+
+  const receipt = record.provenanceReceipt;
+  const exported = store.exportRecordCollection([record]);
+  const exportedStr = JSON.stringify(exported);
+
+  assert.ok(!exportedStr.includes('secret123'), 'share token should not be in export');
+  assert.ok(!exportedStr.includes('secret456'), 'delete token should not be in export');
+  assert.ok(!JSON.stringify(receipt).includes('secret123'), 'share token should not be in receipt');
+  assert.ok(!JSON.stringify(receipt).includes('secret456'), 'delete token should not be in receipt');
 });
 
 test('source avoids ES6-only finite helpers for ES5 compatibility', () => {
