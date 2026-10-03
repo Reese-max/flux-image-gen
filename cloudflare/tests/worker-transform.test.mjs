@@ -3091,27 +3091,35 @@ function makeEditRequest() {
   return new Request('http://worker.test/edit', { method: 'POST', body: form });
 }
 
+const serverFundedRoutes = [
+  { name: 'POST /generate', makeRequest: makeGenerateRequest },
+  { name: 'POST /generate/batch', makeRequest: makeBatchRequest },
+  { name: 'POST /edit', makeRequest: makeEditRequest },
+  {
+    name: 'POST /prompt/transform (Gemini)',
+    makeRequest: () => jsonRequest('/prompt/transform', { source: '一隻可愛柴犬在月球上', style: 'auto' }),
+  },
+  {
+    name: 'POST /prompt/complete (Gemini)',
+    makeRequest: () => jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
+  },
+  {
+    name: 'POST /prompt/enhance (Gemini)',
+    makeRequest: () => jsonRequest('/prompt/enhance', { prompt: 'a cat', effect: '更夢幻' }),
+  },
+];
+
 // ── Missing limiter binding ───────────────────────────────────────────────────
 
-test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
-  await assertProductionAbuseGateRejectsBeforeProvider(
-    makeGenerateRequest(),
-    'rate_limiter_unavailable',
-  );
-});
-
-test('POST /generate/batch fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
-  await assertProductionAbuseGateRejectsBeforeProvider(
-    makeBatchRequest(),
-    'rate_limiter_unavailable',
-  );
-});
-
-test('POST /edit fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
-  await assertProductionAbuseGateRejectsBeforeProvider(
-    makeEditRequest(),
-    'rate_limiter_unavailable',
-  );
+test('all server-funded routes fail closed before provider calls when the limiter is missing', async (t) => {
+  for (const route of serverFundedRoutes) {
+    await t.test(route.name, async () => {
+      await assertProductionAbuseGateRejectsBeforeProvider(
+        route.makeRequest(),
+        'rate_limiter_unavailable',
+      );
+    });
+  }
 });
 
 // ── Limiter binding throws ────────────────────────────────────────────────────
@@ -3123,6 +3131,33 @@ function throwingLimiter() {
     },
   };
 }
+
+function rejectingLimiter() {
+  return {
+    async limit() {
+      throw new Error('Workers RateLimit binding rejected');
+    },
+  };
+}
+
+test('all server-funded routes fail closed before provider calls when the limiter throws or rejects', async (t) => {
+  const failureModes = [
+    { name: 'synchronous throw', createLimiter: throwingLimiter },
+    { name: 'asynchronous rejection', createLimiter: rejectingLimiter },
+  ];
+
+  for (const route of serverFundedRoutes) {
+    for (const failureMode of failureModes) {
+      await t.test(route.name + ': ' + failureMode.name, async () => {
+        await assertProductionAbuseGateRejectsBeforeProvider(
+          route.makeRequest(),
+          'rate_limiter_error',
+          { GENERATE_RATE_LIMITER: failureMode.createLimiter() },
+        );
+      });
+    }
+  }
+});
 
 test('POST /generate fail-closed when environment mode is missing or unknown', async () => {
   for (const environment of [undefined, 'staging']) {
@@ -3142,14 +3177,6 @@ test('POST /generate keeps pass-through with server-funded provider only in expl
   );
   assert.equal(response.status, 200);
   assert.equal(ai.calls.length, 1);
-});
-
-test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER throws in production mode', async () => {
-  await assertProductionAbuseGateRejectsBeforeProvider(
-    makeGenerateRequest(),
-    'rate_limiter_error',
-    { GENERATE_RATE_LIMITER: throwingLimiter() },
-  );
 });
 
 // ── Dev mode keeps pass-through (no regression) ───────────────────────────────
@@ -3241,29 +3268,6 @@ test('POST /generate fail-closed (503) when Turnstile is required but the secret
       TURNSTILE_SITE_KEY: '0x_site',
       // TURNSTILE_SECRET_KEY intentionally absent.
     },
-  );
-});
-
-// ── Gemini-backed prompt routes share the production policy ──────────────────
-
-test('POST /prompt/transform fail-closed (503) when the limiter is absent in production', async () => {
-  await assertProductionAbuseGateRejectsBeforeProvider(
-    jsonRequest('/prompt/transform', { source: '一隻可愛柴犬在月球上', style: 'auto' }),
-    'rate_limiter_unavailable',
-  );
-});
-
-test('POST /prompt/complete fail-closed (503) when the limiter is absent in production', async () => {
-  await assertProductionAbuseGateRejectsBeforeProvider(
-    jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
-    'rate_limiter_unavailable',
-  );
-});
-
-test('POST /prompt/enhance fail-closed (503) when the limiter is absent in production', async () => {
-  await assertProductionAbuseGateRejectsBeforeProvider(
-    jsonRequest('/prompt/enhance', { prompt: 'a cat', effect: '更夢幻' }),
-    'rate_limiter_unavailable',
   );
 });
 
