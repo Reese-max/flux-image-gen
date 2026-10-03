@@ -6,6 +6,7 @@ import {
   HttpError,
   checkRateLimit,
   httpErrorJson,
+  isPreviewReadOnly,
   json,
   makeRequestId,
   readJsonPayload,
@@ -29,6 +30,7 @@ import {
   validateSteps,
 } from "./image.js";
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
+import { buildOutputProvenance, sha256HexBytes } from "./provenance.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
 
@@ -144,7 +146,58 @@ function buildHealthResponse(env) {
     ...(versionId ? { versionId } : {}),
     ...(versionTag ? { versionTag } : {}),
     ...(versionTimestamp ? { versionTimestamp } : {}),
+    ...(isPreviewReadOnly(env) ? {
+      previewReadOnly: true,
+      provider: "demo",
+      providerStatus: "offline",
+      mode: "demo",
+      providers: { nvidia: false, workersAI: false },
+      providerList: [],
+      hasApiKey: false,
+      storageAvailable: false,
+      visionQa: false,
+      message: "唯讀預覽：僅提供靜態頁面與健康檢查，生成及雲端資料功能已停用",
+    } : {}),
   };
+}
+
+const PREVIEW_STATIC_PATHS = new Set(["/", "/index.html", "/manifest.webmanifest", "/service-worker.js"]);
+
+function previewResponse(response, request) {
+  const result = new Response(request.method === "HEAD" ? null : response.body, response);
+  result.headers.set("access-control-allow-origin", "*");
+  return result;
+}
+
+async function handleReadOnlyPreview(request, env, url) {
+  const health = url.pathname === "/health" || url.pathname === "/api/health";
+  const staticAsset = PREVIEW_STATIC_PATHS.has(url.pathname) || url.pathname.startsWith("/static/");
+  const safeRoute = health || staticAsset;
+  const safeMethod = request.method === "GET" || request.method === "HEAD";
+  const requestedMethod = (request.headers.get("access-control-request-method") || "GET").toUpperCase();
+
+  if (request.method === "OPTIONS" && safeRoute && ["GET", "HEAD"].includes(requestedMethod)) {
+    return previewResponse(new Response(null, {
+      status: 204,
+      headers: {
+        "allow": "GET, HEAD, OPTIONS",
+        "access-control-allow-methods": "GET, HEAD, OPTIONS",
+        "access-control-allow-headers": "Content-Type",
+        "cache-control": "no-store",
+      },
+    }), request);
+  }
+  if (!safeRoute || !safeMethod) {
+    const response = json({ error: "唯讀預覽已停用此功能", code: "preview_read_only" }, 403);
+    response.headers.set("cache-control", "no-store");
+    return previewResponse(response, request);
+  }
+  if (health) {
+    const response = json(buildHealthResponse(env));
+    response.headers.set("cache-control", "no-store");
+    return previewResponse(response, request);
+  }
+  return previewResponse(await env.ASSETS.fetch(request), request);
 }
 
 async function handleClientError(request) {
@@ -277,6 +330,9 @@ async function handleGenerate(request, env) {
       await recordVisionQaEvent(env, request, qaStarted, visionQa);
       if (visionQa) result.visionQa = visionQa;
     }
+    // 伺服器端 attestation：輸出位元組 hash + credential 結構檢測。
+    // 只回報偵測訊號，絕不宣稱 verified；前端 receipt 會自行重算驗證。
+    result.provenance = await buildOutputProvenance(result.image);
     const galleryToken = await issueGalleryToken(env);
     return json(galleryToken ? { ...result, galleryToken } : result);
   } catch (e) {
@@ -452,6 +508,9 @@ async function handleGenerateBatch(request, env) {
         if (visionQa) image.visionQa = visionQa;
       }
     }
+    for (const image of images) {
+      image.provenance = await buildOutputProvenance(image.image);
+    }
     const galleryToken = await issueGalleryToken(env);
     const response = { images, errors, partial: errors.length > 0 };
     return json(galleryToken ? { ...response, galleryToken } : response);
@@ -545,6 +604,13 @@ async function handleEdit(request, env) {
 
   try {
     const result = await editImage(env, { prompt, images });
+    // Edit provenance：輸出位元組 hash + credential 檢測 + 輸入圖 hash。
+    // 輸入 hash 證明 provider 實際收到的位元組（前端送的是 canvas 重編碼 PNG）。
+    const inputImageHashes = [];
+    for (const blob of images) {
+      inputImageHashes.push(await sha256HexBytes(await blob.arrayBuffer()));
+    }
+    result.provenance = await buildOutputProvenance(result.image, inputImageHashes);
     await recordUsageEvent(env, request, {
       route: "edit",
       outcome: "success",
@@ -700,6 +766,11 @@ async function readGalleryMetaObject(bucket, key) {
     mode: String(metadata.mode || "normal"),
     styleLabel: String(metadata.styleLabel || metadata.style || ""),
     useCaseLabel: String(metadata.useCaseLabel || metadata.useCase || ""),
+    outputSha256: String(metadata.outputSha256 || ""),
+    receiptHash: String(metadata.receiptHash || ""),
+    credentialStatus: String(metadata.credentialStatus || ""),
+    sourceAction: String(metadata.sourceAction || ""),
+    appVersion: String(metadata.appVersion || ""),
     createdAt: String(payload.createdAt || ""),
     storage: {
       image: String(metadata.storage || "r2"),
@@ -885,6 +956,42 @@ function shareTemplateUrl(prompt, metadata) {
   return query ? `/?${query}` : "/";
 }
 
+// 分享頁只呈現 allowlist 的 provenance 欄位；語氣誠實（absent ≠ 非 AI）。
+const SHARE_CREDENTIAL_LABELS = {
+  verified: "Content Credentials 已驗證",
+  present_untrusted: "偵測到 Content Credentials（結構有效，未驗證簽章信任鏈）",
+  invalid: "Content Credentials 無效或已損毀",
+  absent: "未偵測到 Content Credentials（不代表非 AI）",
+  unknown_after_transform: "經過轉換／重新編碼，credential 狀態未知",
+  unsupported: "圖片格式不支援 credential 檢測",
+};
+const SHARE_ACTION_LABELS = { generate: "生成", edit: "AI 改圖", regenerate: "版本再生" };
+
+function shareProvenanceSection(metadata) {
+  const chips = [];
+  if (metadata.outputSha256) {
+    chips.push(`輸出 SHA-256：${escapeHtml(String(metadata.outputSha256).slice(0, 16))}…`);
+  }
+  if (metadata.receiptHash) {
+    chips.push(`來源 receipt：${escapeHtml(String(metadata.receiptHash).slice(0, 16))}…`);
+  }
+  if (SHARE_CREDENTIAL_LABELS[metadata.credentialStatus]) {
+    chips.push(escapeHtml(SHARE_CREDENTIAL_LABELS[metadata.credentialStatus]));
+  }
+  if (SHARE_ACTION_LABELS[metadata.sourceAction]) {
+    chips.push(`行為：${escapeHtml(SHARE_ACTION_LABELS[metadata.sourceAction])}`);
+  }
+  if (metadata.appVersion) {
+    chips.push(`App：${escapeHtml(String(metadata.appVersion))}`);
+  }
+  if (!chips.length) return "";
+  return `<section class="card">
+      <h2>來源與驗證</h2>
+      <div class="meta">${chips.map((chip) => `<span>${chip}</span>`).join("")}</div>
+      <p class="note">此為作品建立時記錄的來源收據摘要；「未偵測到 Content Credentials」不代表圖片非 AI 產生。</p>
+    </section>`;
+}
+
 function shareTemplateSummary(prompt, metadata, promptPublic) {
   const fields = [
     `模式：${String(metadata.mode || "normal") === "agent" ? "智慧體模式" : "一般模式"}`,
@@ -902,6 +1009,30 @@ async function readR2Text(object) {
   if (typeof object.text === "function") return object.text();
   if (typeof object.body === "string") return object.body;
   return new Response(object.body).text();
+}
+
+function credentialStatusLabel(status) {
+  switch (status) {
+    case 'verified': return '✅ 已驗證';
+    case 'present_untrusted': return '⚠️ 存在但未驗證';
+    case 'invalid': return '❌ 無效';
+    case 'absent': return '🚫 無憑證';
+    case 'unknown_after_transform': return '❓ 轉碼後未知';
+    case 'unsupported': return '❓ 不支援檢測';
+    default: return '🚫 無憑證';
+  }
+}
+
+function credentialStatusDescription(status) {
+  switch (status) {
+    case 'verified': return '檢測到有效的 C2PA Content Credentials，可確認來源與編輯歷程。';
+    case 'present_untrusted': return '檢測到 C2PA 標記，但簽章驗證失敗或簽發者不在信任清單。';
+    case 'invalid': return 'C2PA 標記存在但簽章無效，內容可能已被篡改。';
+    case 'absent': return '未檢測到 C2PA Content Credentials。注意：缺少憑證不代表非 AI 生成，可能因平台處理被剝除。';
+    case 'unknown_after_transform': return '原始圖片可能帶有憑證，但經縮圖、重新編碼或編輯後無法確認。';
+    case 'unsupported': return '此圖片格式不支援 C2PA 檢測。';
+    default: return '未檢測到 C2PA Content Credentials。';
+  }
 }
 
 async function handleSharePage(env, id) {
@@ -948,10 +1079,43 @@ async function handleSharePage(env, id) {
   const robots = payload.visibility === "public" ? "index,follow" : "noindex,nofollow";
   const templateUrl = shareTemplateUrl(promptPublic ? prompt : "", metadata);
   const templateSummary = shareTemplateSummary(prompt, metadata, promptPublic);
+  const provenanceSection = shareProvenanceSection(metadata);
   const regenerateLabel = promptPublic && prompt ? "用這個 prompt 再生成" : "套用公開設定再生成";
   const promptBlock = promptPublic && prompt
     ? `<pre>${escapeHtml(prompt)}</pre><button type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.querySelector('pre').textContent)">複製 prompt 模板</button>`
     : "<p>此作品未公開完整 prompt。</p><p>仍可套用公開設定（模型、尺寸、風格與用途），再自行補上中文描述。</p>";
+
+  const receipt = metadata.provenanceReceipt;
+  let provenanceHtml = "";
+  if (receipt) {
+    const credentialStatus = receipt.credentialStatus || 'absent';
+    const lineage = receipt.lineage || {};
+    provenanceHtml = `
+    <section class="card">
+      <h2>來源與驗證</h2>
+      <pre class="provenance-content">${escapeHtml(
+        `收據版本：v${receipt.receiptSchemaVersion || 1}
+記錄 ID：${receipt.recordId || '—'}
+輸出 SHA-256：${(receipt.outputSha256 || '—').slice(0, 16)}…
+Provider：${receipt.provider || '未知'}
+Model：${receipt.model || '未知'}
+Seed：${receipt.seed || 0}
+尺寸：${receipt.size || '未知'}
+${receipt.steps ? `Steps：${receipt.steps}` : ''}
+${receipt.cfgScale ? `CFG：${receipt.cfgScale}` : ''}
+建立時間：${receipt.createdAt || '未知'}
+App 版本：${receipt.appVersion || '未知'}
+${lineage.parentReceiptHash ? `父收據哈希：${lineage.parentReceiptHash.slice(0, 16)}…` : ''}
+版本群組：${lineage.versionGroupId || '—'}
+版本號：v${lineage.versionNumber || 1}
+${receipt.userPromptHash ? `提示詞哈希：${receipt.userPromptHash.slice(0, 16)}… (私有模式)` : ''}
+
+內容憑證狀態：${credentialStatusLabel(credentialStatus)}
+${credentialStatusDescription(credentialStatus)}`
+      )}</pre>
+    </section>`;
+  }
+
   const html = `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -972,7 +1136,9 @@ async function handleSharePage(env, id) {
     .meta span{border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:6px 10px}
     .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
     pre{white-space:pre-wrap;word-break:break-word;color:#d9f99d}
+    .provenance-content{color:#cbd5e1;background:#111827;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,.12)}
     button,.button{border:1px solid rgba(190,242,100,.45);border-radius:999px;background:rgba(190,242,100,.12);color:#ecfccb;padding:10px 14px;cursor:pointer;text-decoration:none;display:inline-flex}
+    .note{color:#94a3b8;font-size:12px;margin:10px 0 0}
     a{color:#bef264}
   </style>
 </head>
@@ -992,10 +1158,12 @@ async function handleSharePage(env, id) {
         <span>Prompt：${promptPublic ? "公開" : "隱藏"}</span>
       </div>
     </section>
+    ${provenanceHtml}
     <section class="card">
       <h2>Prompt</h2>
       ${promptBlock}
     </section>
+    ${provenanceSection}
     <section class="actions">
       <a class="button" href="${escapeHtml(templateUrl)}">${escapeHtml(regenerateLabel)}</a>
       <button type="button" data-template="${escapeHtml(templateSummary)}" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.dataset.template)">複製模板設定</button>
@@ -1232,6 +1400,9 @@ export { completePlainPrompt, enhancePrompt, transformPlainPrompt };
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    // Must precede rate limits, provider calls, gallery access and usage writes.
+    // A new dynamic route stays blocked unless it is explicitly a safe asset.
+    if (isPreviewReadOnly(env)) return handleReadOnlyPreview(request, env, url);
     if (url.pathname === "/health" || url.pathname === "/api/health") {
       const response = json(buildHealthResponse(env));
       response.headers.set("cache-control", "no-store");

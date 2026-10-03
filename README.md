@@ -37,7 +37,18 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - Prompt 強化器：提供更寫實、電影感、產品照、可愛、乾淨構圖、修正常見瑕疵等規則式強化，不增加 API 成本。
 - 失敗修正建議：依 `content_filtered`、`rate_limited`、`timeout`、`bad_provider_response`、`missing_api_key` 等錯誤提供下一步建議。
 - 歷史搜尋與標籤：可搜尋 prompt、篩選 model/size、收藏星號、編輯標籤。
+- 來源收據（Provenance Receipt）：每筆新的生成／改圖記錄附帶版本化收據，記錄輸出圖片位元組的 SHA-256、provider／模型／畫質設定、建立時間、App 版本與父收據 hash；詳情頁會重新比對圖片位元組並驗證收據自描述 hash，可一鍵匯出 `receipt.json`。同時對圖片做 Content Credentials（C2PA）結構檢測（PNG `caBX`、JPEG APP11/APP1 XMP、WebP `XMP `），狀態僅回報偵測訊號——沒有信任鏈驗證時不宣稱「已驗證」，「未偵測到」也不代表圖片非 AI 產生。收據與公開視圖只收 allowlist 欄位，prompt 只存 SHA-256、API key／token／簽名 URL 永不進收據。
 - PWA / 手機體驗：提供 manifest、service worker、手機底部生成列與響應式歷史牆。
+
+## v1.5 可驗證的生成／編輯 Provenance Receipt 與 Content Credentials 保留策略
+
+- 每次生成與 AI 編輯自動建立版本化的 `ProvenanceReceipt`：包含輸出 SHA-256、provider/model/seed/size/steps/cfg、建立時間、App 版本、lineage（父收據哈希、版本群組、版本號）。
+- AI 編輯時保存來源圖片 SHA-256 哈希，形成完整的編輯鏈。
+- 作品詳情新增「來源與驗證」區：顯示收據內容、輸出哈希驗證結果（圖片未被修改時通過）、Content Credentials 狀態（`verified` / `present_untrusted` / `invalid` / `absent` / `unknown_after_transform` / `unsupported`），不將 `absent` 誤判為非 AI 證據。
+- C2PA 檢測：支援 JPEG (APP11) 與 PNG (caBX/iTXt) 區塊解析，自動提取 claim_generator 與斷言資訊；解析失敗不標記為 verified。
+- 編輯/重新編碼導致憑證剝離時，收據明確記錄 `unknown_after_transform`，不沿用舊狀態。
+- 匯出作品 JSON 完整保留收據 schema；雲端分享頁顯示收據摘要與憑證狀態；私有模式下僅顯示提示詞哈希，不洩漏完整 prompt。
+- 敏感查詢參數（token、deleteToken、api_key 等）在匯出與分享 metadata 中自動剝除。
 
 不包含帳號系統；公開站已具備後端限流、Turnstile 防機器人入口與雲端分享基礎。
 
@@ -309,8 +320,9 @@ app/
     app.js
     prompt-transform.js  # 提示詞轉換前端互動
     generation-settings.js  # Seed、排除描述與設定序列化
-    history-store.js     # 圖片歷史記錄 localStorage 儲存
-    history-wall.js      # 歷史記錄牆 UI、下載、複製與再生
+    provenance.js        # 來源收據（Provenance Receipt）+ Content Credentials 檢測
+    history-store.js     # 圖片歷史記錄 localStorage 儲存（自動附帶收據）
+    history-wall.js      # 歷史記錄牆 UI、下載、複製與再生（含來源與驗證區塊）
     tutorial.js          # 使用者教學彈窗
 tests/
   test_app.py

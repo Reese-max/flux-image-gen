@@ -537,7 +537,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v24" in service_worker_js
+    assert "ai-image-generator-pwa-v25" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -1265,6 +1265,7 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "history-wall.js",
         "image-edit.js",
             "prompt-enhancer.js",
+            "provenance.js",
             "prompt-pack.js",
             "prompt-transform.js",
             "service-worker.js",

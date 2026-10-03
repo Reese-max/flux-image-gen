@@ -4,6 +4,14 @@
 
 > 正式公開前還需要完成 `docs/release-acceptance-checklist.md`；該文件把真實網域、真機、Vision QA、R2 gallery save、分享隱私、Turnstile / Rate limit、成本、隱私政策、授權與商用說明等人工簽核項目列成 Release blocker。
 
+## 只讀公開 Preview
+
+若只驗證頁面、靜態資產與版本 health，使用 `wrangler versions upload --var PREVIEW_READ_ONLY:true` 明確開啟隔離；不要以 `wrangler deploy` 發布此模式。版本上傳會繼承現有 provider 與 R2 binding，僅設定 production / Turnstile 不能保證 prompt、錯誤用量紀錄完全不觸及它們。
+
+`PREVIEW_READ_ONLY="true"` 在入口、rate limiter 與任何 provider／R2／usage 操作之前阻擋全部動態與修改請求；只允許 `GET`／`HEAD` 健康檢查、首頁、manifest、service worker 與 `/static/*`，以及這些只讀路徑的安全 `OPTIONS`。生成、prompt 三種處理、Vision QA、gallery、分享、管理與用量資料都不可使用；health 回傳 `previewReadOnly=true`、`mode=demo` 與 `providerStatus=offline`，不代表 live inference 已驗證。啟用旗標不驗證任何真實模型或正式 R2 寫入。
+
+PR workflow 的 `Deploy Preview` 固定使用 `versions upload --var PREVIEW_READ_ONLY:true`，所以更新登入憑證後的自動預覽仍維持隔離。公開靜態 preflight 會明確標示 `preview read-only isolation enabled` 並保留原有檢查；固定 production deploy readiness 使用專案鎖定 Wrangler 的 TOML parser，只判讀真正 root `[vars]`，一律拒絕啟用此旗標。正式產品部署仍需 `PREVIEW_READ_ONLY="false"`、原有 abuse controls、Secrets、Release blocker 與使用者核准。
+
 ## 1. 必要 secrets
 
 在 `cloudflare/` 目錄執行：

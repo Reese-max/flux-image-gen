@@ -35,6 +35,7 @@ from .rate_limit import check_generation_rate_limit
 from .settings import get_settings
 from .turnstile import turnstile_enabled, verify_turnstile_token
 from .moderation import moderate_prompt
+from .provenance import build_output_provenance, sha256_hex_bytes
 from .usage_metrics import record_usage_event, summarize_usage
 from .vision_qa import maybe_run_vision_qa
 
@@ -374,6 +375,7 @@ async def generate(payload: GeneratePayload, request: Request):
         "height": result.height,
         "seed": result.seed,
         "imageQuality": result.image_quality,
+        "provenance": build_output_provenance(result.image),
     }
     if vision_qa:
         body["visionQa"] = vision_qa
@@ -491,6 +493,7 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
                 "height": result.height,
                 "seed": result.seed,
                 "imageQuality": result.image_quality,
+                "provenance": build_output_provenance(result.image),
             }
         if payload.visionQa:
             vision_qa = maybe_run_vision_qa(result.image, payload.prompt, settings)
@@ -628,6 +631,9 @@ async def edit(
         "provider": result.provider,
         "model": result.model,
         "image_count": result.image_count,
+        "provenance": build_output_provenance(
+            result.image, [sha256_hex_bytes(raw) for raw in raw_images]
+        ),
     }
 
 

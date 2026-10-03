@@ -26,6 +26,10 @@ directory = "./public"
 binding = "ASSETS"
 
 [vars]
+# Opt in only on an uploaded preview version (e.g. versions upload --var).
+# This blocks all API/provider/gallery/usage routes before accessing bindings.
+# Fixed production deploy readiness rejects true; do not enable it in production.
+PREVIEW_READ_ONLY = "false"
 # Public, non-secret config. Secret keys are set separately:
 #   npx wrangler secret put NVIDIA_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY

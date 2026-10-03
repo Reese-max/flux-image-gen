@@ -8,6 +8,8 @@
   var MAX_RECORDS = 48;
   var DEFAULT_MODEL = 'schnell';
   var DEFAULT_SIZE = 'square';
+  var RECEIPT_SCHEMA_VERSION = 1;
+  var APP_VERSION = '1.4.0';
 
   function toText(value) {
     if (value === null || value === undefined) {
@@ -159,6 +161,76 @@
     return number;
   }
 
+  function computeOutputSha256(imageData) {
+    var P = root.ImageProvenance;
+    return P && typeof P.hashImage === 'function' ? P.hashImage(imageData).sha256 : '';
+  }
+
+  function legacyReceipt(receipt, record) {
+    if (!receipt) { return null; }
+    var hashes = [];
+    receipt.inputs.forEach(function (input) { hashes.push(input.sha256); });
+    var legacy = {
+      receiptSchemaVersion: receipt.schemaVersion,
+      recordId: receipt.recordId,
+      outputSha256: receipt.outputSha256,
+      outputHashStatus: receipt.outputHashStatus,
+      receiptHash: receipt.receiptHash,
+      sourceImageHashes: hashes,
+      provider: receipt.provider,
+      model: receipt.model,
+      seed: receipt.seed,
+      size: receipt.size,
+      steps: receipt.steps,
+      cfgScale: receipt.cfgScale,
+      width: record.width || 0,
+      height: record.height || 0,
+      mode: receipt.mode,
+      createdAt: receipt.createdAt,
+      appVersion: receipt.appVersion,
+      lineage: {
+        parentReceiptHash: receipt.parentReceiptHash || null,
+        versionGroupId: receipt.versionGroupId,
+        versionNumber: receipt.versionNumber
+      },
+      credentialStatus: receipt.credentialStatus
+    };
+    if (record.cloudPromptPublic !== true && receipt.promptSha256) {
+      legacy.userPromptHash = receipt.promptSha256;
+    }
+    return legacy;
+  }
+
+  function createProvenanceReceipt(record, parentReceiptHash, sourceImageHashes) {
+    var P = root.ImageProvenance;
+    if (!P || typeof P.buildReceipt !== 'function') { return null; }
+    var receipt = P.buildReceipt(record, { inputImageHashes: sourceImageHashes });
+    if (/^[a-f0-9]{64}$/i.test(toText(parentReceiptHash))) {
+      receipt.parentReceiptHash = toText(parentReceiptHash).toLowerCase();
+      receipt.receiptHash = P.computeReceiptHash(receipt);
+    }
+    return legacyReceipt(receipt, record);
+  }
+
+  function parseCredentialStatus(credentialInfo) {
+    if (!credentialInfo || typeof credentialInfo !== 'object') { return 'absent'; }
+    if (credentialInfo.unsupported === true) { return 'unsupported'; }
+    if (credentialInfo.hasC2PA === true) {
+      if (credentialInfo.transformApplied === true) { return 'unknown_after_transform'; }
+      if (credentialInfo.valid === false) { return 'invalid'; }
+      // A boolean is no signer certificate or trust-chain verification.
+      return 'present_untrusted';
+    }
+    return 'absent';
+  }
+
+  function verifyReceiptHash(record) {
+    var P = root.ImageProvenance;
+    return !!(P && record && record.provenance
+      && P.verifyReceiptHash(record.provenance)
+      && P.verifyOutput(record.provenance, record.image) === 'match');
+  }
+
   function copyRecord(record) {
     var copy = {};
     var key;
@@ -232,7 +304,7 @@
       id = toText(idFactory());
     }
 
-    return {
+    var record = {
       id: id,
       schemaVersion: RECORD_SCHEMA_VERSION,
       userPrompt: prompt,
@@ -269,8 +341,52 @@
       sourceRecordId: toText(source.sourceRecordId),
       versionGroupId: toText(source.versionGroupId) || id,
       versionNumber: normalizeVersionNumber(source.versionNumber),
+      provenanceUnavailable: normalizeBoolean(source.provenanceUnavailable),
       createdAt: toText(source.createdAt) || new Date().toISOString()
     };
+
+    var P = root.ImageProvenance;
+    var receipt = null;
+    if (P && typeof P.buildReceipt === 'function') {
+      receipt = P.normalizeReceipt(source.provenance);
+      if (!receipt && source.provenance == null && !record.provenanceUnavailable) {
+        receipt = P.buildReceipt(mergeRecord(record, {
+          recordAction: source.recordAction,
+          editInputHashes: source.editInputHashes || source.inputImageHashes || source.sourceImageHashes,
+          sourceRecordIds: source.sourceRecordIds,
+          providerModelRevision: source.providerModelRevision,
+          providerProvenance: source.providerProvenance,
+          transforms: source.transforms
+        }), { parentReceipt: source.parentProvenance });
+      } else if (!receipt) {
+        // Keep the failed-import state across normalize/save/load/export cycles.
+        record.provenanceUnavailable = true;
+      }
+      if (receipt) {
+        // Imported claims cannot supply a trust chain; do not reseal the claim.
+        if (receipt.credentialStatus === 'verified') {
+          receipt.credentialStatus = P.inspectCredential(record.image).status;
+        }
+        receipt.inputs.forEach(function (input) {
+          if (input.credentialStatus === 'verified') {
+            input.credentialStatus = 'present_untrusted';
+          }
+        });
+      }
+      if (receipt && receipt.recordId !== record.id) { receipt.receiptHash = ''; }
+    } else {
+      // A transient module failure must not erase private lineage or tamper evidence.
+      try {
+        receipt = source.provenance == null ? null : JSON.parse(JSON.stringify(source.provenance));
+      } catch (error) {
+        receipt = null;
+      }
+      record.provenanceUnavailable = true;
+    }
+    record.provenance = receipt;
+    record.provenanceReceipt = P ? legacyReceipt(receipt, record) : null;
+    record.outputSha256 = P && receipt ? receipt.outputSha256 : '';
+    return record;
   }
 
   function findRecordById(records, id) {
@@ -353,7 +469,9 @@
     var maxVersion = parent.versionNumber;
     var source = mergeRecord(rawRecord || {}, {
       sourceRecordId: parent.id,
-      versionGroupId: parent.versionGroupId || parent.id
+      versionGroupId: parent.versionGroupId || parent.id,
+      parentProvenance: parent.provenance,
+      recordAction: rawRecord && rawRecord.recordAction ? rawRecord.recordAction : 'regenerate'
     });
 
     group.forEach(function (record) {
@@ -464,13 +582,32 @@
     return records.slice(0, MAX_RECORDS);
   }
 
-  function exportRecordCollection(records) {
+  function recordCollection(records, forExport) {
+    var normalized = normalizeRecordList(records);
+    if (forExport) {
+      normalized.forEach(function (record) {
+        record.cloudShareUrl = sanitizeUrlForExport(record.cloudShareUrl);
+        // Delete URLs may carry capability secrets in either path or query.
+        record.cloudDeleteUrl = '';
+        if (!root.ImageProvenance) {
+          // Unvalidated private receipts are retained in storage, not exported as claims.
+          record.provenance = null;
+          record.provenanceReceipt = null;
+          record.outputSha256 = '';
+          record.provenanceUnavailable = true;
+        }
+      });
+    }
     return {
       schema: COLLECTION_SCHEMA,
       version: COLLECTION_VERSION,
       migratedAt: new Date().toISOString(),
-      records: normalizeRecordList(records)
+      records: normalized
     };
+  }
+
+  function exportRecordCollection(records) {
+    return recordCollection(records, true);
   }
 
   function parseRecords(text) {
@@ -485,6 +622,26 @@
     return normalizeRecordCollection(parsed);
   }
 
+  function sanitizeUrlForExport(url) {
+    var source = toText(url);
+    if (!source) { return ''; }
+    try {
+      var parsed = new root.URL(source);
+      var remove = [];
+      parsed.searchParams.forEach(function (value, key) {
+        if (/^(token|deletetoken|api_key|apikey|key|secret|signature|sign|access_token|authorization)$/i.test(key)) {
+          remove.push(key);
+        }
+      });
+      remove.forEach(function (key) { parsed.searchParams.delete(key); });
+      parsed.hash = '';
+      return parsed.toString();
+    } catch (error) {
+      // Older browsers without URL support export the public path only.
+      return source.split(/[?#]/)[0];
+    }
+  }
+
   function normalizeRecordList(records) {
     var normalized = [];
 
@@ -494,7 +651,8 @@
 
     records.forEach(function (record) {
       try {
-        normalized.push(normalizeRecord(record));
+        var normalizedRecord = normalizeRecord(record);
+        normalized.push(normalizedRecord);
       } catch (error) {
         return;
       }
@@ -535,7 +693,7 @@
 
     while (true) {
       try {
-        store.setItem(STORAGE_KEY, JSON.stringify(exportRecordCollection(nextRecords)));
+        store.setItem(STORAGE_KEY, JSON.stringify(recordCollection(nextRecords, false)));
         return nextRecords;
       } catch (error) {
         if (!nextRecords.length) {
@@ -547,8 +705,8 @@
   }
 
   function addRecord(records, rawRecord, makeId) {
-    var nextRecords = [normalizeRecord(rawRecord, makeId)];
     var existing = normalizeRecordList(records);
+    var nextRecords = [normalizeRecord(rawRecord, makeId)];
 
     existing.forEach(function (record) {
       nextRecords.push(record);
@@ -627,6 +785,8 @@
     COLLECTION_SCHEMA: COLLECTION_SCHEMA,
     COLLECTION_VERSION: COLLECTION_VERSION,
     MAX_RECORDS: MAX_RECORDS,
+    RECEIPT_SCHEMA_VERSION: RECEIPT_SCHEMA_VERSION,
+    APP_VERSION: APP_VERSION,
     normalizeRecord: normalizeRecord,
     normalizeRecordCollection: normalizeRecordCollection,
     exportRecordCollection: exportRecordCollection,
@@ -642,6 +802,10 @@
     updateRecordTags: updateRecordTags,
     toggleFavorite: toggleFavorite,
     updateRecord: updateRecord,
-    clearRecords: clearRecords
+    clearRecords: clearRecords,
+    computeOutputSha256: computeOutputSha256,
+    verifyReceiptHash: verifyReceiptHash,
+    parseCredentialStatus: parseCredentialStatus,
+    createProvenanceReceipt: createProvenanceReceipt
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

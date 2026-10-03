@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { experimental_readRawConfig } from 'wrangler';
 
 const rootDir = fileURLToPath(new URL('..', import.meta.url));
 const repoDir = path.resolve(rootDir, '..');
@@ -107,6 +109,29 @@ export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerT
   }
 }
 
+function readRootAbuseControls(tomlContent) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'flux-readiness-'));
+  try {
+    const configPath = path.join(directory, 'wrangler.toml');
+    writeFileSync(configPath, String(tomlContent || ''), { encoding: 'utf8', mode: 0o600 });
+    // Use the exact locked Wrangler TOML parser used by deploy/upload. An
+    // explicit isolated config path avoids project redirects and env merging.
+    const { rawConfig } = experimental_readRawConfig({ config: configPath });
+    const vars = rawConfig.vars ?? {};
+    if (!vars || typeof vars !== 'object' || Array.isArray(vars)) throw new Error('invalid vars');
+    return {
+      preview: vars.PREVIEW_READ_ONLY,
+      environment: vars.ENVIRONMENT,
+      turnstile: vars.TURNSTILE_REQUIRED,
+    };
+  } catch {
+    // Wrangler parser diagnostics can include config excerpts; never expose them.
+    throw new Error('Production deployment rejected: unable to parse root [vars] in Wrangler TOML.');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
 /**
  * Reject a production deployment configuration that has no abuse controls.
  *
@@ -117,12 +142,17 @@ export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerT
  * This prevents accidental public exposure where both layers are disabled.
  */
 export function assertProductionAbuseControls(tomlContent) {
-  const content = String(tomlContent || '');
-  const environmentMatch = content.match(/^\s*ENVIRONMENT\s*=\s*"([^"]*)"/m);
-  const turnstileMatch = content.match(/^\s*TURNSTILE_REQUIRED\s*=\s*"([^"]*)"/m);
+  const controls = readRootAbuseControls(tomlContent);
+  const previewValue = controls.preview;
+  const explicitFalse = previewValue === false || (
+    typeof previewValue === 'string' && previewValue.trim().toLowerCase() === 'false'
+  );
+  if (previewValue !== undefined && !explicitFalse) {
+    throw new Error('Production deployment rejected: PREVIEW_READ_ONLY is for isolated uploaded previews only.');
+  }
 
-  const environmentValue = (environmentMatch && environmentMatch[1]) || 'development';
-  const turnstileValue = (turnstileMatch && turnstileMatch[1]) || 'false';
+  const environmentValue = String(controls.environment || 'development');
+  const turnstileValue = String(controls.turnstile || 'false');
 
   const hasProductionMode = environmentValue.trim().toLowerCase() === 'production';
   const hasTurnstile = turnstileValue.trim().toLowerCase() === 'true';
