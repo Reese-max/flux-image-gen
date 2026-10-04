@@ -33,7 +33,7 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 - `[ai] binding = "AI"` 已存在，供 Workers AI FLUX.2 klein 快速模型與 AI 改圖使用。
 - `[[r2_buckets]] binding = "IMAGE_BUCKET"` 已存在，bucket 名稱為 `flux-image-gallery` 或正式環境指定名稱。
 - `[[ratelimits]] name = "GENERATE_RATE_LIMITER"` 已存在，公開站必須保留後端硬限制。
-- `ENVIRONMENT = "production"`：追蹤值即部署值。production mode 下 rate limiter binding 缺失或錯誤會在有 provider key 時回 503（fail closed）。本機開發只能透過明確旗標回到 dev pass-through：`npx wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false`；`.dev.vars` 會覆寫 `[vars]` 的同名鍵，同樣可用，但部署路徑不讀 `.dev.vars`。
+- `ENVIRONMENT = "production"`：追蹤值即部署值。production、staging、未知或未設定模式下，rate limiter binding 缺失、出錯或回傳無法判定的結果一律回 503（fail closed），不因 provider key 是否存在而放行。只有本機明確設定 development/test 才能 pass-through；本機開發使用 `npx wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false`；`.dev.vars` 會覆寫 `[vars]` 的同名鍵，同樣可用，但部署路徑不讀 `.dev.vars`。
 - `TURNSTILE_REQUIRED = "true"`、`TURNSTILE_SITE_KEY` 填入公開 site key：追蹤值即部署值，公開站一律啟用。`TURNSTILE_REQUIRED="true"` 但 secret 或 site key 缺失時 Worker 回 503 `turnstile_unconfigured`（fail closed），不會放行。
 - `USAGE_ESTIMATED_COST_USD_PER_IMAGE`、`USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 與 `USAGE_ALERT_DAILY_GENERATIONS` 已設定；prompt／Vision 單價未校準時維持 `0`，但 Provider 嘗試仍會持久記錄，不得誤稱為完整成本。
 - `[version_metadata] binding = "CF_VERSION_METADATA"` 已存在，讓 health／記錄可對應 Cloudflare Version ID。

@@ -68,7 +68,7 @@
 - PR runtime preview 暫緩，直到能使用獨立 Worker、bindings、secrets 與存取控制隔離 production quota；Cloudflare Version URL 可能公開，而且 `versions upload` 版本可使用 Worker 的既有資源，不可用 development／Turnstile 關閉設定上傳到 production Worker。
 - `wrangler.toml` 追蹤值改為公開站硬化預設：`ENVIRONMENT="production"`、`TURNSTILE_REQUIRED="true"`，任何部署路徑（Actions、wrapper、手動）都會發佈啟用 fail-closed rate limiting 與 Turnstile 的設定；本機開發需明確 `wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false` 才回到 dev pass-through。
 - `check-deploy-readiness.mjs` 與 `check_deployment_preflight.py --public` 對所有公開部署一律要求 `ENVIRONMENT="production"`、`[[ratelimits]] GENERATE_RATE_LIMITER` binding（且 `simple.limit`／`simple.period` 皆為正）、`TURNSTILE_REQUIRED="true"` 與非空白 `TURNSTILE_SITE_KEY`：單靠 per-IP rate limit 可被輪替 IP 繞過，不能取代生圖／改圖路由的人機驗證；而 Turnstile 不涵蓋 Gemini `/prompt/*`，也不能取代 fail-closed limiter。JS gate 只比對真正 `[[ratelimits]]` 區塊內、且以行首鍵開頭的值（被註解掉的 binding 不再算數），`simple` 支援 inline 與 `[ratelimits.simple]` 子表兩種等價寫法，`[vars]` 的字串值同時接受 TOML basic 與 literal string；`main()` 把追蹤的 `wrangler.toml` 交給同一個 `validateReadinessInputs` 驗證，不再有第二個未經測試的檢查點。
-- Worker rate limiter 在 binding 回傳非 `{success:true/false}` 形狀時，只要 `ENVIRONMENT` 未明確為 `development`／`test` 且設有 provider key 即 fail-closed（503），staging 與未知模式不再漏接；Turnstile required 但 site key 或 secret 缺失維持 503 `turnstile_unconfigured`；rate gate 回 503 時用量事件改記錄實際 status/code 而非寫死 429。
+- Worker rate limiter 在 production、staging、未知或未設定 `ENVIRONMENT` 時，binding 缺失、出錯或回傳非 `{success:true/false}` 形狀一律 fail-closed（503），不因 provider key 是否存在而放行；只有明確的 `development`／`test` 可 pass-through。Turnstile required 但 site key 或 secret 缺失維持 503 `turnstile_unconfigured`；rate gate 回 503 時用量事件改記錄實際 status/code 而非寫死 429。
 
 ### Not deployed
 

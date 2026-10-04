@@ -48,24 +48,11 @@ function envFlag(value) {
 /**
  * Only explicit development and test environments may pass through a missing
  * or failed limiter. Production, staging, and unknown/missing modes fail closed
- * whenever a server-funded provider is reachable.
+ * regardless of provider configuration.
  */
 function isExplicitDevelopmentOrTestMode(env) {
   const mode = String((env && env.ENVIRONMENT) || "").trim().toLowerCase();
   return mode === "development" || mode === "test";
-}
-
-/**
- * Return true when server-funded provider calls (NVIDIA / Workers AI / Gemini)
- * are reachable from this env. Used by fail-closed logic: when the operator
- * has live API keys, bypassing the rate limiter is a real cost/abuse risk.
- */
-function hasProviderKeys(env) {
-  if (!env) return false;
-  if (String(env.NVIDIA_API_KEY || "").trim().length > 0) return true;
-  if (env.AI && typeof env.AI.run === "function") return true;
-  if (String(env.GEMINI_API_KEY || "").trim().length > 0) return true;
-  return false;
 }
 
 export function turnstileConfig(env) {
@@ -232,15 +219,14 @@ export function sanitizeClientErrorReport(payload) {
 // GENERATE_RATE_LIMITER is configured in wrangler.toml.
 //
 // Fail-closed policy:
-//   When a server-funded provider is reachable, a missing or broken limiter
-//   returns 503 unless ENVIRONMENT explicitly says "development" or "test".
-//   This prevents missing/typoed environment configuration from opening the
-//   gate on public, staging, or otherwise unknown deployments.
+//   A missing or broken limiter returns 503 unless ENVIRONMENT explicitly says
+//   "development" or "test". Public, staging, and unknown deployments cannot
+//   bypass the gate based on whether provider credentials happen to be present.
 //
 // Pass-through is limited to explicitly configured local development and tests.
 export async function checkRateLimit(request, limiter, env) {
   const allowPassThrough = isExplicitDevelopmentOrTestMode(env);
-  const failClosed = !allowPassThrough && hasProviderKeys(env);
+  const failClosed = !allowPassThrough;
 
   // Check if limiter binding is present.
   if (!limiter || typeof limiter.limit !== "function") {

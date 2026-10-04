@@ -3203,15 +3203,40 @@ test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER throws in dev
   assert.notEqual(body.code, 'rate_limiter_error');
 });
 
-// ── Production mode without provider keys: no fail-closed (no billing risk) ──
+// ── Production fails closed even when provider credentials are absent ─────────
 
-test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no provider keys', async () => {
-  // No NVIDIA_API_KEY, no AI binding, no GEMINI_API_KEY → hasProviderKeys=false.
-  const env = fakeEnv({ ENVIRONMENT: 'production' });
-  const response = await worker.fetch(makeGenerateRequest(), env);
-  assert.notEqual(response.status, 503);
-  const body = await response.json().catch(() => ({}));
-  assert.notEqual(body.code, 'rate_limiter_unavailable');
+test('all production routes fail closed when the limiter is missing or fails, even without provider credentials', async (t) => {
+  const failures = [
+    { name: 'missing binding', setBinding: (env) => { delete env.GENERATE_RATE_LIMITER; }, code: 'rate_limiter_unavailable' },
+    { name: 'throwing binding', setBinding: (env) => { env.GENERATE_RATE_LIMITER = throwingLimiter(); }, code: 'rate_limiter_error' },
+  ];
+  const originalFetch = globalThis.fetch;
+  let providerFetchCalls = 0;
+  globalThis.fetch = async () => {
+    providerFetchCalls += 1;
+    throw new Error('provider call should be blocked by the production abuse gate');
+  };
+
+  try {
+    for (const route of serverFundedRoutes) {
+      for (const failure of failures) {
+        await t.test(route.name + ': ' + failure.name + ' without provider credentials', async () => {
+          const env = fakeEnv({ ENVIRONMENT: 'production' });
+          delete env.NVIDIA_API_KEY;
+          delete env.GEMINI_API_KEY;
+          delete env.AI;
+          failure.setBinding(env);
+
+          const response = await worker.fetch(route.makeRequest(), env);
+          assert.equal(response.status, 503);
+          assert.equal((await response.json()).code, failure.code);
+          assert.equal(providerFetchCalls, 0, 'must not call a fetch-based provider when the limiter is unavailable');
+        });
+      }
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 // ── Malformed limiter outcome ────────────────────────────────────────────────
