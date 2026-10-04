@@ -38,8 +38,12 @@ function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
   });
 }
 
+// "test" is an explicit pass-through mode, so the rate limiter stays a no-op
+// when the binding is absent. Abuse-control assertions must use productionEnv()
+// instead, which leaves the limiter fail-closed.
 function fakeEnv(extra = {}) {
   return {
+    ENVIRONMENT: 'test',
     ASSETS: {
       fetch() {
         return new Response('asset fallback', { status: 200 });
@@ -860,7 +864,7 @@ test('POST /generate rejects missing Turnstile token before provider access', as
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
-    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'site-key', TURNSTILE_SECRET_KEY: 'secret' })
   );
   const data = await response.json();
 
@@ -889,7 +893,7 @@ test('POST /generate verifies Turnstile token before Workers AI generation', asy
         size: 'square',
         turnstileToken: 'token-ok',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'site-key', TURNSTILE_SECRET_KEY: 'secret' })
     );
     const data = await response.json();
     assert.equal(response.status, 200);
@@ -918,7 +922,7 @@ test('POST /generate rejects a Turnstile token issued for another action', async
         size: 'square',
         turnstileToken: 'wrong-action-token',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'site-key', TURNSTILE_SECRET_KEY: 'secret' })
     );
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, 'turnstile_failed');
@@ -956,6 +960,7 @@ test('POST /generate bounds a hung Turnstile verification before provider access
       fakeEnv({
         AI: ai,
         TURNSTILE_REQUIRED: 'true',
+        TURNSTILE_SITE_KEY: 'site-key',
         TURNSTILE_SECRET_KEY: 'secret',
         TURNSTILE_TIMEOUT_MS: '10',
       })
@@ -3037,6 +3042,27 @@ function productionEnv(extra = {}) {
   });
 }
 
+async function assertProductionAbuseGateRejectsBeforeProvider(request, expectedCode, extra = {}) {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const originalFetch = globalThis.fetch;
+  let providerFetchCalls = 0;
+  globalThis.fetch = async () => {
+    providerFetchCalls += 1;
+    throw new Error('provider call should be blocked by the abuse gate');
+  };
+
+  try {
+    const env = productionEnv({ AI: ai, GEMINI_API_KEY: 'test-gemini-key', ...extra });
+    const response = await worker.fetch(request, env);
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, expectedCode);
+    assert.equal(ai.calls.length, 0, 'must not call Workers AI when an abuse control fails');
+    assert.equal(providerFetchCalls, 0, 'must not call a fetch-based provider when an abuse control fails');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 function makeGenerateRequest() {
   return jsonRequest('/generate', {
     prompt: 'a red cat on a table',
@@ -3065,31 +3091,35 @@ function makeEditRequest() {
   return new Request('http://worker.test/edit', { method: 'POST', body: form });
 }
 
+const serverFundedRoutes = [
+  { name: 'POST /generate', makeRequest: makeGenerateRequest },
+  { name: 'POST /generate/batch', makeRequest: makeBatchRequest },
+  { name: 'POST /edit', makeRequest: makeEditRequest },
+  {
+    name: 'POST /prompt/transform (Gemini)',
+    makeRequest: () => jsonRequest('/prompt/transform', { source: '一隻可愛柴犬在月球上', style: 'auto' }),
+  },
+  {
+    name: 'POST /prompt/complete (Gemini)',
+    makeRequest: () => jsonRequest('/prompt/complete', { source: '女生雨中', style: 'cinematic' }),
+  },
+  {
+    name: 'POST /prompt/enhance (Gemini)',
+    makeRequest: () => jsonRequest('/prompt/enhance', { prompt: 'a cat', effect: '更夢幻' }),
+  },
+];
+
 // ── Missing limiter binding ───────────────────────────────────────────────────
 
-test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
-  const env = productionEnv();
-  // No GENERATE_RATE_LIMITER binding in env.
-  const response = await worker.fetch(makeGenerateRequest(), env);
-  assert.equal(response.status, 503);
-  const body = await response.json();
-  assert.equal(body.code, 'rate_limiter_unavailable');
-});
-
-test('POST /generate/batch fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
-  const env = productionEnv();
-  const response = await worker.fetch(makeBatchRequest(), env);
-  assert.equal(response.status, 503);
-  const body = await response.json();
-  assert.equal(body.code, 'rate_limiter_unavailable');
-});
-
-test('POST /edit fail-closed (503) when GENERATE_RATE_LIMITER is absent in production mode', async () => {
-  const env = productionEnv();
-  const response = await worker.fetch(makeEditRequest(), env);
-  assert.equal(response.status, 503);
-  const body = await response.json();
-  assert.equal(body.code, 'rate_limiter_unavailable');
+test('all server-funded routes fail closed before provider calls when the limiter is missing', async (t) => {
+  for (const route of serverFundedRoutes) {
+    await t.test(route.name, async () => {
+      await assertProductionAbuseGateRejectsBeforeProvider(
+        route.makeRequest(),
+        'rate_limiter_unavailable',
+      );
+    });
+  }
 });
 
 // ── Limiter binding throws ────────────────────────────────────────────────────
@@ -3102,20 +3132,60 @@ function throwingLimiter() {
   };
 }
 
-test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER throws in production mode', async () => {
-  const env = productionEnv({ GENERATE_RATE_LIMITER: throwingLimiter() });
-  const response = await worker.fetch(makeGenerateRequest(), env);
-  assert.equal(response.status, 503);
-  const body = await response.json();
-  assert.equal(body.code, 'rate_limiter_error');
+function rejectingLimiter() {
+  return {
+    async limit() {
+      throw new Error('Workers RateLimit binding rejected');
+    },
+  };
+}
+
+test('all server-funded routes fail closed before provider calls when the limiter throws or rejects', async (t) => {
+  const failureModes = [
+    { name: 'synchronous throw', createLimiter: throwingLimiter },
+    { name: 'asynchronous rejection', createLimiter: rejectingLimiter },
+  ];
+
+  for (const route of serverFundedRoutes) {
+    for (const failureMode of failureModes) {
+      await t.test(route.name + ': ' + failureMode.name, async () => {
+        await assertProductionAbuseGateRejectsBeforeProvider(
+          route.makeRequest(),
+          'rate_limiter_error',
+          { GENERATE_RATE_LIMITER: failureMode.createLimiter() },
+        );
+      });
+    }
+  }
+});
+
+test('POST /generate fail-closed when environment mode is missing or unknown', async () => {
+  for (const environment of [undefined, 'staging']) {
+    await assertProductionAbuseGateRejectsBeforeProvider(
+      makeGenerateRequest(),
+      'rate_limiter_unavailable',
+      { ENVIRONMENT: environment },
+    );
+  }
+});
+
+test('POST /generate keeps pass-through with server-funded provider only in explicit development mode', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    makeGenerateRequest(),
+    fakeEnv({ ENVIRONMENT: 'development', AI: ai }),
+  );
+  assert.equal(response.status, 200);
+  assert.equal(ai.calls.length, 1);
 });
 
 // ── Dev mode keeps pass-through (no regression) ───────────────────────────────
 
 test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER is absent in dev mode', async () => {
-  // Dev mode: no ENVIRONMENT=production. Without provider keys, there's also no
+  // Explicit development mode keeps local requests usable without the binding.
+  // Without provider keys, there's also no
   // live billing risk, so the worker proceeds past rate limit to serve the request.
-  const env = fakeEnv({});
+  const env = fakeEnv({ ENVIRONMENT: 'development' });
   const response = await worker.fetch(makeGenerateRequest(), env);
   // Should NOT be 503 – pass-through means the request proceeds normally.
   // Without API keys it will fail at the provider step (not rate limit), which is a different code.
@@ -3126,21 +3196,197 @@ test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER is absent in 
 });
 
 test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER throws in dev mode', async () => {
-  const env = fakeEnv({ GENERATE_RATE_LIMITER: throwingLimiter() });
+  const env = fakeEnv({ ENVIRONMENT: 'development', GENERATE_RATE_LIMITER: throwingLimiter() });
   const response = await worker.fetch(makeGenerateRequest(), env);
   assert.notEqual(response.status, 503);
   const body = await response.json().catch(() => ({}));
   assert.notEqual(body.code, 'rate_limiter_error');
 });
 
-// ── Production mode without provider keys: no fail-closed (no billing risk) ──
+// ── Production fails closed even when provider credentials are absent ─────────
 
-test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no provider keys', async () => {
-  // No NVIDIA_API_KEY, no AI binding, no GEMINI_API_KEY → hasProviderKeys=false.
-  const env = fakeEnv({ ENVIRONMENT: 'production' });
+test('all production routes fail closed when the limiter is missing or fails, even without provider credentials', async (t) => {
+  const failures = [
+    { name: 'missing binding', setBinding: (env) => { delete env.GENERATE_RATE_LIMITER; }, code: 'rate_limiter_unavailable' },
+    { name: 'throwing binding', setBinding: (env) => { env.GENERATE_RATE_LIMITER = throwingLimiter(); }, code: 'rate_limiter_error' },
+  ];
+  const originalFetch = globalThis.fetch;
+  let providerFetchCalls = 0;
+  globalThis.fetch = async () => {
+    providerFetchCalls += 1;
+    throw new Error('provider call should be blocked by the production abuse gate');
+  };
+
+  try {
+    for (const route of serverFundedRoutes) {
+      for (const failure of failures) {
+        await t.test(route.name + ': ' + failure.name + ' without provider credentials', async () => {
+          const env = fakeEnv({ ENVIRONMENT: 'production' });
+          delete env.NVIDIA_API_KEY;
+          delete env.GEMINI_API_KEY;
+          delete env.AI;
+          failure.setBinding(env);
+
+          const response = await worker.fetch(route.makeRequest(), env);
+          assert.equal(response.status, 503);
+          assert.equal((await response.json()).code, failure.code);
+          assert.equal(providerFetchCalls, 0, 'must not call a fetch-based provider when the limiter is unavailable');
+        });
+      }
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ── Malformed limiter outcome ────────────────────────────────────────────────
+// A binding that resolves without throwing but returns an unexpected shape
+// (not {success:true} / {success:false}) must still fail closed in production:
+// the rate-limit decision cannot be trusted, so server-funded work is blocked.
+
+test('POST /generate fail-closed (503) when the limiter returns a malformed outcome in production', async () => {
+  await assertProductionAbuseGateRejectsBeforeProvider(
+    makeGenerateRequest(),
+    'rate_limiter_error',
+    { GENERATE_RATE_LIMITER: { limit: async () => ({}) } },
+  );
+});
+
+test('POST /generate fail-closed (503) when the limiter resolves to null in production', async () => {
+  await assertProductionAbuseGateRejectsBeforeProvider(
+    makeGenerateRequest(),
+    'rate_limiter_error',
+    { GENERATE_RATE_LIMITER: { limit: async () => null } },
+  );
+});
+
+test('POST /generate keeps pass-through on a malformed limiter outcome in dev mode', async () => {
+  const env = fakeEnv({ ENVIRONMENT: 'development', GENERATE_RATE_LIMITER: { limit: async () => ({}) } });
   const response = await worker.fetch(makeGenerateRequest(), env);
   assert.notEqual(response.status, 503);
   const body = await response.json().catch(() => ({}));
-  assert.notEqual(body.code, 'rate_limiter_unavailable');
+  assert.notEqual(body.code, 'rate_limiter_error');
+});
+
+// ── Turnstile required but misconfigured ────────────────────────────────────
+
+test('POST /generate fail-closed (503) when Turnstile is required but the site key is missing', async () => {
+  await assertProductionAbuseGateRejectsBeforeProvider(
+    makeGenerateRequest(),
+    'turnstile_unconfigured',
+    {
+      GENERATE_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      TURNSTILE_REQUIRED: 'true',
+      TURNSTILE_SECRET_KEY: 'test-secret',
+      // TURNSTILE_SITE_KEY intentionally absent.
+    },
+  );
+});
+
+test('POST /generate fail-closed (503) when Turnstile is required but the secret is missing', async () => {
+  await assertProductionAbuseGateRejectsBeforeProvider(
+    makeGenerateRequest(),
+    'turnstile_unconfigured',
+    {
+      GENERATE_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      TURNSTILE_REQUIRED: 'true',
+      TURNSTILE_SITE_KEY: '0x_site',
+      // TURNSTILE_SECRET_KEY intentionally absent.
+    },
+  );
+});
+
+// ── Combined dependency failures ────────────────────────────────────────────
+// When several protection dependencies fail together, the request must still be
+// rejected before any provider call, and the first failing layer is reported.
+
+test('POST /generate rejects before provider call when limiter throws AND Turnstile is unconfigured', async () => {
+  await assertProductionAbuseGateRejectsBeforeProvider(
+    makeGenerateRequest(),
+    'rate_limiter_error',
+    {
+      GENERATE_RATE_LIMITER: throwingLimiter(),
+      TURNSTILE_REQUIRED: 'true',
+      // Turnstile secret + site key both missing.
+    },
+  );
+});
+
+test('POST /generate rejects before provider call when limiter is absent AND Turnstile is unconfigured', async () => {
+  await assertProductionAbuseGateRejectsBeforeProvider(
+    makeGenerateRequest(),
+    'rate_limiter_unavailable',
+    {
+      TURNSTILE_REQUIRED: 'true',
+      // No GENERATE_RATE_LIMITER and no Turnstile secret/site key.
+    },
+  );
+});
+
+// ── Usage telemetry records the real failure code ───────────────────────────
+
+test('POST /gallery is fail-closed when the limiter is absent in production', async () => {
+  // The gate must run before the R2 write, otherwise an unprotected deployment
+  // can still be used to fill the gallery bucket.
+  const bucket = fakeBucket();
+  const env = productionEnv({ IMAGE_BUCKET: bucket, GALLERY_TOKEN_SECRET: TEST_GALLERY_SECRET });
+  const response = await worker.fetch(
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat' } }),
+    env,
+  );
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, 'rate_limiter_unavailable');
+  assert.equal(bucket.store.size, 0, 'must not write to R2 when the abuse gate rejects');
+});
+
+test('fail-closed prompt-route events record their real status and error code', async () => {
+  // /prompt/* use recordPromptEvent rather than recordUsageEvent; both must log
+  // the fail-closed 503 instead of a hardcoded 429 rate_limited.
+  resetUsageMetrics();
+  const env = productionEnv({ GEMINI_API_KEY: 'test-gemini-key', GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  for (const route of ['/prompt/transform', '/prompt/complete', '/prompt/enhance']) {
+    const body = route === '/prompt/enhance'
+      ? { prompt: 'a cat', effect: '更夢幻' }
+      : route === '/prompt/complete'
+        ? { prompt: '一張貓的圖' }
+        : { prompt: 'a cat' };
+    const response = await worker.fetch(jsonRequest(route, body), env);
+    assert.equal(response.status, 503, `${route} must fail closed`);
+  }
+
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+  assert.equal(usage.byErrorCode.rate_limiter_unavailable, 3);
+  assert.equal(usage.byErrorCode.rate_limited || 0, 0);
+  for (const route of ['prompt_transform', 'prompt_complete', 'prompt_enhance']) {
+    assert.equal(usage.byRoute[route].failures, 1, `${route} must record its fail-closed rejection`);
+  }
+});
+
+test('fail-closed rate-limit events record their real error code in usage metrics', async () => {
+  resetUsageMetrics();
+  const env = productionEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const response = await worker.fetch(makeGenerateRequest(), env);
+  assert.equal(response.status, 503);
+
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+  assert.equal(usage.byErrorCode.rate_limiter_unavailable, 1);
+  assert.equal(usage.byErrorCode.rate_limited || 0, 0);
+  assert.equal(usage.byRoute.generate.failures, 1);
+});
+
+test('fail-closed batch and edit events record their real status and error code', async () => {
+  // /generate/batch and /edit run the same gate as /generate, so their usage
+  // events must carry the fail-closed 503 rather than a hardcoded 429.
+  resetUsageMetrics();
+  const env = productionEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret', AI: fakeAi({ image: 'iVBORw0KGgo=' }) });
+  for (const request of [makeBatchRequest(), editRequest('make it green', 1)]) {
+    assert.equal((await worker.fetch(request, env)).status, 503);
+  }
+
+  const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+  assert.equal(usage.byErrorCode.rate_limiter_unavailable, 2);
+  assert.equal(usage.byErrorCode.rate_limited || 0, 0);
+  assert.equal(usage.byRoute.generate_batch.failures, 1);
+  assert.equal(usage.byRoute.edit.failures, 1);
 });
 
