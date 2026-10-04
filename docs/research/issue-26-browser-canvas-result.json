@@ -1,0 +1,136 @@
+{
+  "method": "Browser Canvas with synthetic backgrounds, local CJK font",
+  "sourceRepoSha": "dfadcf30ca1d3daf479e05dd97aa457afa265333",
+  "node": "v24.19.0",
+  "browser": "149.0.7827.55",
+  "sourceHistorySha256": "89e81db880ef471643930692e1fc9b6d63031c57098ff53df1b567dcb493797c",
+  "fixtures": [
+    {
+      "id": "poster",
+      "text": "明日開幕",
+      "width": 480,
+      "height": 600,
+      "pngSha256": "60aaffaa8f209ea56daffbeca809b3a04d038702f34bd220056f37ade9179ff1",
+      "pngBytes": 10945,
+      "runtimeMs": 87,
+      "canvasAndDownload": "PASS",
+      "historyExportImportLineage": "PASS",
+      "credentialStatusInCurrentHistory": "UNSUPPORTED",
+      "glyphs": [
+        {
+          "character": "明",
+          "codepoint": 26126,
+          "width": 40,
+          "pngSha256": "2bc0290ceaf6d9cbee0e08566d64776c5465d7550a4f22a9c0f9326e5e8c669e"
+        },
+        {
+          "character": "日",
+          "codepoint": 26085,
+          "width": 40,
+          "pngSha256": "5ebcd1c6a2b11da3579f395a83a1b49b5da67c0c50f27f44673e2201c87baa9b"
+        },
+        {
+          "character": "開",
+          "codepoint": 38283,
+          "width": 40,
+          "pngSha256": "b6e6e0d77775211cbbcae99aad4cf4be979fdfddb9d527c9197cbc795403dc65"
+        },
+        {
+          "character": "幕",
+          "codepoint": 24149,
+          "width": 40,
+          "pngSha256": "2cd3af8227d227e1d28a417caf5f3b0315eb1fa57cb2ce3178081ef0c72db537"
+        }
+      ]
+    },
+    {
+      "id": "thumbnail",
+      "text": "三分鐘看懂",
+      "width": 640,
+      "height": 360,
+      "pngSha256": "67aba44d08418f3e8f713e2b8802b10a281fd632e5413ef225e46001db26a986",
+      "pngBytes": 11813,
+      "runtimeMs": 45,
+      "canvasAndDownload": "PASS",
+      "historyExportImportLineage": "PASS",
+      "credentialStatusInCurrentHistory": "UNSUPPORTED",
+      "glyphs": [
+        {
+          "character": "三",
+          "codepoint": 19977,
+          "width": 40,
+          "pngSha256": "aeece11a92718751979c1a27ce5d90c028cc28ef7045aef83014ecabd90c9dd7"
+        },
+        {
+          "character": "分",
+          "codepoint": 20998,
+          "width": 40,
+          "pngSha256": "ef51baa0157b107e288268d1261a95d630bea20b61542a7fa2dc8750996c9d3c"
+        },
+        {
+          "character": "鐘",
+          "codepoint": 37912,
+          "width": 40,
+          "pngSha256": "9cd1e59887d55291b2c98e2afd231e4123761f99f2ff1668c40641e51a9c3a34"
+        },
+        {
+          "character": "看",
+          "codepoint": 30475,
+          "width": 40,
+          "pngSha256": "5d2f6d8e242c0e2699559b1811cc3428a9f10feaaf550127590545a830799a63"
+        },
+        {
+          "character": "懂",
+          "codepoint": 25026,
+          "width": 40,
+          "pngSha256": "a5f1c51ae5c5c2369b398c0766afb2bf2a234bf80735ae938c82c989a844abe2"
+        }
+      ]
+    },
+    {
+      "id": "social",
+      "text": "秋季限定",
+      "width": 480,
+      "height": 480,
+      "pngSha256": "07241a0757b84b46989f72bc6dfd3e9ed40bd2781d81ad48fd408900c13dbe00",
+      "pngBytes": 12242,
+      "runtimeMs": 49,
+      "canvasAndDownload": "PASS",
+      "historyExportImportLineage": "PASS",
+      "credentialStatusInCurrentHistory": "UNSUPPORTED",
+      "glyphs": [
+        {
+          "character": "秋",
+          "codepoint": 31179,
+          "width": 40,
+          "pngSha256": "c3a45b410582e47b65612d89c8b96b7670960162b1eb1dd2750d0b7916afac73"
+        },
+        {
+          "character": "季",
+          "codepoint": 23395,
+          "width": 40,
+          "pngSha256": "eacbbfd71989c8bc6ddd1fa31fb728fccd792d622fe3fe8505e15148ee1f5833"
+        },
+        {
+          "character": "限",
+          "codepoint": 38480,
+          "width": 40,
+          "pngSha256": "d41691933c05c10702bbfca46712263ee117ae6c823cb7fbfdd7e24c918d1fe4"
+        },
+        {
+          "character": "定",
+          "codepoint": 23450,
+          "width": 40,
+          "pngSha256": "01ea726a3b2e641261b488866628a579cf7184d58c8266341a69728f71c3d2af"
+        }
+      ]
+    }
+  ],
+  "reopen": "PASS",
+  "providerCalls": 0,
+  "networkEgress": 0,
+  "decision": "NARROW",
+  "humanHandoffTime": "NOT_MEASURED",
+  "credentialPreservation": "NOT_ESTABLISHED; re-encoded output is unknown_after_transform",
+  "productionImplementation": false
+}
