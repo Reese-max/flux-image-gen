@@ -34,7 +34,9 @@ Cloudflare Workers 版與 FastAPI 版同步支援以下功能：
 - Prompt 強化器：提供更寫實、電影感、產品照、可愛、乾淨構圖、修正常見瑕疵等規則式強化，不增加 API 成本。
 - 失敗修正建議：依 `content_filtered`、`rate_limited`、`timeout`、`bad_provider_response`、`missing_api_key` 等錯誤提供下一步建議。
 - 歷史搜尋與標籤：可搜尋 prompt、篩選 model/size、收藏星號、編輯標籤。
-- PWA / 手機體驗：提供 manifest、service worker、手機底部生成列與響應式歷史牆。
+- Provenance receipt：歷史生成／AI 編輯作品保存 versioned receipt、output SHA-256、prompt hash、provider/model/settings、lineage 與 parent receipt hash；receipt 不保存 prompt 全文或敏感 URL/token。
+- Content Credentials：前端載入固定版本 `@contentauth/c2pa-web`，依原始圖片 bytes 回報 `verified`、`present_untrusted`、`invalid`、`absent`、`unknown_after_transform` 或 `unsupported`。MVP 不自行簽署 C2PA；缺少 credential 不等於真人圖片。
+- PWA / 手機體驗：提供 manifest、service worker、手機底部生成列與響應式歷史牆；C2PA WASM 由驗證流程需要時載入，不在 service worker 安裝時預快取。
 - 錯誤監控：前端錯誤與生成 API 失敗會送到 `POST /client-error`，Worker 會回 `x-request-id` 並記錄已截斷的白名單欄位。
 - 效能 QA：`npm run qa:perf` 會量 TTFB、FCP、LCP、CLS、資源數與傳輸量，避免回歸到大型字型 payload。
 

@@ -37,7 +37,10 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - Prompt 強化器：提供更寫實、電影感、產品照、可愛、乾淨構圖、修正常見瑕疵等規則式強化，不增加 API 成本。
 - 失敗修正建議：依 `content_filtered`、`rate_limited`、`timeout`、`bad_provider_response`、`missing_api_key` 等錯誤提供下一步建議。
 - 歷史搜尋與標籤：可搜尋 prompt、篩選 model/size、收藏星號、編輯標籤。
-- PWA / 手機體驗：提供 manifest、service worker、手機底部生成列與響應式歷史牆。
+- Provenance receipt：每筆生成／AI 編輯歷史作品保存 versioned `ProvenanceReceipt`，包含 output SHA-256、prompt hash、provider/model/settings、建立時間、app build、來源 image hash 與 parent receipt hash；receipt 不保存 prompt 全文或敏感 URL/token。
+- Content Credentials：瀏覽器使用鎖定版本的 C2PA reader 檢查原始圖片 bytes，明確區分 `verified`、`present_untrusted`、`invalid`、`absent`、`unknown_after_transform` 與 `unsupported`。MVP 只驗證與保存 upstream credential，不自行簽署，也不把 credential 缺失解讀為真人圖片。
+- Provenance UI／匯出：歷史詳情顯示 receipt/output hash 與重新驗證狀態；輸出 bytes 被修改會顯示 modified。作品 JSON 匯出／匯入保留 receipt allowlist；AI edit 會保存 provider-input 與原始上傳的 hashes，resize/re-encode 後標記 transform boundary。公共分享只公開 allowlisted hashes／lineage，prompt 仍依現有隱私開關。
+- PWA / 手機體驗：提供 manifest、service worker、手機底部生成列與響應式歷史牆；C2PA WASM 只在驗證需要時載入，不在安裝時預快取。
 
 不包含帳號系統；公開站已具備後端限流、Turnstile 防機器人入口與雲端分享基礎。
 
