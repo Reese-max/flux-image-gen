@@ -537,7 +537,8 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v24" in service_worker_js
+    assert "ai-image-generator-pwa-v25" in service_worker_js
+    assert "'/static/provenance.js'" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -1126,7 +1127,7 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'exportHistoryJson' in history_wall_js
     assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
     assert "已取消匯出作品 JSON" in history_wall_js
-    assert "檔案可能包含完整描述與雲端刪除連結" in history_wall_js
+    assert "檔案包含完整描述與設定，但不含雲端刪除或分享連結" in history_wall_js
     assert 'sourceRecordId' in app_js
     assert '.history-detail' in styles
     assert '.history-cloud-actions' in styles
@@ -1256,6 +1257,8 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
     production_js_paths = sorted(path for path in STATIC_DIR.glob("*.js"))
     assert {path.name for path in production_js_paths} == {
         "app.js",
+        "c2pa-web.js",
+        "c2pa-worker.js",
         "canvas-viewport.js",
         "elapsed-timer.js",
         "failure-advice.js",
@@ -1267,13 +1270,19 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
             "prompt-enhancer.js",
             "prompt-pack.js",
             "prompt-transform.js",
+            "provenance.js",
             "service-worker.js",
             "tabs.js",
             "tutorial.js",
             "usage-dashboard.js",
         }
 
+    # The C2PA browser runtime is an official third-party bundle and is intentionally
+    # modern JavaScript. Keep it in the static asset set, but apply this app-shell
+    # ES5 compatibility gate only to project-owned scripts.
     for path in production_js_paths:
+        if path.name in {"c2pa-web.js", "c2pa-worker.js"}:
+            continue
         source = path.read_text(encoding="utf-8")
         for forbidden in [
             "async function",
@@ -1385,5 +1394,65 @@ def test_dom_notices_cleanup_and_pwa_dismiss_are_wired():
     assert "fluxi_pwa_update_dismissed" in app_js
     assert "dismissPwaUpdateNotice: dismissPwaUpdateNotice" in app_js
     assert "showDemoNotice: showDemoNotice" in app_js
+
+
+def test_provenance_receipt_and_credentials_contract_is_loaded():
+    html = read_static("index.html")
+    receipt = read_static("provenance.js")
+    history_store = read_static("history-store.js")
+    history_wall = read_static("history-wall.js")
+
+    assert receipt
+    for field in [
+        "receipt_schema_version",
+        "record_id",
+        "source_record_ids",
+        "input_image_hashes",
+        "provider_model_revision",
+        "prompt_sha256",
+        "output_sha256",
+        "parent_receipt_hash",
+        "app_build_version",
+        "receipt_hash",
+    ]:
+        assert field in receipt
+    for status in [
+        "verified",
+        "present_untrusted",
+        "invalid",
+        "absent",
+        "unknown_after_transform",
+        "unsupported",
+    ]:
+        assert status in receipt
+    assert '<script src="/static/provenance.js"></script>' in html
+    assert 'id="historyProvenanceStatus"' in html
+    assert "provenanceReceipt" in history_store
+    assert "Content Credentials" in history_wall
+    assert "缺少 credential 不代表是真人圖片" in history_wall
+
+
+def test_provenance_runtime_assets_are_pinned_and_lazy_loaded():
+    import hashlib
+
+    package = read_repo("cloudflare/package.json")
+    service_worker = read_static("service-worker.js")
+    fixture_notes = read_repo("cloudflare/tests/fixtures/c2pa/THIRD_PARTY.md")
+    fixture_dir = ROOT_DIR / "cloudflare" / "tests" / "fixtures" / "c2pa"
+
+    assert '"@contentauth/c2pa-web": "0.14.4"' in package
+    assert "/static/c2pa_bg.wasm" not in service_worker
+    assert "/static/c2pa-worker.js" in service_worker
+    assert "C_with_CAWG_data.jpg" in fixture_notes
+    assert "no_alg.jpg" in fixture_notes
+    expected = {
+        "C_with_CAWG_data.jpg": "fa0b257c863cb5b367135a017813ce0c1fbfc690a03e94acdd047c25c2d1ed46",
+        "C_with_CAWG_data_thumbnail.jpg": "c13676faf4036e8847f6bce61734376bf8c14fe5f1bc66ae85a2c3106e0fc300",
+        "no_alg.jpg": "7c91641416c18319b823c292ae603c5354892ac365c05543519154c48c6a1f8a",
+    }
+    for name, digest in expected.items():
+        path = fixture_dir / name
+        assert path.is_file()
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
 
 

@@ -1485,6 +1485,8 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
     '/static/app.js',
     '/static/canvas-viewport.js',
     '/static/prompt-transform.js',
+    '/static/c2pa-web.js',
+    '/static/provenance.js',
     '/static/history-store.js',
     '/static/history-wall.js',
     '/static/tutorial.js',
@@ -1520,6 +1522,7 @@ test('Cloudflare static shell includes synced feature scripts and modals', async
   assert.match(html, /id="copySettings"/);
   assert.match(html, /id="regenerate"/);
   assert.match(html, /id="tutorialModal"/);
+  assert.match(html, /id="historyProvenanceStatus"/);
   assert.match(html, /id="usageDashboard"/);
   assert.match(html, /<link rel="stylesheet" href="\/static\/styles\.css">/);
   assert.deepEqual(new Set(scriptSrcs), new Set(expectedScripts));
@@ -3142,5 +3145,45 @@ test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no pro
   assert.notEqual(response.status, 503);
   const body = await response.json().catch(() => ({}));
   assert.notEqual(body.code, 'rate_limiter_unavailable');
+});
+
+test('GET /share/:id exposes only allowlisted provenance evidence and never trusts claims', async () => {
+  const bucket = fakeBucket();
+  const receiptHash = 'a'.repeat(64);
+  const outputHash = 'b'.repeat(64);
+  const saveResponse = await worker.fetch(
+    signedGalleryRequest({
+      image: TINY_PNG_DATA_URL,
+      meta: {
+        promptPublic: true,
+        prompt: 'public prompt',
+        provenance: {
+          receipt_hash: receiptHash,
+          output_sha256: outputHash,
+          operation: 'edit',
+          input_hash_scope: 'original_upload',
+          credential_status: 'verified',
+          secret: 'do-not-store',
+        },
+      },
+    }),
+    galleryEnv(bucket),
+  );
+  assert.equal(saveResponse.status, 201);
+  const saved = await saveResponse.json();
+  const shareResponse = await worker.fetch(
+    new Request(`https://example.test/share/${saved.id}`),
+    galleryEnv(bucket),
+  );
+  const html = await shareResponse.text();
+
+  assert.equal(shareResponse.status, 200);
+  assert.match(html, /Content Credentials：需在收到圖片後重新驗證/);
+  assert.match(html, new RegExp(`Receipt hash：<code>${receiptHash}<\\/code>`));
+  assert.match(html, new RegExp(`Output SHA-256：<code>${outputHash}<\\/code>`));
+  assert.match(html, /流程：AI 編輯/);
+  assert.match(html, /Input hash：original_upload/);
+  assert.doesNotMatch(html, /Content Credentials：已驗證/);
+  assert.doesNotMatch(html, /do-not-store/);
 });
 
