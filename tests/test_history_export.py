@@ -27,7 +27,7 @@ def extract_function_body(source, name):
 
 def test_export_history_json_keeps_blob_url_alive_until_browser_consumes_download():
     """Issue #8: 匯出作品 JSON must produce a file, not a cancelled blob URL."""
-    body = extract_function_body(read_static("history-wall.js"), "exportHistoryJson")
+    body = extract_function_body(read_static("history-wall.js"), "downloadJsonPayload")
 
     click_at = body.index("link.click()")
     timer_at = body.index("setTimeout(", click_at)
@@ -35,19 +35,21 @@ def test_export_history_json_keeps_blob_url_alive_until_browser_consumes_downloa
         "revokeObjectURL must not run synchronously after link.click()"
     )
 
-    # Revoking in the same task as click() cancels the download in Chromium/Firefox.
-    # The revocation must be deferred (setTimeout) exactly like downloadHistoryImage.
+    # Keep the URL alive across tasks to avoid a browser consumption race.
+    # This does not establish the original deployed failure's root cause.
     deferred = re.search(r"setTimeout\(function \(\) \{[\s\S]*?revokeObjectURL", body[click_at:])
     assert deferred, "revokeObjectURL must run in a deferred setTimeout after link.click()"
 
 
 def test_export_history_json_downloads_record_payload_with_safe_filename():
     body = extract_function_body(read_static("history-wall.js"), "exportHistoryJson")
+    helper = extract_function_body(read_static("history-wall.js"), "downloadJsonPayload")
 
-    assert "new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' })" in body
-    assert "link.download = 'history_' + safeFilePart(normalized.id) + '.json'" in body
-    assert "document.body.appendChild(link)" in body
-    assert "link.click()" in body
+    assert "new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })" in helper
+    assert "downloadJsonPayload(normalized, 'history_' + safeFilePart(normalized.id) + '.json')" in body
+    assert "link.download = filename" in helper
+    assert "document.body.appendChild(link)" in helper
+    assert "link.click()" in helper
     assert "setAppStatus('已匯出備份檔" in body
 
 
@@ -56,8 +58,11 @@ def test_export_history_json_guards_empty_selection_and_support():
 
     assert "setAppStatus('尚無可匯出的作品', 'warn')" in body
     assert "typeof root.URL.createObjectURL !== 'function'" in body
-    assert "setAppStatus('瀏覽器不支援匯出 JSON', 'fail')" in body
-    assert "setAppStatus('作品資料格式不正確，無法匯出', 'fail')" in body
+    assert "reportJsonExportError('瀏覽器不支援匯出 JSON')" in body
+    assert "reportJsonExportError('作品資料格式不正確，無法匯出')" in body
+    error_reporter = extract_function_body(read_static("history-wall.js"), "reportJsonExportError")
+    assert "setAppStatus(message, 'fail')" in error_reporter
+    assert "root.ImageGenApp.showToast(message, 'warn')" in error_reporter
     assert "root.confirm" in body
     assert "setAppStatus('已取消匯出作品 JSON', 'warn')" in body
 

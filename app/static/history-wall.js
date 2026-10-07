@@ -359,6 +359,7 @@
     var toolbar = el('historyBatchBar');
     var filters = el('historyFilters');
     var clearHistoryButton = el('clearHistory');
+    var exportAllButton = el('exportAllHistoryJson');
     var countNode = el('historySelectionCount');
     var deleteButton = el('deleteSelectedHistory');
     var clearButton = el('clearHistorySelection');
@@ -372,6 +373,10 @@
     if (clearHistoryButton) {
       clearHistoryButton.hidden = records.length === 0;
       clearHistoryButton.disabled = records.length === 0;
+    }
+    if (exportAllButton) {
+      exportAllButton.hidden = records.length === 0;
+      exportAllButton.disabled = records.length === 0;
     }
     if (countNode) {
       countNode.textContent = count ? '已選取 ' + String(count) + ' 筆歷史作品' : '尚未選取作品';
@@ -759,46 +764,101 @@
     return (toText(value) || 'history').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'history';
   }
 
+  function reportJsonExportError(message) {
+    setAppStatus(message, 'fail');
+    if (root.ImageGenApp && typeof root.ImageGenApp.showToast === 'function') {
+      root.ImageGenApp.showToast(message, 'warn');
+    }
+  }
+
+  // Shared single/all export flow adapted from Reese-max/flux-image-gen PR #19
+  // (8af0e0c), with failure messages from PR #21 (ae92c1f).
+  // Keep PR #24's deferred cleanup and cover failures before anchor creation.
+  function downloadJsonPayload(payload, filename) {
+    var blob;
+    var blobUrl;
+    var link;
+    var succeeded = false;
+    var errorLabel = '作品資料無法序列化為 JSON';
+    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
+      reportJsonExportError('瀏覽器不支援匯出 JSON');
+      return false;
+    }
+    try {
+      blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      errorLabel = '無法建立下載連結';
+      blobUrl = root.URL.createObjectURL(blob);
+      errorLabel = '下載觸發失敗';
+      link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      succeeded = true;
+    } catch (error) {
+      reportJsonExportError(errorLabel + '：' + error.message);
+    } finally {
+      try {
+        if (link && link.parentNode) {
+          link.parentNode.removeChild(link);
+        }
+      } catch (error) {
+        succeeded = false;
+        reportJsonExportError('下載連結清理失敗：' + error.message);
+      } finally {
+        if (blobUrl) {
+          setTimeout(function () {
+            try { root.URL.revokeObjectURL(blobUrl); } catch (_) {}
+          }, 30000);
+        }
+      }
+    }
+    return succeeded;
+  }
+
   function exportHistoryJson() {
     var record = getSelectedRecord();
     var normalized;
-    var blob;
-    var link;
-    var blobUrl;
     if (!record) {
       setAppStatus('尚無可匯出的作品', 'warn');
       return;
     }
     if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
-      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
+      reportJsonExportError('瀏覽器不支援匯出 JSON');
       return;
     }
     normalized = normalizeRecordForUi(record);
     if (!normalized) {
-      setAppStatus('作品資料格式不正確，無法匯出', 'fail');
+      reportJsonExportError('作品資料格式不正確，無法匯出');
       return;
     }
     if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
-    blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
-    blobUrl = root.URL.createObjectURL(blob);
-    link = document.createElement('a');
-    link.href = blobUrl;
-    link.download = 'history_' + safeFilePart(normalized.id) + '.json';
-    try {
-      document.body.appendChild(link);
-      link.click();
-    } finally {
-      if (link.parentNode) {
-        link.parentNode.removeChild(link);
-      }
-      setTimeout(function () {
-        try { root.URL.revokeObjectURL(blobUrl); } catch (_) {}
-      }, 30000);
+    if (!downloadJsonPayload(normalized, 'history_' + safeFilePart(normalized.id) + '.json')) {
+      return;
     }
     setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+  }
+
+  function exportAllHistoryJson() {
+    var normalized;
+    if (!records.length) {
+      setAppStatus('尚無可匯出的歷史作品', 'warn');
+      return;
+    }
+    normalized = root.ImageHistoryStore && typeof root.ImageHistoryStore.exportRecordCollection === 'function'
+      ? root.ImageHistoryStore.exportRecordCollection(records)
+      : { schema: 'GenerationRecordCollection', version: 2, records: records };
+    if (!confirmAction('匯出的備份檔會包含全部歷史作品、完整提示詞與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+      setAppStatus('已取消匯出全部歷史 JSON', 'warn');
+      return;
+    }
+    if (!downloadJsonPayload(normalized, 'history_backup_' + new Date().toISOString().slice(0, 10) + '.json')) {
+      return;
+    }
+    setAppStatus('已匯出全部歷史備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
   }
 
   function switchToGenerateTab() {
@@ -1139,6 +1199,7 @@
     var copyPrompt = el('copyHistoryPrompt');
     var copyShare = el('copyHistoryShareText');
     var exportJson = el('exportHistoryJson');
+    var exportAllJson = el('exportAllHistoryJson');
     var regenerateDetail = el('regenerateHistoryDetail');
     var useCompositionDetail = el('useCompositionDetail');
     var historySearch = el('historySearch');
@@ -1177,6 +1238,9 @@
     }
     if (exportJson) {
       exportJson.addEventListener('click', exportHistoryJson);
+    }
+    if (exportAllJson) {
+      exportAllJson.addEventListener('click', exportAllHistoryJson);
     }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
@@ -1245,6 +1309,7 @@
     buildShareText: buildShareText,
     copyHistoryShareText: copyHistoryShareText,
     exportHistoryJson: exportHistoryJson,
+    exportAllHistoryJson: exportAllHistoryJson,
     regenerateHistoryDetail: regenerateHistoryDetail,
     recordMatchesFilters: recordMatchesFilters,
     applyHistoryFilters: applyHistoryFilters,
