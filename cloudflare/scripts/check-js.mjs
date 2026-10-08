@@ -10,7 +10,11 @@ const targets = [
   { dir: path.join('public', 'static'), ext: '.js' },
   { dir: 'tests', ext: '.mjs' },
 ];
-const ROOT_JS_FILES = ['public/service-worker.js'];
+const ROOT_JS_FILES = [
+  'public/service-worker.js',
+  '../tests/e2e/cloudflare-v14-qa.mjs',
+  '../scripts/verify.mjs',
+];
 
 function collectFiles(relativeDir, extension) {
   const absoluteDir = path.join(rootDir, relativeDir);
