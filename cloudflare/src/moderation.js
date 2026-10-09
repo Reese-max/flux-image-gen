@@ -13,7 +13,7 @@ function normalize(value) {
   } catch (_) {
     // normalize() may throw on some runtimes; fall back to raw text
   }
-  text = text.replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, "");
+  text = text.replace(/\p{Cf}/gu, "");
   return text.split(/\s+/).filter(Boolean).join(" ").toLowerCase();
 }
 
