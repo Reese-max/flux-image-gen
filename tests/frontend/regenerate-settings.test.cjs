@@ -349,3 +349,51 @@ for (const entry of ['canvas', 'composition', 'history']) {
     });
   }
 }
+
+// Additive typed-legacy restoration controls. Keep the original PR28 harness
+// byte-exact above; no real provider fetch is present in its VM environment.
+for (const legacy of [
+  { name: 'missing', missing: true },
+  { name: 'undefined', value: undefined },
+  { name: 'null', value: null },
+  { name: 'empty', value: '' },
+  { name: 'whitespace', value: '   ' },
+  { name: 'number', value: 42 },
+  { name: 'true', value: true },
+  { name: 'false', value: false },
+  { name: 'array', value: ['stale provider prompt'] },
+  { name: 'object', value: { prompt: 'stale provider prompt' } },
+]) {
+  test(`legacy ${legacy.name} provider prompt compiles the restored description without mutating the record`, async () => {
+    const env = setupEnvironment();
+    // Native textarea/input.value coerces assignments to strings. Without this
+    // the inherited plain-object fake could throw .slice on an object, masking
+    // the actual stale-string provider-prompt boundary being checked.
+    for (const id of ['plainPrompt', 'prompt', 'avoid']) {
+      let value = String(env.elements[id].value);
+      Object.defineProperty(env.elements[id], 'value', {
+        configurable: true,
+        get() { return value; },
+        set(next) { value = String(next); },
+      });
+    }
+    env.fire('DOMContentLoaded');
+    const record = { ...CAT_RECORD };
+    if (legacy.missing) delete record.providerPrompt;
+    else record.providerPrompt = legacy.value;
+    Object.freeze(record);
+    assert.equal(env.windowObj.ImageGenApp.lockCompositionFromRecord(record), true);
+    await env.windowObj.ImageGenApp.generate();
+    await env.tick();
+    const transforms = env.transformBodies();
+    const bodies = env.generateBodies();
+    assert.equal(transforms.length, 1, 'the restored description must use the existing compiler once');
+    assert.equal(transforms[0].source, USER_PROMPT);
+    assert.equal(bodies.length, 1, 'exactly one client generation submission');
+    assert.equal(bodies[0].userPrompt, USER_PROMPT);
+    assert.equal(bodies[0].prompt, EDITED_WITH_AVOID);
+    assert.equal(bodies[0].seed, CAT_RECORD.seed);
+    assert.equal(Object.prototype.hasOwnProperty.call(record, 'providerPrompt'), !legacy.missing);
+    if (!legacy.missing) assert.strictEqual(record.providerPrompt, legacy.value);
+  });
+}

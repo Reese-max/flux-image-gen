@@ -1086,6 +1086,10 @@ function clearAutoProviderPrompt(){
 }
 function setGenerationSettings(settings){
   var source = settings || {};
+  if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && typeof source.providerPrompt !== 'string'){
+    source = shallowClone(source);
+    source.providerPrompt = '';
+  }
   var autoSource;
   var avoid = String(source.avoid || '').trim();
   var avoidSuffix = ', avoid ' + avoid;

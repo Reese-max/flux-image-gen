@@ -168,6 +168,8 @@ async function main() {
   await page.route('**/generate/batch', failGenerate);
 
   try {
+    // Returning-visitor fixture: these workflows exercise generation, not first-visit onboarding.
+    await page.addInitScript(() => localStorage.setItem('aiImageTutorialSeen.v1', 'true'));
     await page.goto(url + '/', { waitUntil: 'networkidle', timeout: 60000 });
     await closeTutorialIfOpen(page);
     await page.waitForSelector('#go:not([disabled])', { timeout: 15000 });
