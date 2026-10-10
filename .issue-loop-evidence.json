@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 28,
+  "base_sha": "6c23bb6f80fe450cc82d45c58eb772976bd7e057",
+  "red_proof": "At the admitted head with only regression assertions added, before implementation: node --test tests/frontend/regenerate-settings.test.cjs exited 1 (4 passed, 6 failed). Canvas, composition and history restoration all failed both clear/replace avoid cases: actual 'a fluffy cat on green grass, highly detailed, avoid blurry' vs expected 'a fluffy cat on green grass, highly detailed'; replacement actual ended ', avoid blurry, avoid watermark' vs expected ', avoid watermark'. Separately, python -m pytest -q tests/test_history_regenerate_prompts.py exited 1: AssertionError: Node test output must remain available for regression diagnostics; assert None is not None. Its reader thread raised UnicodeDecodeError: 'cp950' codec can't decode byte 0xe2 in position 0. After the fixes the targeted Node suite passed 10/10, and the Python wrapper passed without the decoding warning.",
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 466,
+  "tests_failed": 0,
+  "summary": "The shared settings restore now separates only the exact saved avoid suffix from the compiled prompt, so canvas regeneration, composition lock and history regeneration retain the original description/provider prompt while allowing exclusions to be replaced or cleared. The Python regression wrapper explicitly decodes Node output as UTF-8 and asserts diagnostics remain available. The declared command ran successfully under Git Bash: 242 Python tests (plus 26 subtests), 86 frontend tests, 138 Worker tests, three browser QA suites, secret scan, deployment preflight, static sync and syntax checks all passed. Frontend assets were rebuilt with the existing sync script, Python compileall passed, and an offline esbuild Worker bundle succeeded; CHANGELOG was updated.",
+  "not_done": "No push, other-branch changes, PR comments, preview/production deployment, or live provider calls. Remote CI and deployed behavior remain unverified. The project has no dedicated lint/typecheck scripts; its existing syntax checks, offline verify gate and bundle build were used."
+}

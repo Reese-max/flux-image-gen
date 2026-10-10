@@ -28,7 +28,12 @@
   function buildProviderPrompt(prompt, avoidText) {
     var base = toText(prompt);
     var avoid = toText(avoidText);
-    return avoid ? base + ', avoid ' + avoid : base;
+    var suffix;
+    if (!avoid) { return base; }
+    // 提示詞可能已含 avoid 後綴，檢查結尾避免重複附加 ', avoid X, avoid X'。
+    suffix = ', avoid ' + avoid;
+    if (base.slice(-suffix.length) === suffix) { return base; }
+    return base + suffix;
   }
 
   function normalizeCustomDimension(value, label) {
