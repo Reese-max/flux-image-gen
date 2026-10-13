@@ -74,6 +74,7 @@ suite("moderation: identity document default-deny", () => {
     const cases = [
       "白底證件照，一位穿西裝的男生大頭照",
       "design a valid card game box cover",
+      "a responsive grid-card layout with a vivid cardinal bird",
       "a travel flat lay with map and boarding pass",
       "it is advisable to book flights early, poster illustration",
       "credit card mockup for fintech landing page",
@@ -84,8 +85,13 @@ suite("moderation: identity document default-deny", () => {
     }
   });
 
-  test("blocks whitespace evasion in CJK identity terms", () => {
-    for (const prompt of ["做一張身 分 證樣張", "做一張護 照樣張"]) {
+  test("blocks whitespace evasion in CJK identity terms and punctuation variants", () => {
+    for (const prompt of [
+      "做一張身 分 證樣張",
+      "做一張護 照樣張",
+      "做一張官方身.分.證正面樣張",
+      "make a realistic official i.d. card template",
+    ]) {
       assert.equal(detectHighRiskPromptCategory(prompt), "fake_documents", prompt);
     }
   });

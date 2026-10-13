@@ -85,8 +85,22 @@ export function detectHighRiskPromptCategory(prompt) {
   if (hasAny(text, minors) && hasAny(text, sexual)) return "minor_sensitive";
   if (hasAny(text, sexual)) return "sexual";
   if (hasAny(text, gore)) return "graphic_violence";
-  const compactText = text.replace(/\s+/g, "");
-  if (hasAny(text, fakeDocs) || hasAny(text, ID_DOCUMENT_TERMS) || hasAny(compactText, ID_DOCUMENT_TERMS) || ID_DOCUMENT_LATIN_RE.test(text)) return "fake_documents";
+  // Match terms even when punctuation or symbols are inserted between
+  // characters (for example, "身.分.證" or "i.d. card"). Retain Unicode
+  // letters and numbers so English token boundaries remain meaningful.
+  const compactText = text.replace(/[^\p{L}\p{N}]+/gu, "");
+  const punctuationNormalizedText = text
+    .replace(/[\p{P}\p{S}\p{M}]+/gu, "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ");
+  if (
+    hasAny(text, fakeDocs) ||
+    hasAny(text, ID_DOCUMENT_TERMS) ||
+    hasAny(compactText, ID_DOCUMENT_TERMS) ||
+    ID_DOCUMENT_LATIN_RE.test(text) ||
+    ID_DOCUMENT_LATIN_RE.test(punctuationNormalizedText)
+  ) return "fake_documents";
   if (hasAny(text, fraud)) return "fraud";
   if (hasAny(text, privacy)) return "privacy";
   if (hasAny(text, political) && hasAny(text, deceptive)) return "political_deception";

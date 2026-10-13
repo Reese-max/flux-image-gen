@@ -171,8 +171,22 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    compact_text = re.sub(r"\s+", "", text)
-    if _has_any(text, fake_docs) or _has_any(text, _ID_DOCUMENT_TERMS) or _has_any(compact_text, _ID_DOCUMENT_TERMS) or _ID_DOCUMENT_LATIN_RE.search(text):
+    # Match document terms even when punctuation or symbols are inserted
+    # between characters (for example, "身.分.證" or "i.d. card"). Keep only
+    # Unicode letters and numbers so normal token boundaries remain meaningful
+    # for the English word-boundary regex.
+    compact_text = "".join(ch for ch in text if unicodedata.category(ch)[0] in {"L", "N"})
+    punctuation_normalized_text = "".join(
+        ch for ch in text if unicodedata.category(ch)[0] not in {"P", "S", "M"}
+    )
+    punctuation_normalized_text = re.sub(r"\s+", " ", punctuation_normalized_text).strip()
+    if (
+        _has_any(text, fake_docs)
+        or _has_any(text, _ID_DOCUMENT_TERMS)
+        or _has_any(compact_text, _ID_DOCUMENT_TERMS)
+        or _ID_DOCUMENT_LATIN_RE.search(text)
+        or _ID_DOCUMENT_LATIN_RE.search(punctuation_normalized_text)
+    ):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"
