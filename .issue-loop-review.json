@@ -1,0 +1,20 @@
+{
+  "pr": 28,
+  "head": "6c23bb6f80fe450cc82d45c58eb772976bd7e057",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "app/static/app.js",
+      "line": 1099,
+      "issue": "Restoring the fully composed providerPrompt also restores its old ', avoid X' suffix into the editable base prompt. After canvas regeneration or composition restore, clearing avoid still sends X; replacing it sends both old and new exclusions. The same shared restore path affects history regeneration. Strip only the suffix matching the saved avoid field when restoring, then compose the current avoid at submission."
+    },
+    {
+      "severity": "low",
+      "file": "tests/test_history_regenerate_prompts.py",
+      "line": 22,
+      "issue": "The new subprocess wrapper decodes UTF-8 Node test output using the Windows locale because text=True has no encoding. On a cp950 host the baseline emits UnicodeDecodeError/PytestUnhandledThreadExceptionWarning and result.stdout is None, losing regression diagnostics even on a passing run. Decode explicitly as UTF-8 and assert captured output remains available."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed two findings: stale exclusions surviving edits after prompt restoration, and lost Node test output on non-UTF-8 Windows locales. Six new frontend regression cases and a captured-output assertion failed before the fixes and now pass. Full offline verification passes (242 Python, 86 frontend, 138 Worker tests and three browser QA suites), with no unresolved findings."
+}
