@@ -93,7 +93,7 @@ _ID_DOCUMENT_LATIN_RE = re.compile(
     r"identity[ -]?(?:cards?|documents?)|"
     r"national[ -]?(?:ids?|identity[ -]?(?:cards?|documents?))|"
     r"student[ -]?ids?|school[ -]?ids?|state[ -]?ids?|government[ -]?ids?|"
-    r"id[ -]?cards?|passports?|visas?|"
+    r"i[ -]?d[ -]?cards?|passports?|visas?|"
     r"driver['’]?s?[ -]?licen[cs]es?|driving[ -]?licen[cs]es?|"
     r"social[ -]?security[ -]?cards?|ssn[ -]?cards?|"
     r"birth[ -]?certificates?|green[ -]?cards?|"

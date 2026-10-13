@@ -60,7 +60,7 @@ const ID_DOCUMENT_LATIN_RE = new RegExp(
     "|identity[ -]?(?:cards?|documents?)" +
     "|national[ -]?(?:ids?|identity[ -]?(?:cards?|documents?))" +
     "|student[ -]?ids?|school[ -]?ids?|state[ -]?ids?|government[ -]?ids?" +
-    "|id[ -]?cards?|passports?|visas?" +
+    "|i[ -]?d[ -]?cards?|passports?|visas?" +
     "|driver['\\u2019]?s?[ -]?licen[cs]es?|driving[ -]?licen[cs]es?" +
     "|social[ -]?security[ -]?cards?|ssn[ -]?cards?" +
     "|birth[ -]?certificates?|green[ -]?cards?" +
