@@ -31,6 +31,9 @@ import {
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
+import "../../app/static/provenance.js";
+
+const provenance = globalThis.ImageProvenance;
 
 function elapsedMs(started) {
   return Math.max(0, Math.round(Date.now() - started));
@@ -607,6 +610,14 @@ async function handleGallerySave(request, env) {
 
   const id = `${crypto.randomUUID()}.${GALLERY_EXT[decoded.contentType]}`;
   const meta = sanitizeGalleryMeta(payload.meta);
+  const outputHash = await provenance.sha256(decoded.bytes);
+  if (payload.meta && payload.meta.provenance) {
+    try {
+      meta.provenance = await provenance.publicProvenance(payload.meta.provenance, decoded.bytes);
+    } catch {
+      return json({ error: "圖片與來源 receipt 不符", code: "invalid_provenance" }, 400);
+    }
+  }
   const deleteToken = issueGalleryDeleteToken();
   const deleteTokenHash = await hashGalleryDeleteToken(deleteToken);
   await bucket.put(`${GALLERY_PREFIX}${id}`, decoded.bytes, {
@@ -615,6 +626,8 @@ async function handleGallerySave(request, env) {
       visibility: meta.visibility,
       promptPublic: meta.promptPublic,
       metadataKey: `${GALLERY_META_PREFIX}${id}.json`,
+      outputSha256: outputHash,
+      receiptSha256: meta.provenance ? meta.provenance.receipt_sha256 : "",
     },
   });
   await bucket.put(`${GALLERY_META_PREFIX}${id}.json`, JSON.stringify({
@@ -952,6 +965,13 @@ async function handleSharePage(env, id) {
   const promptBlock = promptPublic && prompt
     ? `<pre>${escapeHtml(prompt)}</pre><button type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.querySelector('pre').textContent)">複製 prompt 模板</button>`
     : "<p>此作品未公開完整 prompt。</p><p>仍可套用公開設定（模型、尺寸、風格與用途），再自行補上中文描述。</p>";
+  const publicReceipt = metadata.provenance;
+  const provenanceBlock = publicReceipt && /^[a-f0-9]{64}$/.test(publicReceipt.output_sha256)
+    ? `<p>Provider：${escapeHtml(publicReceipt.provider)}；Model：${escapeHtml(publicReceipt.model)}</p>
+       <p>Output SHA-256：${escapeHtml(publicReceipt.output_sha256)}</p>
+       <p>Receipt SHA-256：${escapeHtml(publicReceipt.receipt_sha256)}</p>
+       <p>Content Credentials：${escapeHtml(publicReceipt.credential_status)}（用戶端狀態；分享伺服器未驗證簽發者信任）</p>`
+    : "<p>此作品未提供來源 receipt。</p>";
   const html = `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -995,6 +1015,11 @@ async function handleSharePage(env, id) {
     <section class="card">
       <h2>Prompt</h2>
       ${promptBlock}
+    </section>
+    <section class="card">
+      <h2>來源與驗證</h2>
+      ${provenanceBlock}
+      <p>receipt 未簽章，雜湊相符不保證作者或畫面內容為真。缺少 Content Credentials 不代表真人製作。</p>
     </section>
     <section class="actions">
       <a class="button" href="${escapeHtml(templateUrl)}">${escapeHtml(regenerateLabel)}</a>

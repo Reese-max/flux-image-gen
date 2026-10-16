@@ -1,0 +1,26 @@
+{
+  "repository": "https://github.com/contentauth/c2pa-rs",
+  "revision": "60f7cbdc69ab7a2554fcc87eb4df77050814b2cf",
+  "files": {
+    "C.jpg": {
+      "source": "https://raw.githubusercontent.com/contentauth/c2pa-rs/60f7cbdc69ab7a2554fcc87eb4df77050814b2cf/sdk/tests/fixtures/C.jpg",
+      "sha256": "a2d14755db55de67a47c04090340d8266e892367be4104a45626d7a6fa6e9ffd",
+      "bytes": 132518
+    },
+    "absent.jpg": {
+      "source": "https://raw.githubusercontent.com/contentauth/c2pa-rs/60f7cbdc69ab7a2554fcc87eb4df77050814b2cf/sdk/tests/fixtures/no_manifest.jpg",
+      "sha256": "9ac395ca04fc9d348acf6f81920f5e894d336341c3f764ca86c354eec6f7c2d6",
+      "bytes": 97591
+    },
+    "fixture-root.pem": {
+      "source": "https://raw.githubusercontent.com/contentauth/c2pa-rs/60f7cbdc69ab7a2554fcc87eb4df77050814b2cf/sdk/tests/fixtures/certs/trust/test_cert_root_bundle.pem",
+      "sha256": "c67864bf6bae91c7df0abbef274abd1b03116063093ec225a8391d744f8356fc",
+      "bytes": 12677
+    },
+    "LICENSE.txt": {
+      "source": "https://raw.githubusercontent.com/contentauth/c2pa-rs/60f7cbdc69ab7a2554fcc87eb4df77050814b2cf/LICENSE-MIT",
+      "sha256": "89375a50de90d2dcaa04406086da832ad452ebcaf6ab402ef3d51b8401a67c71",
+      "bytes": 1083
+    }
+  }
+}

@@ -3,3 +3,7 @@
 *.json text eol=lf
 cloudflare/public/** text eol=lf
 app/static/** text eol=lf
+*.wasm binary
+tests/fixtures/provenance/*.jpg binary
+tests/fixtures/provenance/*.pem -text -whitespace
+tests/fixtures/provenance/LICENSE.txt -text

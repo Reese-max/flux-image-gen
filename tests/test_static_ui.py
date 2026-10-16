@@ -537,7 +537,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v24" in service_worker_js
+    assert "ai-image-generator-pwa-v25" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -580,7 +580,7 @@ def test_cloudflare_csp_allows_local_image_preview_blobs():
 def test_cloudflare_csp_allows_turnstile_script_and_frame():
     headers = read_repo("cloudflare/public/_headers")
 
-    assert "script-src 'self' https://challenges.cloudflare.com" in headers
+    assert "script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com" in headers
     assert "frame-src https://challenges.cloudflare.com" in headers
 
 
@@ -1126,7 +1126,9 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'exportHistoryJson' in history_wall_js
     assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
     assert "已取消匯出作品 JSON" in history_wall_js
-    assert "檔案可能包含完整描述與雲端刪除連結" in history_wall_js
+    assert "已排除雲端刪除連結與敏感網址" in history_wall_js
+    assert 'id="historyDetailProvenance"' in html
+    assert 'id="downloadHistoryReceipt"' in html
     assert 'sourceRecordId' in app_js
     assert '.history-detail' in styles
     assert '.history-cloud-actions' in styles
@@ -1264,6 +1266,8 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "history-store.js",
         "history-wall.js",
         "image-edit.js",
+        "provenance.js",
+        "provenance-inspector.js",
             "prompt-enhancer.js",
             "prompt-pack.js",
             "prompt-transform.js",
