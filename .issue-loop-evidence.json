@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 8,
+  "base_sha": "dfadcf30ca1d3daf479e05dd97aa457afa265333",
+  "red_proof": "Before implementation, node --test tests/frontend/history-export.test.cjs exited 1.\n✖ single JSON export preserves the normalized record and keeps its URL alive until delayed cleanup\nAssertionError [ERR_ASSERTION]: JSON Blob URL must not be revoked synchronously after click\n✖ export-all button backs up every record despite filters and round-trips through the existing store\nAssertionError [ERR_ASSERTION]: export-all button must be wired\nℹ tests 20\nℹ pass 0\nℹ fail 20",
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 476,
+  "tests_failed": 0,
+  "summary": "單筆與全量 JSON 共用下載流程，延後撤銷 Blob URL，並使用既有 toast 回報成功、取消與失敗。新增歷史牆匯出全部入口，重用 ImageHistoryStore.exportRecordCollection，保留所有作品的 prompt、設定及 metadata，且不受篩選影響。20 個前端回歸測試先紅後綠；完整離線驗證通過 238 個 Python 測試、26 個子測試、96 個前端測試、138 個 Worker 測試及 4 個瀏覽器案例，後者以原始／壓縮資產與桌面／手機尺寸取得 8 份真實 JSON 下載並驗證備份還原及取消／失敗回饋。",
+  "not_done": "未 push、建立 PR、合併或部署，未進行 Preview、Production 或實體手機驗收；外部動作留給 driver。原有 110 個 WebP 異動保持原樣並排除於提交之外；未新增專案原本沒有的獨立 lint、typecheck、build、coverage ratchet 或 CRAP 工具。"
+}
