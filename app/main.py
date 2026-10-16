@@ -374,6 +374,7 @@ async def generate(payload: GeneratePayload, request: Request):
         "height": result.height,
         "seed": result.seed,
         "imageQuality": result.image_quality,
+        "providerProvenance": result.provider_provenance,
     }
     if vision_qa:
         body["visionQa"] = vision_qa
@@ -491,6 +492,7 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
                 "height": result.height,
                 "seed": result.seed,
                 "imageQuality": result.image_quality,
+                "providerProvenance": result.provider_provenance,
             }
         if payload.visionQa:
             vision_qa = maybe_run_vision_qa(result.image, payload.prompt, settings)
@@ -628,6 +630,7 @@ async def edit(
         "provider": result.provider,
         "model": result.model,
         "image_count": result.image_count,
+        "providerProvenance": result.provider_provenance,
     }
 
 

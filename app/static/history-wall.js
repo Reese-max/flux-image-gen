@@ -4,6 +4,9 @@
   var records = [];
   var selectedRecordId = '';
   var selectedRecordIds = {};
+  var receiptWrites = Promise.resolve();
+  var pendingReceipts = {};
+  var detailVerification = 0;
   var filters = { query: '', model: '', size: '', dateFrom: '', dateTo: '', favoritesOnly: false, cloudOnly: false };
 
   function el(id) {
@@ -675,6 +678,19 @@
     setDetailText('historyDetailProviderPrompt', sourceRecord.providerPrompt);
     setDetailText('historyDetailMeta', formatHistoryMeta(sourceRecord));
     setDetailText('historyDetailQaReport', formatQaReport(sourceRecord));
+    var verification = ++detailVerification;
+    setDetailText('historyDetailProvenance', sourceRecord.provenance ? '正在驗證原始圖片與 receipt…' : '此舊作品尚無來源 receipt。');
+    if (root.ImageProvenance && sourceRecord.provenance) {
+      root.ImageProvenance.verifyReceipt(sourceRecord).then(function (result) {
+        if (verification !== detailVerification || selectedRecordId !== sourceRecord.id) { return; }
+        var internal = { hash_verified: 'hash verified：圖片與 receipt 雜湊相符', modified: 'modified since receipt：圖片或 receipt 已變更', unavailable: '無法讀取原始 bytes／receipt，未驗證' };
+        var external = { verified: '已驗證（指定信任錨）', present_untrusted: '存在，簽章有效但簽發者未受信任', invalid: '無效', absent: '未找到', unknown_after_transform: '轉換後未知／可能已剝除', unsupported: '驗證器不可用或格式不支援' };
+        setDetailText('historyDetailProvenance', internal[result.status] + '；Content Credentials：' + external[result.credential_status] +
+          '；Provider：' + sourceRecord.provenance.provider + '；Model：' + sourceRecord.provenance.model +
+          '；來源：' + (sourceRecord.provenance.source_record_ids.join(', ') || '本次生成') +
+          '；Receipt SHA-256：' + sourceRecord.provenance.receipt_sha256);
+      });
+    }
     renderCloudLinks(sourceRecord);
     if (tagEditor) {
       tagEditor.value = getRecordTags(sourceRecord).join(', ');
@@ -688,6 +704,7 @@
   }
 
   function closeHistoryDetail() {
+    detailVerification += 1;
     var modal = el('historyDetailModal');
     if (modal && root.ModalA11y && typeof root.ModalA11y.close === 'function') {
       root.ModalA11y.close(modal);
@@ -778,10 +795,12 @@
       setAppStatus('作品資料格式不正確，無法匯出', 'fail');
       return;
     }
-    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+    var promptPublic = !(el('hidePromptInShare') && el('hidePromptInShare').checked);
+    if (promptPublic && root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定。確定公開這些提示詞並匯出？')) {
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
+    normalized = root.ImageProvenance.exportArtwork(normalized, { promptPublic: promptPublic });
     blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
     url = root.URL.createObjectURL(blob);
     link = document.createElement('a');
@@ -796,7 +815,20 @@
       }
       root.URL.revokeObjectURL(url);
     }
-    setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+    setAppStatus('已匯出作品與 receipt；已排除雲端刪除連結與敏感網址。', 'done');
+  }
+
+  function downloadReceipt() {
+    var record = getSelectedRecord();
+    if (!record || !record.provenance) { setAppStatus('此作品尚無來源 receipt', 'warn'); return; }
+    var blob = new Blob([JSON.stringify(root.ImageProvenance.normalizeReceipt(record.provenance), null, 2)], { type: 'application/json' });
+    var url = root.URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = 'history_' + safeFilePart(record.id) + '.receipt.json';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function () { link.remove(); root.URL.revokeObjectURL(url); }, 1000);
   }
 
   function switchToGenerateTab() {
@@ -1053,6 +1085,16 @@
       return root.ImageHistoryStore.loadRecords();
     }, []);
     renderHistoryWall();
+    records.slice().sort(function (left, right) {
+      return left.createdAt.localeCompare(right.createdAt) || left.versionNumber - right.versionNumber;
+    }).forEach(function (record) {
+      var receipt = record.provenance;
+      if (!receipt || receipt.receipt_sha256 || pendingReceipts[record.id]) { return; }
+      record.providerProvenance = { model_id: receipt.model, steps: receipt.settings.steps,
+        cfg_scale: receipt.settings.cfg, model_revision: receipt.provider_provenance.model_revision };
+      queueReceipt(record, { inputs: receipt.inputs, sourceRecordIds: receipt.source_record_ids,
+        operation: receipt.settings.mode, buildVersion: receipt.build_version });
+    });
   }
 
   function clearHistoryWall() {
@@ -1099,22 +1141,60 @@
   }
 
   function addGeneratedRecord(event) {
-    var nextRecords;
     if (!root.ImageHistoryStore || !event || !event.detail) { return; }
-    nextRecords = safeStore('歷史記錄儲存失敗', function () {
-      var sourceRecordId = toText(event.detail.sourceRecordId);
-      var parentRecord = sourceRecordId ? root.ImageHistoryStore.findRecordById(records, sourceRecordId) : null;
-      var recordToAdd = event.detail;
-      var addedRecords;
-      if (sourceRecordId && parentRecord && typeof root.ImageHistoryStore.createVersionRecord === 'function') {
-        recordToAdd = root.ImageHistoryStore.createVersionRecord(records, parentRecord, event.detail);
+    var detail = copyRecord(event.detail);
+    var sourceRecordId = toText(detail.sourceRecordId);
+    var inputs = detail.provenanceInputs || [];
+    var sourceIds = sourceRecordId ? [sourceRecordId] : [];
+    records.forEach(function (record) {
+      if (record.provenance && inputs.some(function (input) { return input.original_sha256 === record.provenance.output_sha256; }) && sourceIds.indexOf(record.id) < 0) {
+        sourceIds.push(record.id);
       }
-      addedRecords = root.ImageHistoryStore.addRecord(records, recordToAdd);
-      return root.ImageHistoryStore.saveRecords(addedRecords);
-    }, null);
-    if (!nextRecords) { return; }
-    records = nextRecords;
-    renderHistoryWall();
+    });
+    sourceRecordId = sourceIds[0] || '';
+    var parentRecord = sourceRecordId ? root.ImageHistoryStore.findRecordById(records, sourceRecordId) : null;
+    var recordToAdd;
+    var options = { parent: parentRecord, inputs: inputs, sourceRecordIds: sourceIds,
+      operation: detail.operation === 'edit' ? 'edit' : (sourceRecordId ? 'regenerate' : 'generate') };
+    try {
+      recordToAdd = root.ImageHistoryStore.normalizeRecord(detail);
+      if (sourceRecordId && parentRecord && typeof root.ImageHistoryStore.createVersionRecord === 'function') {
+        recordToAdd = root.ImageHistoryStore.createVersionRecord(records, parentRecord, detail);
+      }
+      recordToAdd.providerProvenance = detail.providerProvenance;
+      // Preserve the successful artwork synchronously, before optional SDK/network work.
+      recordToAdd.provenance = root.ImageProvenance.pendingReceipt(recordToAdd, options);
+      records = root.ImageHistoryStore.saveRecords(root.ImageHistoryStore.addRecord(records, recordToAdd));
+      renderHistoryWall();
+    } catch (error) {
+      setAppStatus('歷史儲存失敗；請先下載圖片。', 'fail');
+      return;
+    }
+    return queueReceipt(recordToAdd, options);
+  }
+
+  function queueReceipt(recordToAdd, options) {
+    pendingReceipts[recordToAdd.id] = true;
+    // Finish in version order; updating by ID cannot resurrect a deleted artwork.
+    receiptWrites = receiptWrites.then(function () {
+      options.parent = recordToAdd.sourceRecordId ? root.ImageHistoryStore.findRecordById(records, recordToAdd.sourceRecordId) : null;
+      if (!root.ImageHistoryStore.findRecordById(records, recordToAdd.id)) { return; }
+      return root.ImageProvenance.resolveOutputImage(recordToAdd.image).catch(function () {
+        return recordToAdd.image; // Unreadable CORS/remote output stays explicitly unsupported.
+      }).then(function (image) {
+        recordToAdd.image = image;
+        return root.ImageProvenance.createReceipt(recordToAdd, options);
+      }).then(function (receipt) {
+        records = root.ImageHistoryStore.saveRecords(root.ImageHistoryStore.updateRecord(records, recordToAdd.id,
+          { image: recordToAdd.image, thumbnail: recordToAdd.image, provenance: receipt }));
+        renderHistoryWall();
+        refreshSelectedRecord(recordToAdd.id);
+        document.dispatchEvent(new CustomEvent('imagegen:receipt-saved', { detail: { id: recordToAdd.id } }));
+      });
+    }).catch(function () { setAppStatus('來源 receipt 或歷史儲存失敗；請先下載圖片。', 'fail'); }).then(function () {
+      delete pendingReceipts[recordToAdd.id];
+    });
+    return receiptWrites;
   }
 
   function reloadHistoryAfterRecordUpdate(event) {
@@ -1176,6 +1256,7 @@
     if (exportJson) {
       exportJson.addEventListener('click', exportHistoryJson);
     }
+    if (el('downloadHistoryReceipt')) { el('downloadHistoryReceipt').addEventListener('click', downloadReceipt); }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
     }

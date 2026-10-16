@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 18,
+  "base_sha": "dfadcf30ca1d3daf479e05dd97aa457afa265333",
+  "red_proof": "Before implementation: node --test tests/frontend/provenance.test.cjs exited 1. Error: ENOENT: no such file or directory, open 'C:\\Users\\Administrator\\issue-loop\\worktrees\\Reese-max_flux-image-gen-issue-18\\app\\static\\provenance.js'; tests 7, pass 0, fail 7. Additional pre-fix regression output: 'receipt uses effective provider model/settings, keeping unknown defaults explicit' failed with actual 'schnell', expected '@cf/black-forest-labs/flux-2-klein-4b'; tests 19, pass 17, fail 2. Cold-reload regression also failed with 'successful images must be saved synchronously before optional C2PA inspection', 0 !== 2, before the persistence fix.",
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 473,
+  "tests_failed": 0,
+  "summary": "Implemented versioned unsigned generation/edit provenance receipts using existing history/version, provider result, download and gallery services, with output/input/prompt hashes, effective provider model/settings, build metadata and parent lineage. Added local C2PA WASM validation, explicit trust/absence/invalid/transform/unsupported states, lossless original downloads, private artwork JSON roundtrip and hash-checked allowlisted R2/share metadata without capability URLs or credential values. Regression coverage includes real signed/trusted/absent/tampered/reencoded fixtures, actual generation/edit/share/download browser flows, output and receipt tampering, privacy, timeout, immediate persistence and pending-receipt recovery after reload; the Git-Bash-run full gate passed 239 Python, 91 frontend, 142 Worker and 1 provenance integration tests, plus 30 Python subtests and the three existing browser QA scripts.",
+  "not_done": "No push, PR, merge, Preview/Production deployment, remote CI, billable provider call, C2PA signing or formal trust-list/conformance certification. Remote output bytes blocked by CORS/network/format/size limits remain explicitly unsupported with an empty output hash; unavailable provider revisions/build IDs/default parameters remain unknown. Existing unrelated example-image changes were preserved and excluded from the commit. The repository has no dedicated lint/typecheck/coverage-ratchet/CRAP/mutation commands."
+}
