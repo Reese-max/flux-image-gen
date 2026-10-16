@@ -2710,6 +2710,66 @@ test('POST /generate/batch model=schnell runs every image on Workers AI', async 
   assert.deepEqual(sentSeeds, returnedSeeds);
 });
 
+// Model an upstream that accepts one in-flight generation at a time. Keeping
+// the call pending exposes fan-out bugs hidden by fakeAi's immediate response.
+function singleFlightAi() {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const run = ai.run;
+  let running = false;
+  ai.run = async (...args) => {
+    if (running) throw new Error('provider concurrent generation limit reached');
+    running = true;
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return await run(...args);
+    } finally {
+      running = false;
+    }
+  };
+  return ai;
+}
+
+for (const count of [2, 4]) {
+  for (const size of ['square', 'landscape']) {
+    for (const nvidiaFallback of [false, true]) {
+      test(`Issue #7: batch returns all ${count} ${size} images with a single-flight provider (NVIDIA fallback=${nvidiaFallback})`, async () => {
+        const originalFetch = globalThis.fetch;
+        const ai = singleFlightAi();
+        let nvidiaCalls = 0;
+        globalThis.fetch = async () => {
+          nvidiaCalls += 1;
+          return new Response('{}', { status: 503 });
+        };
+
+        try {
+          const response = await worker.fetch(
+            jsonRequest('/generate/batch', {
+              prompt: '一隻坐在窗邊的橘貓，柔和晨光', model: 'schnell', size, count, seed: 777,
+            }),
+            fakeEnv({ AI: ai, ...(nvidiaFallback ? { NVIDIA_API_KEY: 'test-key' } : {}) })
+          );
+          const data = await response.json();
+          assert.equal(response.status, 200);
+          assert.equal(data.images.length, count, 'every requested variation must succeed');
+          assert.equal(data.partial, false);
+          assert.deepEqual(data.errors, []);
+          assert.equal(ai.calls.length, count, 'each image runs exactly once');
+          assert.equal(nvidiaCalls, nvidiaFallback ? count : 0);
+          assert.equal(data.images[0].seed, 777);
+          assert.deepEqual(data.images.map((image) => image.seed), ai.calls.map((call) => Number(call.fields.seed)));
+          for (const image of data.images) {
+            assert.equal(image.provider, 'workers-ai');
+            assert.ok(image.seed >= 1);
+            assert.match(image.image, /^data:image\/png;base64,/);
+          }
+        } finally {
+          globalThis.fetch = originalFetch;
+        }
+      });
+    }
+  }
+}
+
 test('POST /generate/batch model=schnell keeps the explicit seed on the first image', async () => {
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   const response = await worker.fetch(

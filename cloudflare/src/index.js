@@ -392,14 +392,18 @@ async function handleGenerateBatch(request, env) {
   }
 
   try {
-    // The variations are independent network calls; run them concurrently so a
-    // 4-image batch costs one round-trip of latency instead of four.
-    const tasks = [];
+    // ponytail: serialize this bounded batch (max 4) to avoid upstream fan-out
+    // failures; use provider-specific concurrency limits if throughput requires it.
+    const settled = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
-      tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
+      try {
+        const value = await generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale });
+        settled.push({ status: "fulfilled", value });
+      } catch (reason) {
+        settled.push({ status: "rejected", reason });
+      }
     }
-    const settled = await Promise.allSettled(tasks);
     const images = [];
     const errors = [];
     const target = generationUsageTarget(env, model);
