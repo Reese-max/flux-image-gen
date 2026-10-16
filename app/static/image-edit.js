@@ -488,7 +488,7 @@
     });
     var fd = buildEditFormData(finalPrompt, selected.map(function (s) { return s.blob; }), token);
 
-    fetch('/edit', { method: 'POST', body: fd })
+    root.fetchWithTurnstile('/edit', { method: 'POST', body: fd })
       .then(function (resp) {
         return resp.json().catch(function () { return {}; }).then(function (data) {
           return { ok: resp.ok, status: resp.status, data: data };
@@ -510,7 +510,6 @@
       })
       .then(function () {
         elapsedTimer.stop();
-        if (typeof resetTurnstileWidget === 'function') { resetTurnstileWidget(); }
         editInFlight = false;
         updateGoButton();
         goBtn.textContent = '✦ 開始改圖';

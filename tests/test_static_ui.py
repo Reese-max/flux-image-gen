@@ -629,8 +629,8 @@ def test_prompt_transform_ui_is_wired():
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html
     assert 'src="/static/prompt-transform.js"' in html
-    assert "fetch('/prompt/transform'" in transform_js
-    assert "fetch('/prompt/complete'" in transform_js
+    assert "fetchWithTurnstile('/prompt/transform'" in transform_js
+    assert "fetchWithTurnstile('/prompt/complete'" in transform_js
     assert "plainPrompt" in transform_js
     assert "transformPrompt" in transform_js
     assert "completePrompt" in transform_js

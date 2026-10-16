@@ -103,13 +103,48 @@ function setTurnstileStatus(message, kind){
 }
 function readTurnstileToken(){
   var field = document.querySelector('input[name="cf-turnstile-response"]');
-  return field && field.value ? field.value : '';
+  return field && field.value && field.value !== turnstileState.usedToken ? field.value : '';
 }
 function resetTurnstileWidget(){
   if(!isTurnstileRequired()){ return; }
   if(window.turnstile && turnstileState.widgetId !== null && typeof window.turnstile.reset === 'function'){
     try{ window.turnstile.reset(turnstileState.widgetId); }catch(error){}
   }
+}
+// One shared widget supplies a fresh, single-use token for each protected call.
+function fetchWithTurnstile(url, init){
+  if(!isTurnstileRequired()){ return fetch(url, init); }
+  return new Promise(function(resolve, reject){
+    var started = Date.now();
+    function sendWhenReady(){
+      var token = readTurnstileToken();
+      if(token){
+        turnstileState.usedToken = token;
+        if(typeof init.body === 'string'){
+          var payload = JSON.parse(init.body);
+          payload.turnstileToken = token;
+          init.body = JSON.stringify(payload);
+        }else{
+          init.body.set('turnstileToken', token);
+        }
+        Promise.resolve().then(function(){ return fetch(url, init); }).then(function(response){
+          resetTurnstileWidget();
+          resolve(response);
+        }, function(error){
+          resetTurnstileWidget();
+          reject(error);
+        });
+        return;
+      }
+      if(!turnstileState.siteKey || Date.now() - started >= 30000){
+        reject(new Error('請完成真人驗證後重試'));
+        return;
+      }
+      setTurnstileStatus('請完成真人驗證，驗證後會繼續處理。', 'warn');
+      setTimeout(sendWhenReady, 100);
+    }
+    sendWhenReady();
+  });
 }
 function renderTurnstileWidget(){
   var target = el('turnstileWidget');
@@ -1520,7 +1555,7 @@ function compileProviderPromptIfNeeded(settings){
   setStatus('正在整理提示詞', 'busy');
   requestBody = JSON.stringify({ source: source, style: style });
 
-  return fetch('/prompt/transform', {
+  return fetchWithTurnstile('/prompt/transform', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: requestBody
@@ -1604,7 +1639,7 @@ function generate(options){
     return compileProviderPromptIfNeeded(settings).then(function(){
       compileTimer.stop();
       generationInFlight = false;
-      return generate({ startedAt: flowStartedAt, triggerButton: triggerButton });
+      return generate({ startedAt: flowStartedAt, triggerButton: triggerButton, waitForTurnstile: true });
     }, function(error){
       var compileSeconds = compileTimer.stop();
       generationInFlight = false;
@@ -1616,7 +1651,7 @@ function generate(options){
     });
   }
 
-  if(!requireTurnstileReady()){
+  if(!opts.waitForTurnstile && !requireTurnstileReady()){
     pendingSourceRecordId = '';
     setGenerationState('error');
     return Promise.resolve();
@@ -1644,7 +1679,6 @@ function generate(options){
 
   function cleanupGenerate(){
     generationInFlight = false;
-    resetTurnstileWidget();
     updateGenerateButtons();
   }
 
@@ -1679,7 +1713,7 @@ function generate(options){
   var batchCount = readBatchCount();
   var devTuning = readDevTuning();
   if(batchCount > 1){
-    return fetch('/generate/batch', {
+    return fetchWithTurnstile('/generate/batch', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
@@ -1731,7 +1765,7 @@ function generate(options){
     });
   }
 
-  return fetch('/generate', {
+  return fetchWithTurnstile('/generate', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({

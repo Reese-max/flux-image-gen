@@ -27,6 +27,7 @@ REQUIRED_SECRET_NAMES = {
 }
 
 REQUIRED_VARS = {
+    "ENVIRONMENT",
     "NVIDIA_BASE_URL",
     "GEMINI_PROMPT_MODEL",
     "GEMINI_COMPLETE_MODEL",
@@ -211,7 +212,9 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
         except (TypeError, ValueError):
             errors.append("USAGE_ALERT_DAILY_GENERATIONS 必須是整數字串")
 
-    if public and str(vars_section.get("TURNSTILE_REQUIRED", "")).lower() == "true":
+    if public:
+        require(str(vars_section.get("ENVIRONMENT", "")).strip().lower() == "production", "--public 模式必須設定 ENVIRONMENT=production", errors)
+        require(str(vars_section.get("TURNSTILE_REQUIRED", "")).strip().lower() == "true", "--public 模式必須設定 TURNSTILE_REQUIRED=true", errors)
         require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白", errors)
 
     checks.append("wrangler bindings OK")

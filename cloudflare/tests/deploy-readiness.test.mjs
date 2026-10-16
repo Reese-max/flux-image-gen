@@ -104,34 +104,36 @@ test('both real deployment paths invoke readiness before resolving the commit', 
 import { assertProductionAbuseControls } from '../scripts/check-deploy-readiness.mjs';
 
 
-test('assertProductionAbuseControls passes when ENVIRONMENT=production', () => {
-  assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"')
+test('assertProductionAbuseControls rejects production without Turnstile', () => {
+  assert.throws(() =>
+    assertProductionAbuseControls('[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"'),
+    /Production deployment rejected/,
   );
 });
 
-test('assertProductionAbuseControls passes when TURNSTILE_REQUIRED=true', () => {
-  assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"')
+test('assertProductionAbuseControls rejects Turnstile without production mode', () => {
+  assert.throws(() =>
+    assertProductionAbuseControls('[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"'),
+    /Production deployment rejected/,
   );
 });
 
 test('assertProductionAbuseControls passes when both are enabled', () => {
   assert.doesNotThrow(() =>
-    assertProductionAbuseControls('ENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"')
+    assertProductionAbuseControls('[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"')
   );
 });
 
 test('assertProductionAbuseControls rejects when neither abuse control is active', () => {
   assert.throws(
-    () => assertProductionAbuseControls('ENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"'),
+    () => assertProductionAbuseControls('[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"'),
     /Production deployment rejected/,
   );
 });
 
 test('assertProductionAbuseControls rejects when ENVIRONMENT is missing and TURNSTILE is false', () => {
   assert.throws(
-    () => assertProductionAbuseControls('TURNSTILE_REQUIRED = "false"'),
+    () => assertProductionAbuseControls('[vars]\nTURNSTILE_REQUIRED = "false"'),
     /Production deployment rejected/,
   );
 });
@@ -141,4 +143,23 @@ test('assertProductionAbuseControls rejects when no vars set', () => {
     () => assertProductionAbuseControls(''),
     /Production deployment rejected/,
   );
+});
+
+test('assertProductionAbuseControls ignores flags outside the deployed vars table', () => {
+  assert.throws(
+    () => assertProductionAbuseControls('[env.preview.vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"'),
+    /Production deployment rejected/,
+  );
+});
+
+test('hosted deployment requires the public abuse-control gate before upload', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const checkJob = workflow.slice(workflow.indexOf('  check:'), workflow.indexOf('  deploy-preview:'));
+  assert.match(checkJob, /python \.\.\/scripts\/check_deployment_preflight\.py --public/);
+  assert.match(checkJob, /npm test/);
+  assert.match(checkJob, /npm run check/);
+  assert.doesNotMatch(checkJob, /\|\| true/);
+  for (const job of ['deploy-preview', 'deploy-production']) {
+    assert.match(workflow, new RegExp(`  ${job}:\\s+needs: check`));
+  }
 });

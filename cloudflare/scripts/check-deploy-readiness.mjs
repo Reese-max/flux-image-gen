@@ -107,17 +107,11 @@ export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerT
   }
 }
 
-/**
- * Reject a production deployment configuration that has no abuse controls.
- *
- * A configuration is considered inadequate when ALL of the following are true:
- *   1. ENVIRONMENT is not "production" (rate limiter won't fail-closed).
- *   2. TURNSTILE_REQUIRED is not "true" (Turnstile gate is off).
- *
- * This prevents accidental public exposure where both layers are disabled.
- */
+// The public TOML preflight validates bindings/site key; readiness also requires
+// both controls in the default deployment's [vars], never a named environment.
 export function assertProductionAbuseControls(tomlContent) {
-  const content = String(tomlContent || '');
+  const varsTable = String(tomlContent || '').split(/^\[vars\][ \t]*(?:#.*)?\r?$/m)[1] || '';
+  const content = varsTable.split(/^[ \t]*\[/m)[0];
   const environmentMatch = content.match(/^\s*ENVIRONMENT\s*=\s*"([^"]*)"/m);
   const turnstileMatch = content.match(/^\s*TURNSTILE_REQUIRED\s*=\s*"([^"]*)"/m);
 
@@ -127,11 +121,10 @@ export function assertProductionAbuseControls(tomlContent) {
   const hasProductionMode = environmentValue.trim().toLowerCase() === 'production';
   const hasTurnstile = turnstileValue.trim().toLowerCase() === 'true';
 
-  if (!hasProductionMode && !hasTurnstile) {
+  if (!hasProductionMode || !hasTurnstile) {
     throw new Error(
-      'Production deployment rejected: ENVIRONMENT is not "production" (rate limiter will not fail-closed) ' +
-      'AND TURNSTILE_REQUIRED is not "true". At least one abuse control must be active. ' +
-      'Set ENVIRONMENT="production" in wrangler.toml or enable TURNSTILE_REQUIRED="true".',
+      'Production deployment rejected: set both ENVIRONMENT="production" ' +
+      'and TURNSTILE_REQUIRED="true" in wrangler.toml [vars].',
     );
   }
 }

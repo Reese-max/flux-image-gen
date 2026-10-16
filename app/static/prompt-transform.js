@@ -60,7 +60,7 @@
       }
     });
 
-    fetch('/prompt/transform', {
+    fetchWithTurnstile('/prompt/transform', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({source: source, style: style})
@@ -123,7 +123,7 @@
       }
     });
 
-    fetch('/prompt/complete', {
+    fetchWithTurnstile('/prompt/complete', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({source: source, style: style})

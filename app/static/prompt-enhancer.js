@@ -4,7 +4,7 @@
   // Effect optimisation prefers Gemini and falls back to server-side local rules.
   // Returns { prompt, provider, warnings }; callers own DOM + status.
   function applyEffect(prompt, effect) {
-    return fetch('/prompt/enhance', {
+    return (root.fetchWithTurnstile || fetch)('/prompt/enhance', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: prompt, effect: effect })
