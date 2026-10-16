@@ -1027,6 +1027,7 @@ async function handlePromptTransform(request, env) {
   let payload;
   try {
     payload = await readJsonPayload(request);
+    assertPromptAllowedForGeneration(payload.source);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordPromptEvent(env, request, route, started, {
@@ -1057,12 +1058,20 @@ async function handlePromptTransform(request, env) {
     try {
       const resolvedStyle = resolveStyle(source, normalizeStyle(payload.style));
       const prompt = await geminiTransformPrompt(source, resolvedStyle, env, providerTelemetry);
+      assertPromptAllowedForGeneration(prompt);
       await recordPromptEvent(env, request, route, started, {
         outcome: "success", statusCode: 200,
         ...promptUsageTarget(env, route, "gemini", providerTelemetry.attempts),
       });
       return json({ source, prompt, provider: "gemini", warnings: [] });
     } catch (geminiErr) {
+      if (geminiErr instanceof HttpError && geminiErr.code === "prompt_blocked") {
+        await recordPromptEvent(env, request, route, started, {
+          outcome: "error", statusCode: geminiErr.status, errorCode: geminiErr.code,
+          ...promptUsageTarget(env, route, "gemini", providerTelemetry.attempts),
+        });
+        return httpErrorJson(geminiErr);
+      }
       console.error(JSON.stringify({ event: "gemini_transform_failed", error: String(geminiErr) }));
       // fall through to the offline rule-based engine
     }
@@ -1070,6 +1079,7 @@ async function handlePromptTransform(request, env) {
 
   try {
     const result = transformPlainPrompt(source, payload.style);
+    assertPromptAllowedForGeneration(result.prompt);
     await recordPromptEvent(env, request, route, started, {
       outcome: "success", statusCode: 200,
       ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
@@ -1108,6 +1118,7 @@ async function handlePromptComplete(request, env) {
   let payload;
   try {
     payload = await readJsonPayload(request);
+    assertPromptAllowedForGeneration(payload.source);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordPromptEvent(env, request, route, started, {
@@ -1135,6 +1146,7 @@ async function handlePromptComplete(request, env) {
   const providerTelemetry = { attempts: 0 };
   try {
     const result = await completePlainPrompt(source, payload.style, env, providerTelemetry);
+    assertPromptAllowedForGeneration(result.prompt);
     await recordPromptEvent(env, request, route, started, {
       outcome: "success", statusCode: 200,
       ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
@@ -1175,6 +1187,7 @@ async function handlePromptEnhance(request, env) {
   const providerTelemetry = { attempts: 0 };
   try {
     payload = await readJsonPayload(request);
+    assertPromptAllowedForGeneration(payload.prompt, payload.effect);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordPromptEvent(env, request, route, started, {
@@ -1201,6 +1214,7 @@ async function handlePromptEnhance(request, env) {
       return json({ error: "效果描述太長", code: "bad_request" }, 400);
     }
     const result = await enhancePrompt(payload.prompt, payload.effect, env, providerTelemetry);
+    assertPromptAllowedForGeneration(result.prompt);
     await recordPromptEvent(env, request, route, started, {
       outcome: "success", statusCode: 200,
       ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
@@ -1214,7 +1228,7 @@ async function handlePromptEnhance(request, env) {
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 502;
     const code = e instanceof HttpError ? e.code : "prompt_enhance_failed";
-    const provider = e instanceof HttpError
+    const provider = e instanceof HttpError && providerTelemetry.attempts === 0
       ? "unknown"
       : String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
     await recordPromptEvent(env, request, route, started, {

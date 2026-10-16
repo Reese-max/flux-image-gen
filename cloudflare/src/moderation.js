@@ -18,7 +18,11 @@ export function detectHighRiskPromptCategory(prompt) {
   const sexual = ["色情", "性愛", "性行為", "裸照", "裸體", "成人影片", "porn", "nsfw", "nude", "sex scene"];
   const minors = ["未成年", "兒童", "小孩", "國中生", "高中生", "幼女", "幼童", "child", "minor", "teen"];
   const gore = ["血腥", "肢解", "斬首", "酷刑", "處決", "虐殺", "gore", "decapitation", "dismember", "torture"];
-  const fakeDocs = ["假身分證", "偽造身分證", "偽造護照", "假護照", "偽造駕照", "假駕照", "fake id", "fake passport", "counterfeit passport"];
+  const fakeDocs = [
+    "身分證", "身份證", "身份证", "身分文件", "身份文件", "身份证明", "護照", "护照",
+    "駕照", "驾照", "駕駛執照", "驾驶执照", "驾驶证", "居留證", "居留证",
+    "fake id", "fake passport", "counterfeit passport",
+  ];
   const fraud = ["詐騙廣告", "釣魚網站", "偽造發票", "假付款", "投資詐騙", "盜刷", "phishing", "scam ad", "fake invoice"];
   const privacy = ["公開個資", "人肉搜索", "洩漏地址", "洩露地址", "偷窺", "偷拍", "doxx", "doxxing", "leak address"];
   const political = ["政治人物", "總統", "候選人", "立委", "市長", "president", "candidate", "politician"];
@@ -28,7 +32,8 @@ export function detectHighRiskPromptCategory(prompt) {
   if (hasAny(text, minors) && hasAny(text, sexual)) return "minor_sensitive";
   if (hasAny(text, sexual)) return "sexual";
   if (hasAny(text, gore)) return "graphic_violence";
-  if (hasAny(text, fakeDocs)) return "fake_documents";
+  // ponytail: deterministic document terms; use a classifier if paraphrase coverage is required.
+  if (hasAny(text, fakeDocs) || /\b(?:id(?:entity|entification)?[ -]+(?:cards?|documents?)|passports?|(?:national|official|government(?:[ -]+issued)?)[ -]+ids?|(?:driver(?:['’]?s)?|driving)[ -]+licen[cs]es?|residen(?:t|ce)[ -]+(?:permits?|cards?)|social[ -]+security[ -]+cards?)\b/.test(text)) return "fake_documents";
   if (hasAny(text, fraud)) return "fraud";
   if (hasAny(text, privacy)) return "privacy";
   if (hasAny(text, political) && hasAny(text, deceptive)) return "political_deception";
