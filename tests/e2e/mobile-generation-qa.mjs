@@ -375,6 +375,85 @@ async function main() {
     ok('手機生成後歷史保存多張結果', historyCount >= 3, String(historyCount));
     ok('手機生成成功後主要 CTA 保持生成語意', /生成圖片/.test(mobileButtonText || '') && !/再生成|重試/.test(mobileButtonText || ''), mobileButtonText || '');
 
+    const protectedRequests = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && /\/(prompt\/(transform|complete|enhance)|generate)$/.test(new URL(request.url()).pathname)) {
+        protectedRequests.push({ path: new URL(request.url()).pathname, token: request.postDataJSON().turnstileToken });
+      }
+    });
+    for (const action of ['complete', 'enhance']) {
+      await page.route(`**/prompt/${action}`, (route) => route.fulfill({
+        contentType: 'application/json', body: JSON.stringify({ prompt: 'a protected cat', provider: 'local-e2e', warnings: [] }),
+      }));
+    }
+    await page.evaluate(() => {
+      let counter = 0;
+      const tokenField = document.createElement('input');
+      tokenField.name = 'cf-turnstile-response';
+      tokenField.type = 'hidden';
+      document.querySelector('#turnstileWidget').appendChild(tokenField);
+      window.turnstile = {
+        render() { tokenField.value = `browser-token-${++counter}`; return 'test-widget'; },
+        reset() {
+          tokenField.value = '';
+          setTimeout(() => { tokenField.value = `browser-token-${++counter}`; }, 50);
+        },
+      };
+      configureTurnstile({ required: true, siteKey: 'test-site' });
+      document.querySelector('#plainPrompt').value = '需要驗證的橘貓';
+      document.querySelector('#prompt').value = '';
+      document.querySelector('#batchCount').value = '1';
+    });
+    const protectedGeneration = page.waitForResponse((response) => new URL(response.url()).pathname === '/generate');
+    await page.locator('#mobileGenerate').click({ force: true });
+    await protectedGeneration;
+    await page.waitForFunction(() => !generationInFlight, null, { timeout: 10000 });
+    ok('公開模式白話轉換後仍可接續出圖', protectedRequests.map((request) => request.path).join(',') === '/prompt/transform,/generate', JSON.stringify(protectedRequests));
+    const enhancement = page.waitForResponse((response) => new URL(response.url()).pathname === '/prompt/enhance');
+    await page.evaluate(() => {
+      document.querySelector('#effectPrompt').value = '電影感';
+      document.querySelector('#applyEffect').click();
+    });
+    await enhancement;
+    const completion = page.waitForResponse((response) => new URL(response.url()).pathname === '/prompt/complete');
+    await page.locator('#completePrompt').click({ force: true });
+    await completion;
+    ok('公開模式提示詞與出圖各使用新 token', protectedRequests.length === 4
+      && protectedRequests.every((request) => Boolean(request.token))
+      && new Set(protectedRequests.map((request) => request.token)).size === 4, JSON.stringify(protectedRequests));
+
+    let editBody = '';
+    await page.route('**/edit', (route) => {
+      editBody = route.request().postData();
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ image: tinyPng }) });
+    });
+    await page.waitForFunction(() => Boolean(readTurnstileToken()));
+    await page.evaluate(() => {
+      const field = document.querySelector('input[name="cf-turnstile-response"]');
+      field.value = '';
+      const verify = document.createElement('button');
+      verify.id = 'testVerify';
+      verify.textContent = '完成測試驗證';
+      verify.onclick = () => { field.value = 'browser-token-edit'; };
+      document.querySelector('#turnstileWidget').appendChild(verify);
+    });
+    await page.locator('#tab-edit').click();
+    await page.evaluate(async () => {
+      await ImageFeatureLoader.load('edit');
+      ImageEdit.applyHealth({ providers: { workersAI: true } });
+    });
+    ok('改圖分頁可操作共用真人驗證', await page.locator('#testVerify').isVisible());
+    await page.setInputFiles('#editFiles', { name: 'reference.png', mimeType: 'image/png', buffer: Buffer.from(tinyPng.split(',')[1], 'base64') });
+    await page.fill('#editPrompt', '換成白色背景');
+    const protectedEdit = page.waitForResponse((response) => new URL(response.url()).pathname === '/edit');
+    await page.locator('#editGo').click();
+    await page.waitForFunction(() => /驗證後會繼續/.test(document.querySelector('#turnstileStatus').textContent));
+    ok('改圖等待互動驗證期間不送出請求', editBody === '');
+    await page.locator('#testVerify').click();
+    await protectedEdit;
+    await page.waitForFunction(() => /完成/.test(document.querySelector('#editStatus').textContent));
+    ok('改圖完成互動驗證後使用新 token 送出', editBody.includes('browser-token-edit') && editBody.includes('name="images"'));
+
     await page.screenshot({ path: screenshotPath, fullPage: true });
     ok('mobile QA 截圖輸出', fs.existsSync(screenshotPath), screenshotPath);
   } finally {

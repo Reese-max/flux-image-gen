@@ -33,7 +33,11 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 - `[ai] binding = "AI"` 已存在，供 Workers AI FLUX.2 klein 快速模型與 AI 改圖使用。
 - `[[r2_buckets]] binding = "IMAGE_BUCKET"` 已存在，bucket 名稱為 `flux-image-gallery` 或正式環境指定名稱。
 - `[[ratelimits]] name = "GENERATE_RATE_LIMITER"` 已存在，公開站必須保留後端硬限制。
-- `TURNSTILE_REQUIRED = "true"`、`TURNSTILE_SITE_KEY` 填入公開 site key；只有本機或內部預覽可暫時維持 `false`。
+- `ENVIRONMENT = "production"` 與 `TURNSTILE_REQUIRED = "true"` 必須同時設定，`TURNSTILE_SITE_KEY` 填入公開 site key。版本庫預設已啟用兩者，public preflight 與部署 readiness 會拒絕單層防護。
+- `/generate`、`/generate/batch`、`/edit` 與 `/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 共用 production 限流與 Turnstile 政策；binding 缺少、例外或回傳非布林 `success` 時，在 Provider 呼叫前回 `503`，超額回 `429`。六條路由缺少 Turnstile site／secret key 或驗證服務不可用時也回 `503`；用量事件保留實際錯誤狀態與代碼。
+- 前端每次操作使用新的 Turnstile token，白話轉換接續出圖時會等下一個驗證完成，最多等候 30 秒；並行操作也不會重用已送出的 token。共用驗證元件位於分頁之外，改圖時仍可操作。
+- Turnstile token 只能驗證一次；重設 widget 取得下一個 token，不能把同一 token 同時交給提示詞轉換與出圖。參考 [Turnstile 伺服器驗證文件](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/)。
+- 只有本機 `.dev.vars` 明確設定 `ENVIRONMENT="development"` 或 `"test"` 才允許限流依賴故障時放行；本機可另設 `TURNSTILE_REQUIRED="false"`。未指定、拼錯或 `staging` 環境名稱均維持 fail-closed，公開預覽不得套用本機設定。
 - `USAGE_ESTIMATED_COST_USD_PER_IMAGE`、`USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST` 與 `USAGE_ALERT_DAILY_GENERATIONS` 已設定；prompt／Vision 單價未校準時維持 `0`，但 Provider 嘗試仍會持久記錄，不得誤稱為完整成本。
 - `[version_metadata] binding = "CF_VERSION_METADATA"` 已存在，讓 health／記錄可對應 Cloudflare Version ID。
 - `[observability]` 與 `[observability.logs]` 已啟用，並使用明確取樣率控制記錄量。
@@ -73,6 +77,21 @@ node cloudflare\scripts\check-deploy-readiness.mjs
 `deploy:dry-run` 必須看到 wrapper 印出 `Wrangler dry-run output verified.`，代表 Wrangler 已跑到 `--dry-run: exiting now.` 與 assets directory 摘要；若只看到 telemetry banner 或缺少 success markers，視為未完成部署預演。
 
 `npm run deploy` 與 `npm run deploy:dry-run` 都會先執行 `node scripts\verify.mjs`；正式 deploy 還會強制執行 `python scripts\check_deployment_preflight.py --public` 與 `check-deploy-readiness.mjs`。後者要求 Git worktree 完全乾淨（包含 staged、unstaged 與 untracked 檔案），再唯讀確認 production secrets，通過後才取得 HEAD 作為 tag／message；因此版本中繼資料一定對應實際上傳的已提交內容。Wrapper 固定部署 `wrangler.toml` 的 `flux-image-gen` production 與 `src/index.js`，外部唯一允許的參數是 `--dry-run`；`--env`、`--name`、`--config`、`--profile`、自訂 entrypoint、`--tag`、`--message` 等覆寫一律拒絕。不得以直接呼叫 `wrangler deploy` 規避 gate。
+
+GitHub Actions 的 Deploy `check` job 會執行 `npm run check`、`npm run sync:check`、`npm test` 與相同的 `--public` preflight；preview 上傳與 production 部署都必須等此 job 通過。限流 binding 為區域性、最終一致計數，不是精確的全球預算上限，因此公開站仍強制保留 Turnstile。參考 [Cloudflare Rate Limiting 文件](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/)。
+
+Issue #11 的離線測試包含缺少／拋錯／異常限流結果、Turnstile 故障、組合故障與並行重複請求；不能據此標示 CLEAN。仍須在隔離的非正式 Worker 部署，記錄六條路由於依賴不可用時的 `503`、Provider 呼叫為零及正常限流時的 `429`，完成 runtime 驗收後再判定可關閉 issue。
+
+| Issue #11 驗收條件 | 本機驗證與機制 |
+| --- | --- |
+| 明確 production 模式，限流缺少／例外回 503 | `wrangler.toml` 安全預設、`abuse-controls.test.mjs` 六路由測試 |
+| 只有明確 development／test 可放行 | 未設定、拼錯與 staging 模式均測試為 fail-closed |
+| 公開部署強制 Turnstile | public preflight、readiness 與 Deploy check job 同時要求兩層防護 |
+| 必要 site／secret key 缺少仍回 503 | 六路由均測試，不呼叫驗證服務或 Provider |
+| 限流、Turnstile 與組合故障測試 | `abuse-controls.test.mjs` 同時檢查 Provider 零呼叫與實際用量錯誤狀態 |
+| 拒絕缺少防護的公開設定 | `test_deployment_preflight.py` 與 `deploy-readiness.test.mjs` 拒絕不安全設定 |
+| 出圖、批次、改圖與 Gemini 提示詞政策一致 | 六路由共用後端 helper；瀏覽器測試驗證提示詞接續出圖與互動改圖 |
+| I01／I04／J02／J48 回歸 | 並行重複請求與依賴故障測試通過；隔離非正式 Worker runtime 驗證仍待執行 |
 
 `check:wrangler` 會先跑 `wrangler whoami`，再跑 `wrangler deploy --dry-run` 做登入與部署設定診斷；預設不輸出帳號 email / account id / token。若失敗，先處理 `npx wrangler login`、`CLOUDFLARE_API_TOKEN`、帳號權限、R2 bucket、AI binding 或 rate limit binding；需要更多診斷時可用 `npm --prefix cloudflare run check:wrangler -- --verbose`，輸出仍會遮罩敏感資訊。
 

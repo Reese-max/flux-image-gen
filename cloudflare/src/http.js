@@ -1,5 +1,5 @@
 // HTTP plumbing: error type, JSON responses, bounded body reads, request-id,
-// client-error sanitization, and the optional edge rate limiter.
+// client-error sanitization, and the fail-closed edge rate limiter.
 import { MAX_JSON_BYTES } from "./constants.js";
 
 const TURNSTILE_ACTION = "turnstile-spin-v1";
@@ -45,33 +45,10 @@ function envFlag(value) {
   return String(value || "").trim().toLowerCase() === "true";
 }
 
-/**
- * Return true when the Worker is running in an explicit production deployment.
- *
- * Production mode is opt-in via ENVIRONMENT="production". Only in production
- * does a missing / broken rate-limit binding trigger a fail-closed 503 rather
- * than a no-op pass-through.  Local dev and staging keep the existing
- * pass-through so tests and previews keep working without the binding.
- *
- * Why not auto-detect by Workers runtime signal? The runtime does not expose
- * a stable "I am the production deployment" flag accessible from JS.
- * Operator intent expressed through an env var is the correct mechanism.
- */
+// Only explicit local development/test modes may bypass an unavailable limiter.
+// Missing or misspelled environment names retain the production policy.
 export function isProductionMode(env) {
-  return String((env && env.ENVIRONMENT) || "").trim().toLowerCase() === "production";
-}
-
-/**
- * Return true when server-funded provider calls (NVIDIA / Workers AI / Gemini)
- * are reachable from this env. Used by fail-closed logic: when the operator
- * has live API keys, bypassing the rate limiter is a real cost/abuse risk.
- */
-function hasProviderKeys(env) {
-  if (!env) return false;
-  if (String(env.NVIDIA_API_KEY || "").trim().length > 0) return true;
-  if (env.AI && typeof env.AI.run === "function") return true;
-  if (String(env.GEMINI_API_KEY || "").trim().length > 0) return true;
-  return false;
+  return !["development", "test"].includes(String((env && env.ENVIRONMENT) || "").trim().toLowerCase());
 }
 
 export function turnstileConfig(env) {
@@ -93,7 +70,7 @@ export async function verifyTurnstileToken(token, request, env) {
   if (!config.required) return null;
 
   const secret = String((env && env.TURNSTILE_SECRET_KEY) || "").trim();
-  if (!secret) {
+  if (!secret || !config.siteKey) {
     return new HttpError("真人驗證尚未完成設定，請稍後再試", 503, "turnstile_unconfigured");
   }
 
@@ -234,24 +211,14 @@ export function sanitizeClientErrorReport(payload) {
   };
 }
 
-// Edge rate limiting. Active when a Cloudflare Rate Limiting binding named
-// GENERATE_RATE_LIMITER is configured in wrangler.toml.
-//
-// Fail-closed policy (production mode only):
-//   When ENVIRONMENT="production" and provider API keys are present, a missing
-//   or broken rate-limit binding returns 503 Service Unavailable instead of
-//   silently allowing the request. This prevents server-funded workloads from
-//   running without a hard request gate due to misconfiguration or binding failure.
-//
-// Pass-through (local dev / staging):
-//   Without ENVIRONMENT="production", a missing limiter is still a no-op so
-//   local development and un-provisioned preview deployments keep working.
+// Every provider-backed route shares this gate. Only explicit development/test
+// modes may continue when GENERATE_RATE_LIMITER is missing or broken.
 export async function checkRateLimit(request, limiter, env) {
   const inProduction = isProductionMode(env);
 
   // Check if limiter binding is present.
   if (!limiter || typeof limiter.limit !== "function") {
-    if (inProduction && hasProviderKeys(env)) {
+    if (inProduction) {
       // Fail closed: binding is required in production to protect provider quota.
       return json(
         {
@@ -261,7 +228,7 @@ export async function checkRateLimit(request, limiter, env) {
         503,
       );
     }
-    // Dev / staging: pass-through without the binding.
+    // Explicit development/test mode: pass-through without the binding.
     return null;
   }
 
@@ -269,8 +236,11 @@ export async function checkRateLimit(request, limiter, env) {
   let outcome;
   try {
     outcome = await limiter.limit({ key });
+    if (!outcome || typeof outcome.success !== "boolean") {
+      throw new Error("Invalid rate limiter response");
+    }
   } catch {
-    if (inProduction && hasProviderKeys(env)) {
+    if (inProduction) {
       // Fail closed: binding error in production is treated as limiter unavailable.
       return json(
         {
@@ -280,7 +250,7 @@ export async function checkRateLimit(request, limiter, env) {
         503,
       );
     }
-    // Dev / staging: swallow binding errors.
+    // Explicit development/test mode: allow local binding errors.
     return null;
   }
 

@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_deployment_preflight.py"
 
@@ -60,19 +62,37 @@ def test_deployment_preflight_passes_current_repo_default_mode():
     assert payload["publicMode"] is False
 
 
-def test_deployment_preflight_public_mode_allows_turnstile_opt_out(tmp_path):
+def test_deployment_preflight_public_mode_rejects_turnstile_opt_out(tmp_path):
     root = copy_repo_subset(tmp_path)
     wrangler = root / "cloudflare" / "wrangler.toml"
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "false")
     set_wrangler_var(wrangler, "TURNSTILE_SITE_KEY", "")
     result = run_preflight(root, "--public")
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    assert "--public 模式必須設定 TURNSTILE_REQUIRED=true" in json.loads(result.stderr)["errors"]
 
     set_wrangler_var(wrangler, "TURNSTILE_REQUIRED", "true")
     result = run_preflight(root, "--public")
     assert result.returncode == 1
     payload = json.loads(result.stderr)
     assert "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白" in payload["errors"]
+
+
+@pytest.mark.parametrize("mode", ["development", "test", "staging", ""])
+def test_deployment_preflight_public_mode_requires_production(tmp_path, mode):
+    root = copy_repo_subset(tmp_path)
+    set_wrangler_var(root / "cloudflare" / "wrangler.toml", "ENVIRONMENT", mode)
+    result = run_preflight(root, "--public")
+    assert result.returncode == 1
+    assert "--public 模式必須設定 ENVIRONMENT=production" in json.loads(result.stderr)["errors"]
+
+
+def test_deployment_preflight_current_public_config_is_safe():
+    result = run_preflight(ROOT, "--public")
+    assert result.returncode == 0, result.stderr
+    config = (ROOT / "cloudflare" / "wrangler.toml").read_text(encoding="utf-8")
+    assert '\nENVIRONMENT = "production"\n' in config
+    assert '\nTURNSTILE_REQUIRED = "true"\n' in config
 
 
 def test_deployment_preflight_public_mode_passes_when_turnstile_is_configured(tmp_path):

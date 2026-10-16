@@ -87,6 +87,11 @@
       </button>
     </nav>
 
+    <div id="turnstileGate" class="turnstile-gate" hidden>
+      <div id="turnstileWidget" class="cf-turnstile" data-action="turnstile-spin-v1"></div>
+      <p id="turnstileStatus" class="turnstile-status" role="status" aria-live="polite">公開站操作前需完成人機驗證。</p>
+    </div>
+
     <div class="tabpanel" id="panel-generate" role="tabpanel" aria-labelledby="tab-generate">
     <div class="generation-workspace" id="generationWorkspace">
       <aside class="generation-controls glass" id="generationControls" aria-label="生成設定面板">
@@ -148,10 +153,6 @@
         <div class="prompt-controls">
           <button id="completePrompt" class="btn secondary" type="button" aria-describedby="transformStatus">✨ 幫我補完整</button>
           <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
-        </div>
-        <div id="turnstileGate" class="turnstile-gate" hidden>
-          <div id="turnstileWidget" class="cf-turnstile" data-action="turnstile-spin-v1"></div>
-          <p id="turnstileStatus" class="turnstile-status" role="status" aria-live="polite">公開站生成前需完成人機驗證。</p>
         </div>
         <div id="transformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>

@@ -38,7 +38,7 @@ Cloudflare Workers 版與 FastAPI 版同步支援以下功能：
 - 錯誤監控：前端錯誤與生成 API 失敗會送到 `POST /client-error`，Worker 會回 `x-request-id` 並記錄已截斷的白名單欄位。
 - 效能 QA：`npm run qa:perf` 會量 TTFB、FCP、LCP、CLS、資源數與傳輸量，避免回歸到大型字型 payload。
 
-不包含每日額度、冷卻、防濫用、帳號系統或公開作品牆。
+不包含每日額度、冷卻、帳號系統或公開作品牆；公開部署的限流與 Turnstile 防護詳見 [部署清單](../docs/deployment-checklist.md)。
 
 ### `/generate` Seed 行為
 
@@ -67,9 +67,13 @@ npx wrangler dev --local --port 8787
 本機金鑰放在 `.dev.vars`：
 
 ```text
+ENVIRONMENT=development
+TURNSTILE_REQUIRED=false
 NVIDIA_API_KEY=你的 NVIDIA 金鑰
 GEMINI_API_KEY=你的 Gemini/Gemma 金鑰
 ```
+
+以上環境覆寫僅供本機使用。版本庫預設為 `ENVIRONMENT="production"`、`TURNSTILE_REQUIRED="true"`；未指定環境也會在限流依賴缺少或故障時回 `503`。
 
 ## 部署
 

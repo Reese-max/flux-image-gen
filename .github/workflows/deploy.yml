@@ -20,7 +20,14 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit || true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm run check
+      - run: npm run sync:check
+      - run: npm test
+      - name: Require public production abuse controls
+        run: python ../scripts/check_deployment_preflight.py --public --root ..
 
   deploy-preview:
     needs: check

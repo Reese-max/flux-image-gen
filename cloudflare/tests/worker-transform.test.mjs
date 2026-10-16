@@ -40,6 +40,7 @@ function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
 
 function fakeEnv(extra = {}) {
   return {
+    ENVIRONMENT: 'test',
     ASSETS: {
       fetch() {
         return new Response('asset fallback', { status: 200 });
@@ -860,7 +861,7 @@ test('POST /generate rejects missing Turnstile token before provider access', as
   const ai = fakeAi({ image: 'iVBORw0KGgo=' });
   const response = await worker.fetch(
     jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
-    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+    fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'test-site', TURNSTILE_SECRET_KEY: 'secret' })
   );
   const data = await response.json();
 
@@ -889,7 +890,7 @@ test('POST /generate verifies Turnstile token before Workers AI generation', asy
         size: 'square',
         turnstileToken: 'token-ok',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'test-site', TURNSTILE_SECRET_KEY: 'secret' })
     );
     const data = await response.json();
     assert.equal(response.status, 200);
@@ -918,7 +919,7 @@ test('POST /generate rejects a Turnstile token issued for another action', async
         size: 'square',
         turnstileToken: 'wrong-action-token',
       }),
-      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SECRET_KEY: 'secret' })
+      fakeEnv({ AI: ai, TURNSTILE_REQUIRED: 'true', TURNSTILE_SITE_KEY: 'test-site', TURNSTILE_SECRET_KEY: 'secret' })
     );
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, 'turnstile_failed');
@@ -956,6 +957,7 @@ test('POST /generate bounds a hung Turnstile verification before provider access
       fakeEnv({
         AI: ai,
         TURNSTILE_REQUIRED: 'true',
+        TURNSTILE_SITE_KEY: 'test-site',
         TURNSTILE_SECRET_KEY: 'secret',
         TURNSTILE_TIMEOUT_MS: '10',
       })
@@ -3113,8 +3115,7 @@ test('POST /generate fail-closed (503) when GENERATE_RATE_LIMITER throws in prod
 // ── Dev mode keeps pass-through (no regression) ───────────────────────────────
 
 test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER is absent in dev mode', async () => {
-  // Dev mode: no ENVIRONMENT=production. Without provider keys, there's also no
-  // live billing risk, so the worker proceeds past rate limit to serve the request.
+  // The fixture explicitly selects test mode for local pass-through.
   const env = fakeEnv({});
   const response = await worker.fetch(makeGenerateRequest(), env);
   // Should NOT be 503 – pass-through means the request proceeds normally.
@@ -3133,14 +3134,13 @@ test('POST /generate keeps pass-through when GENERATE_RATE_LIMITER throws in dev
   assert.notEqual(body.code, 'rate_limiter_error');
 });
 
-// ── Production mode without provider keys: no fail-closed (no billing risk) ──
+// ── Production policy also applies before provider credentials are configured ──
 
-test('POST /generate does NOT fail-closed when ENVIRONMENT=production but no provider keys', async () => {
-  // No NVIDIA_API_KEY, no AI binding, no GEMINI_API_KEY → hasProviderKeys=false.
+test('POST /generate fails closed in production even without provider keys', async () => {
   const env = fakeEnv({ ENVIRONMENT: 'production' });
   const response = await worker.fetch(makeGenerateRequest(), env);
-  assert.notEqual(response.status, 503);
+  assert.equal(response.status, 503);
   const body = await response.json().catch(() => ({}));
-  assert.notEqual(body.code, 'rate_limiter_unavailable');
+  assert.equal(body.code, 'rate_limiter_unavailable');
 });
 

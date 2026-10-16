@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 11,
+  "base_sha": "dfadcf30ca1d3daf479e05dd97aa457afa265333",
+  "red_proof": "Before implementation, `node --test cloudflare/tests/abuse-controls.test.mjs cloudflare/tests/deploy-readiness.test.mjs` exited 1: '✖ limiter failure is closed outside explicit development/test mode: undefined'; '✖ production rejects malformed limiter result: {}'; 'AssertionError [ERR_ASSERTION]: Missing expected exception.' The public deployment regression also failed before implementation: `python -m pytest tests/test_deployment_preflight.py -q` exited 1 with 'test_deployment_preflight_public_mode_rejects_turnstile_opt_out', '>       assert result.returncode == 1', 'E       assert 0 == 1', and '6 failed, 7 passed in 3.75s'. Frontend red: 'TypeError: context.fetchWithTurnstile is not a function' (5 failing tests). The edit-tab browser regression first failed with 'Error: 改圖分頁可操作共用真人驗證' before moving the shared widget outside the panels.",
+  "test_command": "node scripts/verify.mjs && python scripts/check_deployment_preflight.py --public",
+  "test_exit": 0,
+  "tests_passed": 529,
+  "tests_failed": 0,
+  "summary": "Production is the public default; only explicit development/test modes allow an unavailable limiter, while missing, throwing or malformed production limiters return 503 before provider access. Public preflight, readiness and hosted deployment checks require production plus Turnstile, and all six funded image/prompt routes reject unavailable verification or missing required keys with accurate usage status codes. The shared frontend helper obtains a fresh single-use token per request, bounds verification waits, and keeps verification accessible on the edit tab. The exact Git Bash command passed 243 Python, 81 frontend and 205 Worker tests (plus 26 Python subtests), browser network/mobile/accessibility checks, syntax, static sync, secret scan and public preflight; a separate Wrangler dry-run build also exited 0.",
+  "not_done": "No push, PR, merge, issue closure, deployment, secret access or real paid provider calls. Isolated non-production Worker runtime verification, real Turnstile/provider acceptance and hosted CI remain unverified, so issue #11 must remain open and cannot be marked CLEAN. The project has no configured coverage ratchet, CRAP or mutation gate. All 110 pre-existing modified WebP files are preserved and excluded from this commit."
+}
