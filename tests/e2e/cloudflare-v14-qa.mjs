@@ -178,13 +178,20 @@ async function main() {
   const clipText = await page.evaluate(() => navigator.clipboard.readText().catch(() => ''));
   ok('分享文案複製 click', clipText.includes('AI 圖片作品') && !clipText.includes('qa robot portrait'), clipText.slice(0, 80));
 
-  const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
-  await page.click('#exportHistoryJson');
-  const download = await downloadPromise;
+  page.once('dialog', (dialog) => dialog.accept());
+  const [download] = await Promise.all([
+    page.waitForEvent('download', { timeout: 10000 }),
+    page.click('#exportHistoryJson'),
+  ]);
+  const exportedRecord = JSON.parse(fs.readFileSync(await download.path(), 'utf8'));
   ok(
     '作品 JSON 匯出 click',
-    !download || download.suggestedFilename().endsWith('.json'),
-    download ? download.suggestedFilename() : 'download event not emitted by this browser run'
+    await download.failure() === null && download.suggestedFilename() === 'history_qa-v2.json' &&
+      exportedRecord.id === 'qa-v2' && exportedRecord.prompt === 'qa robot portrait' &&
+      exportedRecord.providerPrompt === 'qa robot portrait, cinematic lighting, film still' &&
+      exportedRecord.model === 'dev' && exportedRecord.size === 'portrait' &&
+      exportedRecord.seed === 222 && exportedRecord.provider === 'qa-demo',
+    download.suggestedFilename()
   );
 
   await page.keyboard.press('Escape');

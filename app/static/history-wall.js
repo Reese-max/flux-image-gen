@@ -359,6 +359,7 @@
     var toolbar = el('historyBatchBar');
     var filters = el('historyFilters');
     var clearHistoryButton = el('clearHistory');
+    var exportAllButton = el('exportAllHistoryJson');
     var countNode = el('historySelectionCount');
     var deleteButton = el('deleteSelectedHistory');
     var clearButton = el('clearHistorySelection');
@@ -372,6 +373,10 @@
     if (clearHistoryButton) {
       clearHistoryButton.hidden = records.length === 0;
       clearHistoryButton.disabled = records.length === 0;
+    }
+    if (exportAllButton) {
+      exportAllButton.hidden = records.length === 0;
+      exportAllButton.disabled = records.length === 0;
     }
     if (countNode) {
       countNode.textContent = count ? '已選取 ' + String(count) + ' 筆歷史作品' : '尚未選取作品';
@@ -759,44 +764,69 @@
     return (toText(value) || 'history').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'history';
   }
 
-  function exportHistoryJson() {
-    var record = getSelectedRecord();
-    var normalized;
+  function notifyHistoryExport(text, cls) {
+    setAppStatus(text, cls);
+    if (root.ImageGenApp && typeof root.ImageGenApp.showToast === 'function') {
+      root.ImageGenApp.showToast(text, cls);
+    }
+  }
+
+  function downloadHistoryJson(value, filename, cancelledMessage) {
     var blob;
     var url;
     var link;
-    if (!record) {
-      setAppStatus('尚無可匯出的作品', 'warn');
-      return;
-    }
-    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
-      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
-      return;
-    }
-    normalized = normalizeRecordForUi(record);
-    if (!normalized) {
-      setAppStatus('作品資料格式不正確，無法匯出', 'fail');
-      return;
-    }
-    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
-      setAppStatus('已取消匯出作品 JSON', 'warn');
-      return;
-    }
-    blob = new Blob([JSON.stringify(normalized, null, 2)], { type: 'application/json' });
-    url = root.URL.createObjectURL(blob);
-    link = document.createElement('a');
-    link.href = url;
-    link.download = 'history_' + safeFilePart(normalized.id) + '.json';
-    try {
-      document.body.appendChild(link);
-      link.click();
-    } finally {
-      if (link.parentNode) {
+    function cleanup() {
+      if (link && link.parentNode) {
         link.parentNode.removeChild(link);
       }
-      root.URL.revokeObjectURL(url);
+      if (url) {
+        try { root.URL.revokeObjectURL(url); } catch (_) {}
+      }
     }
-    setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+    if (typeof root.Blob !== 'function' || !root.URL || typeof root.URL.createObjectURL !== 'function') {
+      notifyHistoryExport('瀏覽器不支援匯出 JSON', 'fail');
+      return;
+    }
+    try {
+      if (!confirmAction('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+        notifyHistoryExport(cancelledMessage, 'warn');
+        return;
+      }
+      blob = new root.Blob([JSON.stringify(value, null, 2)], { type: 'application/json' });
+      url = root.URL.createObjectURL(blob);
+      link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      // Keep the URL alive while the browser starts the download, as for images.
+      setTimeout(cleanup, 30000);
+      notifyHistoryExport('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+    } catch (error) {
+      cleanup();
+      notifyHistoryExport('匯出 JSON 失敗，請重試。', 'fail');
+    }
+  }
+
+  function exportHistoryJson() {
+    var record = getSelectedRecord();
+    if (!record) {
+      notifyHistoryExport('尚無可匯出的作品', 'warn');
+      return;
+    }
+    downloadHistoryJson(record, 'history_' + safeFilePart(record.id) + '.json', '已取消匯出作品 JSON');
+  }
+
+  function exportAllHistoryJson() {
+    if (!records.length) {
+      notifyHistoryExport('尚無可匯出的作品', 'warn');
+      return;
+    }
+    if (!root.ImageHistoryStore || typeof root.ImageHistoryStore.exportRecordCollection !== 'function') {
+      notifyHistoryExport('備份功能尚未就緒', 'fail');
+      return;
+    }
+    downloadHistoryJson(root.ImageHistoryStore.exportRecordCollection(records), 'history_backup_' + Date.now().toString(36) + '.json', '已取消匯出全部 JSON');
   }
 
   function switchToGenerateTab() {
@@ -1137,6 +1167,7 @@
     var copyPrompt = el('copyHistoryPrompt');
     var copyShare = el('copyHistoryShareText');
     var exportJson = el('exportHistoryJson');
+    var exportAllJson = el('exportAllHistoryJson');
     var regenerateDetail = el('regenerateHistoryDetail');
     var useCompositionDetail = el('useCompositionDetail');
     var historySearch = el('historySearch');
@@ -1175,6 +1206,9 @@
     }
     if (exportJson) {
       exportJson.addEventListener('click', exportHistoryJson);
+    }
+    if (exportAllJson) {
+      exportAllJson.addEventListener('click', exportAllHistoryJson);
     }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
@@ -1243,6 +1277,7 @@
     buildShareText: buildShareText,
     copyHistoryShareText: copyHistoryShareText,
     exportHistoryJson: exportHistoryJson,
+    exportAllHistoryJson: exportAllHistoryJson,
     regenerateHistoryDetail: regenerateHistoryDetail,
     recordMatchesFilters: recordMatchesFilters,
     applyHistoryFilters: applyHistoryFilters,

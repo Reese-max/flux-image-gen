@@ -34,6 +34,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - 作品詳情面板：查看圖片、白話描述、最終 prompt、排除描述、model、size、seed、provider、生成時間。
 - Prompt 版本比較：從歷史作品再生時會形成版本鏈，可切換比較不同 prompt / seed / model。
 - 分享卡片／分享頁：可複製分享文案、複製設定 JSON、匯出作品 JSON、下載圖片；雲端分享頁會顯示圖片、模式、風格、用途、尺寸、prompt 公開狀態與「再生成」入口，可選擇分享時隱藏 prompt；上傳成功後會產生一次性刪除連結，使用者打開連結確認後可自助刪除 R2 圖片與 metadata。
+- JSON 備份：作品詳情的「匯出作品 JSON」下載單筆完整 prompt、設定與 metadata；歷史牆的「匯出全部」下載版本化 `GenerationRecordCollection`，包含目前瀏覽器保存的全部作品，不受搜尋或篩選影響。匯出前保留內容提醒，成功、取消與失敗都會顯示 toast；備份可能包含完整描述與雲端刪除連結，公開前請先檢查。
 - Prompt 強化器：提供更寫實、電影感、產品照、可愛、乾淨構圖、修正常見瑕疵等規則式強化，不增加 API 成本。
 - 失敗修正建議：依 `content_filtered`、`rate_limited`、`timeout`、`bad_provider_response`、`missing_api_key` 等錯誤提供下一步建議。
 - 歷史搜尋與標籤：可搜尋 prompt、篩選 model/size、收藏星號、編輯標籤。
@@ -276,6 +277,12 @@ Response：
 cd "D:\Users\Administrator\Desktop\圖片生成"
 python -m pytest -q
 node --test tests\frontend\generation-settings.test.cjs tests\frontend\history-store.test.cjs
+```
+
+完整離線驗證使用 `node scripts/verify.mjs`，包含 JSON 匯出的原始／壓縮資產與桌面／手機尺寸共四個瀏覽器案例，必須取得八份非空 JSON，並檢查備份還原、取消與失敗。也可單獨執行匯出回歸：
+
+```bash
+node --test tests/frontend/history-export.test.cjs tests/e2e/history-export.test.mjs
 ```
 
 ### 產品化測試 Prompt 集
