@@ -276,6 +276,9 @@ function parseRetryAfter(value){
 function retrySecondsRemaining(){
   return retryBlockedUntil > Date.now() ? Math.ceil((retryBlockedUntil - Date.now()) / 1000) : 0;
 }
+function isGenerationBusy(){
+  return generationInFlight || retrySecondsRemaining() > 0;
+}
 function clearRetryCountdown(){
   if(retryCountdownTimer){ clearInterval(retryCountdownTimer); }
   retryCountdownTimer = null;
@@ -1238,6 +1241,10 @@ function copySettings(){
   });
 }
 function regenerate(){
+  if(isGenerationBusy()){
+    setStatus('正在生成或等待重試，請稍候再生', 'warn');
+    return;
+  }
   if(!lastGeneration){
     setStatus('尚無可再生的圖片', 'warn');
     return;
@@ -1245,14 +1252,23 @@ function regenerate(){
   setSeedMode('random');
   setGenerationSettings({
     prompt: lastGeneration.prompt,
+    providerPrompt: lastGeneration.providerPrompt,
     avoid: lastGeneration.avoid,
     model: lastGeneration.model,
     size: lastGeneration.size,
+    width: lastGeneration.width,
+    height: lastGeneration.height,
+    steps: lastGeneration.steps,
+    cfgScale: lastGeneration.cfgScale,
     seed: ''
   });
   generate();
 }
 function lockCompositionFromRecord(record){
+  if(isGenerationBusy()){
+    setStatus('正在生成或等待重試，請稍候套用構圖', 'warn');
+    return false;
+  }
   if(!record){
     setStatus('找不到可鎖定構圖的圖片', 'warn');
     showToast('找不到可鎖定構圖的圖片', 'warn');
@@ -1903,6 +1919,7 @@ function getProviderHealth(){
 
 window.ImageGenApp = {
   generate: generate,
+  isGenerationBusy: isGenerationBusy,
   setPromptAndGenerate: setPromptAndGenerate,
   setPromptForReview: setPromptForReview,
   applyInspiration: applyInspiration,
