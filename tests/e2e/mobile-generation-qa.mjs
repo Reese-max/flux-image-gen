@@ -379,6 +379,23 @@ async function main() {
 
     await page.screenshot({ path: screenshotPath, fullPage: true });
     ok('mobile QA 截圖輸出', fs.existsSync(screenshotPath), screenshotPath);
+
+    const savedProviderPrompt = 'a cat on green grass, avoid blurry';
+    await page.evaluate(({ image, providerPrompt }) => {
+      document.getElementById('batchCount').value = '1';
+      const record = {
+        id: 'mobile-history-avoid', image, prompt: '一隻貓在草地上',
+        providerPrompt, avoid: 'blurry', model: 'schnell', size: 'ig_post', seed: 42,
+      };
+      window.ImageHistoryStore.saveRecords([record]);
+      document.dispatchEvent(new Event('history-record-updated'));
+      window.ImageHistoryWall.openHistoryDetail(record);
+    }, { image: tinyPng, providerPrompt: savedProviderPrompt });
+    const restoredResponse = page.waitForResponse((response) => response.url() === url + '/generate');
+    await page.locator('#regenerateHistoryDetail').click();
+    const restoredBody = (await restoredResponse).request().postDataJSON();
+    ok('手機歷史再生保留已儲存的完整排除提示詞', restoredBody.prompt === savedProviderPrompt, JSON.stringify(restoredBody));
+    await page.waitForSelector('#go[aria-busy="false"]');
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

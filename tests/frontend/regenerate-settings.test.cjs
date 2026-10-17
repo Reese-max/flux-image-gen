@@ -397,3 +397,32 @@ for (const legacy of [
     if (!legacy.missing) assert.strictEqual(record.providerPrompt, legacy.value);
   });
 }
+
+for (const entry of ['canvas', 'composition', 'history']) {
+  test(`${entry} restore keeps the saved exclusions when the avoid control is absent`, async () => {
+    const env = setupEnvironment();
+    const { ImageGenApp, ImageHistoryStore, ImageHistoryWall } = env.windowObj;
+    delete env.elements.avoid; // The current index.html has no optional avoid input.
+    ImageHistoryStore.saveRecords([CAT_RECORD]);
+    env.fire('DOMContentLoaded');
+
+    if (entry === 'history') {
+      ImageHistoryWall.openHistoryDetail(CAT_RECORD);
+      ImageHistoryWall.regenerateHistoryDetail();
+    } else {
+      assert.equal(ImageGenApp.lockCompositionFromRecord(CAT_RECORD), true);
+      await ImageGenApp.generate();
+      if (entry === 'canvas') {
+        env.fetchCalls.length = 0;
+        env.fire('regenerate:click');
+      }
+    }
+    await env.tick();
+
+    const bodies = env.generateBodies();
+    assert.equal(bodies.length, 1);
+    assert.equal(bodies[0].userPrompt, USER_PROMPT);
+    assert.equal(bodies[0].prompt, PROVIDER_WITH_AVOID);
+    assert.equal(env.transformBodies().length, 0);
+  });
+}

@@ -1103,8 +1103,8 @@ function setGenerationSettings(settings){
   if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
     if(source.providerPrompt){
       el('prompt').value = source.providerPrompt;
-      // 儲存的是最終提示詞；拆回排除欄位，讓之後修改或清空排除內容能生效。
-      if(avoid && el('prompt').value.slice(-avoidSuffix.length) === avoidSuffix){
+      // 有排除欄位時才拆回後綴；無欄位的頁面須保留完整提示詞。
+      if(el('avoid') && avoid && el('prompt').value.slice(-avoidSuffix.length) === avoidSuffix){
         el('prompt').value = el('prompt').value.slice(0, -avoidSuffix.length);
       }
       // 還原的英文提示詞對應目前的中文描述；描述之後被編輯時必須作廢重編，

@@ -55,6 +55,12 @@ test('buildProviderPrompt appends avoid text', () => {
   );
 });
 
+test('buildProviderPrompt keeps an existing matching avoid suffix exactly once', () => {
+  const settings = loadGenerationSettings();
+  const prompt = 'a portrait photo, avoid blurry, extra fingers';
+  assert.strictEqual(settings.buildProviderPrompt(prompt, 'blurry, extra fingers'), prompt);
+});
+
 test('serializeSettings includes validated custom dimensions', () => {
   const settings = loadGenerationSettings();
   const serialized = settings.serializeSettings({
