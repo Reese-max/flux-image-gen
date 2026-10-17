@@ -4,10 +4,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { execFileSync } = require('node:child_process');
 
 const provenancePath = path.resolve(__dirname, '../../app/static/provenance.js');
 const historyStorePath = path.resolve(__dirname, '../../app/static/history-store.js');
 const historyWallPath = path.resolve(__dirname, '../../app/static/history-wall.js');
+
+test('C2PA WASM survives Git content filters byte-for-byte', () => {
+  const cwd = path.resolve(__dirname, '../..');
+  for (const file of ['app/static/c2pa_bg.wasm', 'cloudflare/public/static/c2pa_bg.wasm']) {
+    const hash = (args) => execFileSync('git', ['hash-object', ...args, file], { cwd, encoding: 'utf8' }).trim();
+    assert.equal(hash(['--path=' + file]), hash(['--no-filters']), file + ' must not undergo newline conversion');
+    assert.equal(WebAssembly.validate(fs.readFileSync(path.join(cwd, file))), true);
+  }
+});
 
 function loadScripts(includeHistoryStore) {
   const context = vm.createContext({
@@ -21,6 +31,8 @@ function loadScripts(includeHistoryStore) {
     btoa,
     Date,
     Math,
+    setTimeout,
+    clearTimeout,
   });
   context.globalThis = context;
   vm.runInContext(fs.readFileSync(provenancePath, 'utf8'), context, { filename: provenancePath });
@@ -274,6 +286,8 @@ test('history event queue persists receipts for id-less batch results', async ()
     console,
     document,
     localStorage: storage,
+    setTimeout,
+    clearTimeout,
     crypto,
     TextEncoder,
     Uint8Array,
@@ -392,4 +406,125 @@ test('history JSON export omits cloud links that contain deletion or query token
   assert.equal(sanitized.cloudShareUrl, '');
   assert.equal(sanitized.cloudDeleteUrl, '');
   assert.doesNotMatch(JSON.stringify(sanitized), /drop-me/);
+});
+
+test('history export rejects token-bearing image URLs and keeps safe local bytes', () => {
+  const wall = loadHistoryWallScripts().ImageHistoryWall;
+  const image = 'data:image/png;base64,aGVsbG8=';
+  const privateUrl = 'https://example.test/image.png?access_token=synthetic-export-token';
+  assert.equal(wall.exportRecordForDownload({ id: 'remote', image: privateUrl, prompt: 'cat' }), null);
+  const exported = wall.exportRecordForDownload({
+    id: 'local', image, prompt: 'cat', thumbnail: privateUrl, imageUrl: privateUrl,
+    cloudShareUrl: 'https://example.test/share/local',
+  });
+  assert.equal(exported.image, image);
+  assert.equal(exported.thumbnail, image);
+  assert.equal(exported.imageUrl, '');
+  assert.equal(exported.cloudShareUrl, '');
+  assert.doesNotMatch(JSON.stringify(exported), /synthetic-export-token/);
+  assert.doesNotMatch(wall.buildShareText({
+    id: 'share', image, prompt: 'cat', cloudShareUrl: privateUrl,
+  }, true), /synthetic-export-token/);
+});
+
+test('known transformations distinguish stripped credentials from an untouched absent manifest', async () => {
+  const context = loadScripts(false);
+  context.FluxC2paWeb = { createC2pa: async () => ({ reader: { fromBlob: async () => null } }) };
+  const helper = context.ProvenanceReceipt;
+  const image = 'data:image/png;base64,aGVsbG8=';
+  const untouched = await helper.attachRecord({ id: 'untouched', image, prompt: 'cat' });
+  const edited = await helper.attachRecord({ id: 'edited', image, prompt: 'cat', operation: 'edit' });
+  const resized = await helper.attachRecord({
+    id: 'resized', image, prompt: 'cat',
+    transform: { kind: 'download_reencode', applied: true, credential_effect: 'unknown_after_transform' },
+  });
+  assert.equal(untouched.provenanceReceipt.credential_status, 'absent');
+  for (const record of [edited, resized]) {
+    assert.equal(record.provenanceReceipt.credential_status, 'unknown_after_transform');
+    assert.equal((await helper.verifyRecord(record)).credential_status, 'unknown_after_transform');
+  }
+});
+
+test('a stalled C2PA runtime cannot prevent attaching a receipt indefinitely', async () => {
+  const context = loadScripts(false);
+  let timeout;
+  let cleared = false;
+  let started;
+  const startup = new Promise((resolve) => { started = resolve; });
+  context.setTimeout = (callback, delay) => { assert.equal(delay, 10000); timeout = callback; return 1; };
+  context.clearTimeout = () => { cleared = true; };
+  context.FluxC2paWeb = { createC2pa: () => { started(); return new Promise(() => {}); } };
+  const attached = context.ProvenanceReceipt.attachRecord({
+    id: 'stalled', image: 'data:image/png;base64,aGVsbG8=', prompt: 'cat',
+  });
+  await startup;
+  assert.equal(typeof timeout, 'function', 'credential inspection needs a bounded wait');
+  timeout();
+  const record = await attached;
+  assert.equal(record.provenanceReceipt.credential_status, 'unsupported');
+  assert.match(record.provenanceReceipt.output_sha256, /^[a-f0-9]{64}$/);
+  assert.equal(cleared, true);
+});
+
+test('clearing history cancels earlier queued writes and keeps later generations', async () => {
+  const context = loadScripts(true);
+  const listeners = {};
+  const clear = { addEventListener(type, handler) { this[type] = handler; } };
+  let stored = JSON.stringify([{ id: 'older-record', image: 'data:image/png;base64,aGVsbG8=', prompt: 'older cat' }]);
+  let release;
+  let started;
+  const attaching = new Promise((resolve) => { started = resolve; });
+  context.localStorage = {
+    getItem() { return stored; },
+    setItem(key, value) { stored = value; },
+    removeItem() { stored = null; },
+  };
+  context.document = {
+    addEventListener(type, handler) { listeners[type] = handler; },
+    getElementById(id) { return id === 'clearHistory' ? clear : null; },
+  };
+  context.ProvenanceReceipt.attachRecord = (record) => {
+    if (record.id === 'pending-before-clear') {
+      started();
+      return new Promise((resolve) => { release = () => resolve(record); });
+    }
+    return Promise.resolve(record);
+  };
+  vm.runInContext(fs.readFileSync(historyWallPath, 'utf8'), context, { filename: historyWallPath });
+  listeners.DOMContentLoaded();
+  assert.equal(context.ImageHistoryStore.loadRecords()[0].id, 'older-record');
+  const emit = (id) => listeners['imagegen:generated']({ detail: {
+    id, image: 'data:image/png;base64,aGVsbG8=', prompt: 'cat',
+  } });
+  emit('pending-before-clear');
+  emit('queued-before-clear');
+  await attaching;
+  clear.click();
+  assert.equal(stored, null);
+  release();
+  emit('after-clear');
+  await new Promise(setImmediate);
+  assert.deepEqual(JSON.parse(stored).records.map((record) => record.id), ['after-clear']);
+});
+
+test('new history records and receipts share the reserved creation timestamp', async () => {
+  const context = loadScripts(true);
+  let clock = 0;
+  context.Date = class extends Date {
+    constructor(...args) { super(...(args.length ? args : [Date.UTC(2026, 9, 17) + clock++])); }
+  };
+  const listeners = {};
+  let save;
+  const saved = new Promise((resolve) => { save = resolve; });
+  context.localStorage = { getItem() { return null; }, setItem(key, value) { save(JSON.parse(value)); } };
+  context.document = {
+    addEventListener(type, handler) { listeners[type] = handler; },
+    getElementById() { return null; },
+  };
+  vm.runInContext(fs.readFileSync(historyWallPath, 'utf8'), context, { filename: historyWallPath });
+  listeners['imagegen:generated']({ detail: {
+    id: 'timestamp-record', image: 'data:image/png;base64,aGVsbG8=', prompt: 'cat',
+  } });
+  const record = (await saved).records[0];
+  assert.equal(record.createdAt, record.provenanceReceipt.created_at);
 });

@@ -65,7 +65,7 @@ export function sanitizeGalleryMeta(meta) {
   const safePublicPrompt = (value) => {
     const text = String(value ?? "");
     if (!text || /(?:api[_-]?key|access[_-]?token|refresh[_-]?token|secret|password|bearer|authorization|cookie|delete[_-]?token|turnstile)/i.test(text)) return "";
-    if (/[?#\\]/.test(text) || /(?:https?:|data:|javascript:|\/\/)/i.test(text)) return "";
+    if (/(?:https?:|data:|javascript:|\/\/|[?#][^\s]*=)/i.test(text)) return "";
     return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").slice(0, 500);
   };
   const safeEnum = (value, allowed) => {

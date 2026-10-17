@@ -3,6 +3,7 @@
 
   var records = [];
   var recordWriteChain = Promise.resolve();
+  var recordWriteEpoch = 0;
   var selectedRecordId = '';
   var selectedRecordIds = {};
   var filters = { query: '', model: '', size: '', dateFrom: '', dateTo: '', favoritesOnly: false, cloudOnly: false };
@@ -819,7 +820,7 @@
       // verification result supplied by verifyRecord may appear in share text.
       lines.push('Content Credentials：' + credentialStatusLabel(credentialStatus));
     }
-    cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
+    cloudShareUrl = safePublicCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
     if (!hidePrompt) {
       lines.push('中文描述：' + toText(sourceRecord.prompt));
@@ -858,7 +859,14 @@
   function exportRecordForDownload(record) {
     var normalized = normalizeRecordForUi(record);
     if (!normalized) { return null; }
-    normalized.cloudShareUrl = safePublicCloudUrl(normalized.cloudShareUrl);
+    ['image', 'thumbnail', 'imageUrl', 'localImageData'].forEach(function (field) {
+      var value = toText(normalized[field]);
+      normalized[field] = value.indexOf('data:image/') === 0 ? value : safePublicCloudUrl(value);
+    });
+    normalized.image = normalized.image || normalized.localImageData || normalized.imageUrl;
+    if (!normalized.image) { return null; }
+    normalized.thumbnail = normalized.thumbnail || normalized.image;
+    normalized.cloudShareUrl = '';
     normalized.cloudDeleteUrl = '';
     return normalized;
   }
@@ -900,7 +908,7 @@
     }
     normalized = exportRecordForDownload(record);
     if (!normalized) {
-      setAppStatus('作品資料格式不正確，無法匯出', 'fail');
+      setAppStatus('圖片含敏感網址或作品格式不正確，請先保存本機圖片再匯出', 'fail');
       return;
     }
     if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，但不包含雲端刪除或分享連結。公開分享前請先檢查內容，確定要匯出？')) {
@@ -924,8 +932,12 @@
       schema: 'GenerationRecordCollection',
       version: 2,
       migratedAt: new Date().toISOString(),
-      records: records.map(exportRecordForDownload).filter(function (record) { return !!record; })
+      records: records.map(exportRecordForDownload)
     };
+    if (normalized.records.some(function (record) { return !record; })) {
+      setAppStatus('部分圖片含敏感網址或作品格式不正確，請先保存本機圖片再匯出', 'fail');
+      return;
+    }
     if (!confirmAction('匯出的備份檔會包含全部歷史作品、完整提示詞與設定，但不包含雲端刪除或分享連結。公開分享前請先檢查內容，確定要匯出？')) {
       setAppStatus('已取消匯出全部歷史 JSON', 'warn');
       return;
@@ -1211,6 +1223,7 @@
       return root.ImageHistoryStore.clearRecords();
     }, null);
     if (!nextRecords) { return; }
+    recordWriteEpoch += 1;
     records = nextRecords;
     selectedRecordIds = {};
     renderHistoryWall();
@@ -1244,11 +1257,13 @@
   }
 
   function addGeneratedRecord(event) {
+    var writeEpoch = recordWriteEpoch;
     if (!root.ImageHistoryStore || !event || !event.detail) { return; }
     // Batch results dispatch several events in one turn. Serializing the
     // async hash work keeps each event's parent lookup and localStorage write
     // based on the latest history instead of racing and dropping records.
     recordWriteChain = recordWriteChain.then(function () {
+      if (writeEpoch !== recordWriteEpoch) { return null; }
       var sourceRecordId = toText(event.detail.sourceRecordId);
       var parentRecord = sourceRecordId ? root.ImageHistoryStore.findRecordById(records, sourceRecordId) : null;
       var recordToAdd = event.detail;
@@ -1257,17 +1272,16 @@
       if (sourceRecordId && parentRecord && typeof root.ImageHistoryStore.createVersionRecord === 'function') {
         recordToAdd = root.ImageHistoryStore.createVersionRecord(records, parentRecord, event.detail);
       }
-      if (!toText(recordToAdd.id)) {
-        // Batch event payloads intentionally omit ids. Reserve the id before
-        // hashing so the receipt and persisted record refer to the same item.
-        var identity = root.ImageHistoryStore.normalizeRecord(recordToAdd);
-        recordToAdd = copyRecord(recordToAdd);
-        recordToAdd.id = identity.id;
-      }
+      // Reserve identity and time before inspection so record and receipt agree.
+      var identity = root.ImageHistoryStore.normalizeRecord(recordToAdd);
+      recordToAdd = copyRecord(recordToAdd);
+      recordToAdd.id = identity.id;
+      recordToAdd.createdAt = identity.createdAt;
       attach = root.ProvenanceReceipt && typeof root.ProvenanceReceipt.attachRecord === 'function'
         ? root.ProvenanceReceipt.attachRecord(recordToAdd, parentRecord)
         : Promise.resolve(recordToAdd);
       return Promise.resolve(attach).then(function (attachedRecord) {
+        if (writeEpoch !== recordWriteEpoch) { return null; }
         addedRecords = root.ImageHistoryStore.addRecord(records, attachedRecord);
         return root.ImageHistoryStore.saveRecords(addedRecords);
       });

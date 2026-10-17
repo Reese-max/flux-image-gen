@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 35,
+  "base_sha": "45e0254b09937838791c06fef10ab22532fe574a",
+  "red_proof": "Before fixes: node --test tests/frontend/provenance.test.cjs exited 1 (11 passed, 5 failed). Export returned an image/imageUrl/thumbnail containing ?access_token=synthetic-export-token instead of null; transformed receipt status was absent instead of unknown_after_transform; stalled C2PA had no timeout callback; clearing history persisted ['after-clear','queued-before-clear','pending-before-clear'] instead of ['after-clear']; record createdAt was 2026-10-17T00:00:00.001Z while receipt created_at was 2026-10-17T00:00:00.000Z.\n\nBefore CSP fix: node tests/e2e/provenance-qa.mjs exited 1: actual ['unsupported','unsupported','unsupported'], expected ['present_untrusted','absent','invalid'] for real C2PA fixtures under deployment CSP.\n\nBefore Git attribute fix: node --test --test-name-pattern='C2PA WASM survives' tests/frontend/provenance.test.cjs exited 1: app/static/c2pa_bg.wasm filtered object ce1923a8d825812db8dd7da89a882058eee05291 differed from raw cc359d0590465e02039b5d50ad98f64105fc4524.\n\nBefore public prompt fix: (cd cloudflare && node --test --test-name-pattern='public gallery prompts retain' tests/worker-transform.test.mjs) exited 1: share HTML did not match /What if\\?/. Follow-up regression before tightening that fix: relative signed-query prompt persisted in R2 metadata instead of being omitted; (cd cloudflare && node --test --test-name-pattern='public gallery prompts exclude relative signed' tests/worker-transform.test.mjs) exited 1. Both prompt tests now pass.",
+  "test_command": "npm --prefix cloudflare run build:c2pa && node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 474,
+  "tests_failed": 0,
+  "summary": "修正 8 項可重現缺陷：部署 CSP 與 WASM Git 換行安全、敏感圖片網址匯出、清空歷史競態、C2PA 超時、transform 狀態、公開 prompt 過濾與 receipt 時間一致性。所有缺陷都有修正前失敗的回歸證據；完整離線 gate 通過 Python 240 項（另有 26 subtests）、前端 93 項、Worker 141 項，以及真實 C2PA fixtures、byte-preserving download、實際編輯表單 input hashes 和既有瀏覽器 QA。原有 64 個二進位變動逐檔 SHA-256 未變。",
+  "not_done": "needs-human：app_build_version 的跨 FastAPI/Worker release/build 識別來源，以及 general/character/product 編輯模式與 normal/agent receipt/history enum 的相容契約。未執行遠端 CI、Preview 或 production 部署、付費 provider 呼叫、git push 或其他分支操作；離線瀏覽器使用真實 SDK/fixtures 與模擬 provider 回應。"
+}

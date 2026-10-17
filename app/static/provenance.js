@@ -191,6 +191,12 @@
     return isCredentialStatus(status) ? status : '';
   }
 
+  function credentialStatusAfterTransform(status, transform) {
+    var result = isCredentialStatus(status) ? status : 'unsupported';
+    return (result === 'absent' || result === 'unsupported') && transform && transform.applied
+      ? 'unknown_after_transform' : result;
+  }
+
   function normalizeStageList(value) {
     var source = Array.isArray(value) ? value : [];
     var result = [];
@@ -513,13 +519,9 @@
       receipt_hash: ''
     };
     return validationMatchesInput(credentialVerification, source.image).then(function (validationIsForImage) {
-      if (validationIsForImage && isCredentialStatus(credentialVerification.status)) {
-        baseReceipt.credential_status = operation === 'edit' && credentialVerification.status === 'unsupported'
-          ? 'unknown_after_transform'
-          : credentialVerification.status;
-      } else if (operation === 'edit') {
-        baseReceipt.credential_status = 'unknown_after_transform';
-      }
+      baseReceipt.credential_status = credentialStatusAfterTransform(
+        validationIsForImage ? credentialVerification.status : 'unsupported', transform
+      );
       return Promise.all([
         digestBytesDetailed(utf8Bytes(prompt)),
         digestBytesDetailed(utf8Bytes(userPrompt)),
@@ -689,7 +691,8 @@
   function inspectCredential(input, options) {
     var settings = options && options.settings ? options.settings : DEFAULT_C2PA_SETTINGS;
     var requested = !!(settings && settings.verify && settings.verify.verifyTrust === true);
-    return c2paBlobFromInput(input).then(function (prepared) {
+    var timer;
+    var inspection = c2paBlobFromInput(input).then(function (prepared) {
       if (!prepared.blob) {
         return rememberValidation({ status: 'unsupported', reason: prepared.reason }, prepared.input, null, '');
       }
@@ -729,6 +732,19 @@
           return remember({ status: 'unsupported', reason: /SDK unavailable/i.test(toText(error && error.message)) ? 'sdk_unavailable' : 'c2pa_runtime_unavailable' });
         });
       });
+    });
+    return new Promise(function (resolve, reject) {
+      // Best-effort verification must not hold the history write queue forever.
+      timer = root.setTimeout(function () {
+        resolve(rememberValidation({ status: 'unsupported', reason: 'c2pa_timeout' }, input, null, ''));
+      }, 10000);
+      inspection.then(resolve, reject);
+    }).then(function (result) {
+      root.clearTimeout(timer);
+      return result;
+    }, function (error) {
+      root.clearTimeout(timer);
+      throw error;
     });
   }
 
@@ -797,7 +813,7 @@
       }
       return {
         status: status,
-        credential_status: credential && isCredentialStatus(credential.status) ? credential.status : 'unsupported',
+        credential_status: credentialStatusAfterTransform(credential && credential.status, receipt.transform),
         credential_verification: credential,
         receipt_hash_valid: receiptHashValid,
         output_hash_valid: outputHashValid,

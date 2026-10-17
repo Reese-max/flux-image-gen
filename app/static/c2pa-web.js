@@ -1,3 +1,4 @@
+"use strict";
 (() => {
   // node_modules/highgain/dist/index.js
   var l = /* @__PURE__ */ Symbol("transfer");

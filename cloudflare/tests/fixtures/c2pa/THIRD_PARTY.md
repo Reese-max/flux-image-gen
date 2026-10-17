@@ -14,7 +14,9 @@ anchors and are never loaded by the production adapter.
   production trust list.
 
 The SHA-256 values below are checked by the workspace's
-`evidence/flux/c2pa-route-roundtrip.mjs` before parsing:
+`tests/test_static_ui.py`. The tracked `tests/e2e/provenance-qa.mjs` exercises
+the real browser reader under the deployment CSP, signed/absent/invalid
+fixtures, a test-only trust anchor, byte-preserving download, and edit receipts:
 
 | file | SHA-256 | purpose |
 | --- | --- | --- |

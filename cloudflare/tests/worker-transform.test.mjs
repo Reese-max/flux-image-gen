@@ -3187,3 +3187,40 @@ test('GET /share/:id exposes only allowlisted provenance evidence and never trus
   assert.doesNotMatch(html, /do-not-store/);
 });
 
+test('public gallery prompts retain ordinary punctuation through storage and sharing', async () => {
+  const bucket = fakeBucket();
+  const prompt = 'A poster reading "What if?" with #typography and a backslash \\';
+  const response = await worker.fetch(signedGalleryRequest({
+    image: TINY_PNG_DATA_URL,
+    meta: { promptPublic: true, prompt },
+  }), galleryEnv(bucket));
+  assert.equal(response.status, 201);
+  const saved = await response.json();
+  const share = await worker.fetch(new Request(`https://example.test/share/${saved.id}`), galleryEnv(bucket));
+  assert.equal(share.status, 200);
+  assert.match(await share.text(), /What if\?/);
+  const stored = JSON.parse(bucket.store.get('gallery-meta/' + saved.id + '.json').value);
+  assert.equal(stored.metadata.prompt, prompt);
+});
+
+test('public gallery prompts exclude relative signed query URLs', async () => {
+  for (const reference of [
+    '/private/image.jpg?X-Amz-Credential=synthetic-key&X-Amz-Signature=synthetic-signature',
+    '?sig=synthetic-signature',
+    '/private/image.jpg#credential=synthetic-key',
+  ]) {
+    const bucket = fakeBucket();
+    const response = await worker.fetch(signedGalleryRequest({
+      image: TINY_PNG_DATA_URL,
+      meta: { promptPublic: true, prompt: `Use ${reference} as reference` },
+    }), galleryEnv(bucket));
+    assert.equal(response.status, 201);
+    const saved = await response.json();
+    const stored = JSON.parse(bucket.store.get('gallery-meta/' + saved.id + '.json').value);
+    assert.equal(stored.metadata.prompt, undefined, reference);
+    const share = await worker.fetch(new Request(`https://example.test/share/${saved.id}`), galleryEnv(bucket));
+    assert.equal(share.status, 200);
+    assert.doesNotMatch(await share.text(), /synthetic-(?:key|signature)/);
+  }
+});
+
