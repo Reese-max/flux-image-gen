@@ -198,6 +198,7 @@ test('exportHistoryJson honours the confirm dialog cancellation', () => {
   assert.equal(env.anchors.length, 0);
   assert.deepEqual(env.revoked, []);
   assert.ok(env.statuses.some((entry) => entry.cls === 'warn' && entry.text.includes('已取消匯出')));
+  assert.ok(env.toasts.some((entry) => entry.cls === 'warn' && entry.text.includes('已取消匯出')));
 });
 
 for (const fault of ['serialize', 'url', 'anchor', 'append', 'click', 'remove']) {
@@ -252,12 +253,29 @@ test('export-all button downloads every record and the backup survives a storage
   assert.deepEqual(env.revoked, [env.createdUrls[0].url]);
 });
 
+test('export-all backs up the latest persisted history after another tab changes it', async () => {
+  const env = setupEnvironment({ useRealStore: true });
+  const store = env.window.ImageHistoryStore;
+  const prior = store.loadRecords();
+  const latest = store.saveRecords([{ ...prior[0], id: 'created-in-other-tab' }, ...prior]);
+
+  env.elements.exportAllHistoryJson.click();
+
+  const backup = JSON.parse(await env.createdUrls[0].blob.text());
+  assert.deepEqual(backup.records, JSON.parse(JSON.stringify(latest)));
+
+  store.saveRecords([]);
+  env.window.ImageHistoryWall.exportAllHistoryJson();
+  assert.equal(env.createdUrls.length, 1, 'history cleared in another tab must not export a stale backup');
+});
+
 test('export-all honours cancellation and hides the button with no history', () => {
   const env = setupEnvironment({ useRealStore: true });
   env.window.confirm = () => false;
   env.elements.exportAllHistoryJson.click();
   assert.equal(env.createdUrls.length, 0);
   assert.ok(env.statuses.some(entry => entry.cls === 'warn' && entry.text.includes('已取消')));
+  assert.ok(env.toasts.some(entry => entry.cls === 'warn' && entry.text.includes('已取消')));
   const empty = setupEnvironment({ records: [], useRealStore: true });
   assert.equal(empty.elements.exportAllHistoryJson.hidden, true);
   assert.equal(empty.elements.exportAllHistoryJson.disabled, true);

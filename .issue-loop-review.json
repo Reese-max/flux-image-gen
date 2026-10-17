@@ -1,0 +1,32 @@
+{
+  "pr": 24,
+  "head": "bebeec69f2e2560b451cc0f8c1d9becd1717fe40",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "app/static/history-wall.js",
+      "line": 851,
+      "issue": "全部備份直接匯出記憶體中的舊 records；另一分頁新增、修改或刪除歷史後，下載內容與目前持久化資料不一致，卻仍回報全部備份成功。"
+    },
+    {
+      "severity": "low",
+      "file": "app/static/index.html",
+      "line": 519,
+      "issue": "新增匯出按鈕的 hidden 被 .btn 的 display 覆蓋，且未加入既有 CSS 的明確隱藏規則；沒有歷史或刪除最後一筆後，仍顯示停用按鈕。"
+    },
+    {
+      "severity": "low",
+      "file": "app/static/history-wall.js",
+      "line": 855,
+      "issue": "取消匯出的訊息只更新隱藏的生成分頁 #status，歷史分頁看不到 PR 所宣稱的取消回饋；瀏覽器測試僅讀取文字，未檢查提示是否可見。"
+    },
+    {
+      "severity": "low",
+      "file": "CHANGELOG.md",
+      "line": 40,
+      "issue": "needs-human：文件將同步回收 blob URL 寫成已證實的 Chromium 故障原因，但新增測試明確指出立即回收對照仍可下載，且未證實原部署根因；需原始環境的重現證據確認這個因果斷言。"
+    }
+  ],
+  "fixed": true,
+  "summary": "已修正跨分頁更新造成全量備份漏件、空歷史仍顯示匯出按鈕，以及取消訊息不可見，三項皆有先紅後綠的回歸證據。Git Bash 完整離線驗證通過：290 Python、88 前端、138 Worker 測試，另含 26 subtests 與 4 組瀏覽器案例／8 份 JSON 下載；僅本機提交，未 push。needs-human：CHANGELOG 的 Chromium 根因斷言尚缺原始環境證據，保留待確認；Preview 部署仍失敗，部署後驗收未完成。"
+}

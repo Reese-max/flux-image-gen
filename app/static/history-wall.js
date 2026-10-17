@@ -834,6 +834,9 @@
     }
     if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
       setAppStatus('已取消匯出作品 JSON', 'warn');
+      if (root.ImageGenApp && typeof root.ImageGenApp.showToast === 'function') {
+        root.ImageGenApp.showToast('已取消匯出作品 JSON', 'warn');
+      }
       return;
     }
     if (!downloadJsonPayload(normalized, 'history_' + safeFilePart(normalized.id) + '.json')) {
@@ -844,6 +847,7 @@
 
   function exportAllHistoryJson() {
     var normalized;
+    loadHistoryWall();
     if (!records.length) {
       setAppStatus('尚無可匯出的歷史作品', 'warn');
       return;
@@ -853,6 +857,9 @@
       : { schema: 'GenerationRecordCollection', version: 2, records: records };
     if (!confirmAction('匯出的備份檔會包含全部歷史作品、完整提示詞與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
       setAppStatus('已取消匯出全部歷史 JSON', 'warn');
+      if (root.ImageGenApp && typeof root.ImageGenApp.showToast === 'function') {
+        root.ImageGenApp.showToast('已取消匯出全部歷史 JSON', 'warn');
+      }
       return;
     }
     if (!downloadJsonPayload(normalized, 'history_backup_' + new Date().toISOString().slice(0, 10) + '.json')) {

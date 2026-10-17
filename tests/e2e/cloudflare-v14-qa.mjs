@@ -281,6 +281,8 @@ async function verifyHistoryExports(page, expected, output, tag) {
     page.once('dialog', dialog => dialog.dismiss());
     await withoutDownload(() => page.locator('#exportAllHistoryJson').click());
     assert.ok((await page.locator('#status').innerText()).includes('已取消'));
+    await page.locator('#appToast').waitFor({ state: 'visible', timeout: 2000 });
+    assert.ok((await page.locator('#appToast').innerText()).includes('已取消'));
     await page.evaluate(() => {
       window.__historyQaCreateObjectURL = window.URL.createObjectURL;
       window.URL.createObjectURL = () => { throw new Error('offline object URL fault'); };
@@ -388,6 +390,15 @@ async function offlineHistoryExportMain() {
             assert.deepEqual(expected[index][field], value, 'fixture field retained: ' + field);
           }
         }
+        await page.evaluate(() => {
+          window.ImageHistoryStore.saveRecords([]);
+          document.dispatchEvent(new CustomEvent('history-record-updated'));
+        });
+        assert.equal(await page.locator('#exportAllHistoryJson').isVisible(), false, 'empty history must hide the backup button');
+        await page.evaluate(records => {
+          window.ImageHistoryStore.saveRecords(records);
+          document.dispatchEvent(new CustomEvent('history-record-updated'));
+        }, expected);
         await page.locator('.history-card').first().click();
         const tag = bundle + '-' + viewport.width;
         if (process.argv.includes('--disable-history-download')) {
