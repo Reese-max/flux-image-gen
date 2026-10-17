@@ -11,6 +11,7 @@
     "deploy:dry-run": "node scripts/deploy.mjs --dry-run",
     "qa:browser:install": "playwright install chromium",
     "qa:browser": "node ../tests/e2e/cloudflare-v14-qa.mjs",
+    "qa:history-exports": "node ../tests/e2e/cloudflare-v14-qa.mjs --history-export-offline",
     "qa:network": "node ../tests/e2e/network-interrupted-qa.mjs",
     "qa:perf": "node ../tests/e2e/cloudflare-perf-qa.mjs",
     "qa:mobile": "node ../tests/e2e/mobile-generation-qa.mjs",

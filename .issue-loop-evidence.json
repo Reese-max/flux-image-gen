@@ -1,0 +1,35 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 24,
+  "base_sha": "bebeec69f2e2560b451cc0f8c1d9becd1717fe40",
+  "red_proof": [
+    {
+      "finding": "全量備份使用舊快照",
+      "command": "node --test tests/frontend/history-export.test.cjs",
+      "exit": 1,
+      "observed": "新增的真實 store 回歸測試失敗：持久化資料包含 created-in-other-tab 與 rec-1，下載備份卻只有 rec-1。當時僅修改測試，產品程式仍為受審 head。"
+    },
+    {
+      "finding": "取消提示不可見",
+      "command": "node --test tests/frontend/history-export.test.cjs",
+      "exit": 1,
+      "observed": "單筆與全部取消測試新增的 warn toast 斷言皆失敗；加上舊快照測試，該次執行為 9 passed、3 failed。修正後相同檔案為 12 passed、0 failed。"
+    },
+    {
+      "finding": "空歷史的備份按鈕仍可見",
+      "command": "npm --prefix cloudflare run qa:history-exports",
+      "exit": 1,
+      "observed": "Chromium 的新增可見性斷言失敗：empty history must hide the backup button，actual true、expected false。修正 CSS 後，相同瀏覽器命令通過 source/deploy × desktop/mobile 四組案例。"
+    }
+  ],
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 516,
+  "tests_failed": 0,
+  "summary": "已在 Git Bash 以 bash -lc 執行 test_command，exit 0，輸出 [verify] All checks passed；290 Python、88 frontend、138 Worker 測試通過，另有 26 subtests、網路／手機／無障礙 QA，以及 source/deploy × desktop/mobile 的 4 組匯出案例／8 份真實 JSON 下載。npm run check、sync:check、preflight 與 secret scan 均由完整驗證執行通過。修正只重用既有歷史載入、toast 與隱藏規則，已同步部署資產。",
+  "not_done": [
+    "needs-human：未修改 CHANGELOG.md 原本對 Chromium 故障根因的斷言；仍需原始環境的重現證據。",
+    "現有 PR Preview check 失敗；未變更任何憑證、重跑部署或執行部署後驗收，亦未 push、合併或修改其他分支。",
+    "工作目錄原有 12 張 cloudflare/public/static/examples/prompt-pack/*.webp 的修改，雜湊均保持不變並排除於本機 commit；driver 後續不得將這些既有修改一併提交。"
+  ]
+}
