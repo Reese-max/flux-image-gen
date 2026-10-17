@@ -833,7 +833,6 @@
       cfgScale: record && record.cfgScale,
       seed: 0
     });
-    root.ImageGenApp.setSeedMode('lock');
     closeHistoryDetail();
     root.ImageGenApp.generate();
   }
