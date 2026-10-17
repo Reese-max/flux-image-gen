@@ -79,6 +79,17 @@ function isTextChunkTag(tag) {
   return tag === "iTXt" || tag === "tEXt" || tag === "zTXt";
 }
 
+function crc32(u8, start, end) {
+  let crc = 0xffffffff;
+  for (let i = start; i < end; i += 1) {
+    crc ^= u8[i];
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
 function scanPng(u8) {
   const signals = [];
   let sawIend = false;
@@ -93,6 +104,7 @@ function scanPng(u8) {
       return { signals, ok: false };
     }
     const payload = u8.subarray(pos + 8, pos + 8 + len);
+    const signalCount = signals.length;
     if (tag === "caBX") {
       signals.push("c2pa-manifest");
     } else if (
@@ -101,6 +113,9 @@ function scanPng(u8) {
         (bytesContain(payload, XMP_HEADER, 0) && hasAnyMarker(payload, AI_XMP_MARKERS)))
     ) {
       signals.push("xmp-provenance");
+    }
+    if (signals.length > signalCount && crc32(u8, pos + 4, end - 4) !== readU32BE(u8, end - 4)) {
+      return { signals, ok: false };
     }
     pos = end;
     if (tag === "IEND") {
@@ -125,9 +140,9 @@ function scanJpeg(u8) {
     }
     const marker = u8[pos + 1];
     if (marker === 0xda) break;
-    // 0xFF fill bytes before a marker and standalone TEM/SOI/EOI/RSTn carry no
-    // length field — skip 2 bytes rather than misreading a size.
-    if (marker === 0xff || marker === 0x01 || marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
+    // Fill bytes precede the marker prefix; only standalone markers use two bytes.
+    if (marker === 0xff) { pos += 1; continue; }
+    if (marker === 0x01 || marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) {
       pos += 2;
       continue;
     }

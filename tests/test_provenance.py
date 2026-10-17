@@ -268,6 +268,24 @@ def test_credential_absent_on_jpeg_with_ff_fill_bytes():
     assert report["status"] == "absent"
 
 
+def test_jpeg_fill_bytes_before_app11_preserve_credential_detection():
+    provenance = _load_provenance()
+    original = _jpeg_with_c2pa()
+    for count in (1, 2, 3):
+        padded = original[:2] + b"\xff" * count + original[2:]
+        assert provenance.inspect_credential(padded)["status"] == "present_untrusted"
+
+
+def test_png_credential_chunk_with_damaged_crc_is_invalid():
+    provenance = _load_provenance()
+    damaged = bytearray(_png_with_c2pa())
+    tag = damaged.index(b"caBX")
+    length = struct.unpack(">I", damaged[tag - 4:tag])[0]
+    damaged[tag + 4 + length] ^= 0xFF
+    assert provenance.inspect_credential(damaged)["status"] == "invalid"
+    assert "結構有效" not in provenance.describe_credential_status("present_untrusted")
+
+
 def test_hash_image_accepts_raw_bytes_like_inspect_credential():
     provenance = _load_provenance()
     raw = base64.b64decode(TINY_PNG_B64)

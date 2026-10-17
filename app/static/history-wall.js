@@ -918,12 +918,16 @@
       setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
       return;
     }
-    normalized = normalizeRecordForUi(record);
+    if (!root.ImageHistoryStore || typeof root.ImageHistoryStore.exportRecordCollection !== 'function') {
+      setAppStatus('安全匯出功能尚未就緒，請重新載入頁面', 'fail');
+      return;
+    }
+    normalized = root.ImageHistoryStore.exportRecordCollection([record]).records[0];
     if (!normalized) {
       setAppStatus('作品資料格式不正確，無法匯出', 'fail');
       return;
     }
-    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定；刪除連結與網址中的憑證會移除。公開分享前請先檢查內容，確定要匯出？')) {
       setAppStatus('已取消匯出作品 JSON', 'warn');
       return;
     }
@@ -941,7 +945,7 @@
       }
       root.URL.revokeObjectURL(url);
     }
-    setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+    setAppStatus('已匯出備份檔並移除刪除連結與網址憑證；檔案包含完整描述，請勿公開分享此檔。', 'done');
   }
 
   function switchToGenerateTab() {

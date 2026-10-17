@@ -412,6 +412,24 @@ test('inspectCredential accepts JPEG fill bytes without marking invalid', () => 
   assert.equal(report.status, 'absent');
 });
 
+test('JPEG fill bytes before APP11 preserve credential detection', () => {
+  const P = loadProvenance();
+  const original = jpegWithC2pa();
+  for (const count of [1, 2, 3]) {
+    const padded = Buffer.concat([original.subarray(0, 2), Buffer.alloc(count, 0xff), original.subarray(2)]);
+    assert.equal(P.inspectCredential(new Uint8Array(padded)).status, 'present_untrusted');
+  }
+});
+
+test('PNG credential chunks with a damaged CRC are invalid and marker scans do not claim structural validity', () => {
+  const P = loadProvenance();
+  const damaged = pngWithC2pa();
+  const tag = damaged.indexOf('caBX');
+  damaged[tag + 4 + damaged.readUInt32BE(tag - 4)] ^= 0xff;
+  assert.equal(P.inspectCredential(new Uint8Array(damaged)).status, 'invalid');
+  assert.doesNotMatch(P.describeCredentialStatus('present_untrusted'), /結構有效/);
+});
+
 test('hashImage accepts raw byte arrays like inspectCredential', async () => {
   const P = loadProvenance();
   const raw = new Uint8Array(Buffer.from(TINY_PNG_B64, 'base64'));

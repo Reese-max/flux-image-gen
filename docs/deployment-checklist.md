@@ -12,6 +12,8 @@
 
 PR workflow 的 `Deploy Preview` 固定使用 `versions upload --var PREVIEW_READ_ONLY:true`，所以更新登入憑證後的自動預覽仍維持隔離。公開靜態 preflight 會明確標示 `preview read-only isolation enabled` 並保留原有檢查；固定 production deploy readiness 使用專案鎖定 Wrangler 的 TOML parser，只判讀真正 root `[vars]`，一律拒絕啟用此旗標。正式產品部署仍需 `PREVIEW_READ_ONLY="false"`、原有 abuse controls、Secrets、Release blocker 與使用者核准。
 
+GitHub 的 production job 也會在更新 OAuth token 與執行 `Deploy Production` 前呼叫相同的 production 設定檢查；設定不合法時直接停止，不會執行部署。此步驟只讀取 repository 的 Wrangler 設定，不讀取 Secret 值，正式部署命令仍是 `deploy`。
+
 ## 1. 必要 secrets
 
 在 `cloudflare/` 目錄執行：

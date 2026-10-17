@@ -759,6 +759,21 @@ test('export URL fallback removes query credentials without URL support', () => 
   assert.equal(store.exportRecordCollection([record]).records[0].cloudShareUrl, 'https://example.invalid/share');
 });
 
+test('exports remove credentials from every image URL and signed share URL', () => {
+  const store = loadHistoryStore();
+  const privateUrl = 'https://fake-user:fake-password@cdn.example.invalid/image.png?token=fake-image-token&X-Amz-Signature=fake-signature&X-Goog-Credential=fake-credential&cf-turnstile-response=fake-turnstile&view=public#fake-fragment';
+  const record = store.normalizeRecord({ id: 'url-export', prompt: 'fixture',
+    image: privateUrl, thumbnail: privateUrl, imageUrl: privateUrl, localImageData: privateUrl,
+    cloudShareUrl: privateUrl });
+  const exported = store.exportRecordCollection([record]).records[0];
+  for (const field of ['image', 'thumbnail', 'imageUrl', 'localImageData', 'cloudShareUrl']) {
+    assert.equal(exported[field], 'https://cdn.example.invalid/image.png?view=public', field);
+    assert.equal(record[field], privateUrl, 'private record must retain ' + field);
+  }
+  const local = store.exportRecordCollection([{ id: 'local-export', prompt: 'fixture', image: SHA_PNG }]).records[0];
+  assert.equal(local.image, SHA_PNG, 'local image bytes must be preserved');
+});
+
 test('invalid imported receipts stay invalid through repeated normalization and export', () => {
   const store = loadHistoryStore();
   let record = store.normalizeRecord({ id: 'repeat-invalid', image: SHA_PNG, prompt: 'fixture', provenance: { schemaVersion: 99 } });

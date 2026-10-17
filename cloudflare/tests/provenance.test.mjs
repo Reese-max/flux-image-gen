@@ -127,6 +127,44 @@ test('inspectCredentialBytes never claims verified', () => {
   assert.notEqual(inspectCredentialBytes(pngWithC2pa()).status, 'verified');
 });
 
+test('JPEG fill bytes before APP11 preserve credential detection', () => {
+  const payload = Buffer.from('JP\x00\x00\x00\x0cjumburn:c2pa:fixture-claim');
+  const length = Buffer.alloc(2);
+  length.writeUInt16BE(payload.length + 2);
+  for (const count of [1, 2, 3]) {
+    const padded = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(count, 0xff),
+      Buffer.from([0xff, 0xeb]), length, payload, Buffer.from([0xff, 0xda, 0, 6, 0, 0, 0, 0])]);
+    assert.equal(inspectCredentialBytes(padded).status, 'present_untrusted');
+  }
+});
+
+test('PNG credential chunks with a damaged CRC are invalid', () => {
+  const damaged = pngWithC2pa();
+  const tag = damaged.indexOf('caBX');
+  damaged[tag + 4 + damaged.readUInt32BE(tag - 4)] ^= 0xff;
+  assert.equal(inspectCredentialBytes(damaged).status, 'invalid');
+});
+
+test('gallery provenance describes uploaded bytes rather than client claims', async () => {
+  for (const [bytes, status] of [[TINY_PNG_BYTES, 'absent'], [pngWithC2pa(), 'present_untrusted']]) {
+    const bucket = fakeBucket();
+    const response = await worker.fetch(signedGalleryRequest({
+      image: 'data:image/png;base64,' + bytes.toString('base64'),
+      meta: { outputSha256: 'f'.repeat(64), credentialStatus: 'invalid', receiptHash: 'e'.repeat(64) }
+    }), galleryEnv(bucket));
+    assert.equal(response.status, 201);
+    const saved = await response.json();
+    const metadata = JSON.parse(bucket.store.get(`gallery-meta/${saved.id}.json`).value).metadata;
+    assert.equal(metadata.outputSha256, sha256(bytes));
+    assert.equal(metadata.credentialStatus, status);
+    const share = await worker.fetch(new Request(`https://example.test/share/${saved.id}`), galleryEnv(bucket));
+    const html = await share.text();
+    assert.match(html, new RegExp(sha256(bytes).slice(0, 16)));
+    assert.doesNotMatch(html, /結構有效/);
+    assert.match(html, /使用者提供/);
+  }
+});
+
 test('buildOutputProvenance attests exact output bytes', async () => {
   const block = await buildOutputProvenance(TINY_PNG_DATA_URL, [sha256(Buffer.from('input'))]);
   assert.equal(block.outputSha256, sha256(TINY_PNG_BYTES));

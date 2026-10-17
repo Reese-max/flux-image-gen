@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import {
@@ -201,6 +202,26 @@ test('automatic PR preview always opts into isolation and production command rem
   assert.match(preview, /command: versions upload --var PREVIEW_READ_ONLY:true/);
   assert.match(production, /command: deploy/);
   assert.doesNotMatch(production, /PREVIEW_READ_ONLY:true/);
+});
+
+test('production workflow executes its config guard before credentials and deployment', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const production = workflow.slice(workflow.indexOf('  deploy-production:'));
+  const guard = production.match(/- name: Check production config\s+working-directory: cloudflare\s+run: \|\s+node --input-type=module -e '([\s\S]*?)'/);
+  assert.ok(guard, 'production must run the config guard');
+  assert.ok(guard.index < production.indexOf('- name: Refresh Cloudflare Token'));
+  for (const [flag, expected] of [['true', 1], ['false', 0]]) {
+    const config = `[vars]\nENVIRONMENT="production"\nPREVIEW_READ_ONLY="${flag}"`;
+    const input = `import fs from 'node:fs'; import { syncBuiltinESMExports } from 'node:module';
+      const original = fs.readFileSync;
+      fs.readFileSync = (file, ...args) => file === 'wrangler.toml' ? ${JSON.stringify(config)} : original(file, ...args);
+      syncBuiltinESMExports();`;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', input + guard[1]], {
+      cwd: new URL('..', import.meta.url), encoding: 'utf8', timeout: 30000
+    });
+    assert.equal(result.status, expected, result.stderr);
+    if (expected) assert.match(result.stderr, /PREVIEW_READ_ONLY is for isolated uploaded previews only/);
+  }
 });
 
 test('root TOML controls support quoted, escaped, dotted, inline and multiline false values', () => {

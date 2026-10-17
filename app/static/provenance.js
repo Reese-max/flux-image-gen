@@ -50,7 +50,7 @@
 
   var CREDENTIAL_STATUS_LABELS = {
     verified: '已驗證 Content Credentials 簽章',
-    present_untrusted: '偵測到 Content Credentials（結構有效，未驗證簽章信任鏈）',
+    present_untrusted: '偵測到 Content Credentials 標記（未驗證結構與簽章信任鏈）',
     invalid: '偵測到 credential 資料，但內容無效或已損毀',
     absent: '未偵測到 Content Credentials（不代表非 AI 產生）',
     unknown_after_transform: '輸出經過轉換／重新編碼，credential 狀態無法判定',
@@ -282,6 +282,19 @@
     return tag === 'iTXt' || tag === 'tEXt' || tag === 'zTXt';
   }
 
+  function crc32(u8, start, end) {
+    var crc = 0xffffffff;
+    var i;
+    var bit;
+    for (i = start; i < end; i += 1) {
+      crc ^= u8[i];
+      for (bit = 0; bit < 8; bit += 1) {
+        crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0);
+      }
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
   function scanPng(u8) {
     var signals = [];
     var sawIend = false;
@@ -290,6 +303,7 @@
     var tag;
     var end;
     var payload;
+    var signalCount;
     while (pos + 8 <= u8.length) {
       len = readU32BE(u8, pos);
       tag = bytesToStr(u8, pos + 4, pos + 8);
@@ -300,12 +314,16 @@
         return { signals: signals, ok: false };
       }
       payload = u8.subarray(pos + 8, pos + 8 + len);
+      signalCount = signals.length;
       if (tag === 'caBX') {
         signals.push('c2pa-manifest');
       } else if (isTextChunkTag(tag)
           && (hasAnyMarker(payload, C2PA_MARKERS)
             || (bytesContain(payload, XMP_HEADER, 0) && hasAnyMarker(payload, AI_XMP_MARKERS)))) {
         signals.push('xmp-provenance');
+      }
+      if (signals.length > signalCount && crc32(u8, pos + 4, end - 4) !== readU32BE(u8, end - 4)) {
+        return { signals: signals, ok: false };
       }
       pos = end;
       if (tag === 'IEND') { sawIend = true; break; }
@@ -327,9 +345,9 @@
       if (u8[pos] !== 0xff) { pos += 1; continue; }
       marker = u8[pos + 1];
       if (marker === 0xda) { break; }
-      // 0xFF fill bytes before a marker and standalone TEM/SOI/EOI/RSTn carry
-      // no length field — skip 2 bytes rather than misreading a size.
-      if (marker === 0xff || marker === 0x01 || marker === 0xd8 || marker === 0xd9
+      // Fill bytes precede the marker prefix; only standalone markers use two bytes.
+      if (marker === 0xff) { pos += 1; continue; }
+      if (marker === 0x01 || marker === 0xd8 || marker === 0xd9
           || (marker >= 0xd0 && marker <= 0xd7)) {
         pos += 2;
         continue;

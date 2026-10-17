@@ -30,7 +30,7 @@ import {
   validateSteps,
 } from "./image.js";
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
-import { buildOutputProvenance, sha256HexBytes } from "./provenance.js";
+import { buildOutputProvenance, inspectCredentialBytes, sha256HexBytes } from "./provenance.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
 
@@ -673,6 +673,9 @@ async function handleGallerySave(request, env) {
 
   const id = `${crypto.randomUUID()}.${GALLERY_EXT[decoded.contentType]}`;
   const meta = sanitizeGalleryMeta(payload.meta);
+  // Public claims must describe the bytes being stored, not client assertions.
+  if (meta.outputSha256) meta.outputSha256 = await sha256HexBytes(decoded.bytes);
+  if (meta.credentialStatus) meta.credentialStatus = inspectCredentialBytes(decoded.bytes).status;
   const deleteToken = issueGalleryDeleteToken();
   const deleteTokenHash = await hashGalleryDeleteToken(deleteToken);
   await bucket.put(`${GALLERY_PREFIX}${id}`, decoded.bytes, {
@@ -959,7 +962,7 @@ function shareTemplateUrl(prompt, metadata) {
 // 分享頁只呈現 allowlist 的 provenance 欄位；語氣誠實（absent ≠ 非 AI）。
 const SHARE_CREDENTIAL_LABELS = {
   verified: "Content Credentials 已驗證",
-  present_untrusted: "偵測到 Content Credentials（結構有效，未驗證簽章信任鏈）",
+  present_untrusted: "偵測到 Content Credentials 標記（未驗證結構與簽章信任鏈）",
   invalid: "Content Credentials 無效或已損毀",
   absent: "未偵測到 Content Credentials（不代表非 AI）",
   unknown_after_transform: "經過轉換／重新編碼，credential 狀態未知",
@@ -973,7 +976,7 @@ function shareProvenanceSection(metadata) {
     chips.push(`輸出 SHA-256：${escapeHtml(String(metadata.outputSha256).slice(0, 16))}…`);
   }
   if (metadata.receiptHash) {
-    chips.push(`來源 receipt：${escapeHtml(String(metadata.receiptHash).slice(0, 16))}…`);
+    chips.push(`使用者提供的來源 receipt：${escapeHtml(String(metadata.receiptHash).slice(0, 16))}…`);
   }
   if (SHARE_CREDENTIAL_LABELS[metadata.credentialStatus]) {
     chips.push(escapeHtml(SHARE_CREDENTIAL_LABELS[metadata.credentialStatus]));

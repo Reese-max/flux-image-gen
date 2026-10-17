@@ -1126,7 +1126,9 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'exportHistoryJson' in history_wall_js
     assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
     assert "已取消匯出作品 JSON" in history_wall_js
-    assert "檔案可能包含完整描述與雲端刪除連結" in history_wall_js
+    assert "刪除連結與網址憑證會移除" in html
+    assert "檔案包含完整描述，請勿公開分享此檔" in history_wall_js
+    assert "已匯出備份檔並移除刪除連結與網址憑證" in history_wall_js
     assert 'sourceRecordId' in app_js
     assert '.history-detail' in styles
     assert '.history-cloud-actions' in styles

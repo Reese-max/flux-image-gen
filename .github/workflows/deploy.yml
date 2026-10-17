@@ -62,6 +62,14 @@ jobs:
           cache: npm
           cache-dependency-path: cloudflare/package-lock.json
       - run: cd cloudflare && npm ci
+      - name: Check production config
+        working-directory: cloudflare
+        run: |
+          node --input-type=module -e '
+          import { readFileSync } from "node:fs";
+          import { assertProductionAbuseControls } from "./scripts/check-deploy-readiness.mjs";
+          assertProductionAbuseControls(readFileSync("wrangler.toml", "utf8"));
+          '
       - name: Refresh Cloudflare Token
         id: cf_token
         env:

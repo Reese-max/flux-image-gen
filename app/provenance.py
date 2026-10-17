@@ -97,7 +97,7 @@ _TEXT_CHUNK_TAGS = (b"iTXt", b"tEXt", b"zTXt")
 
 CREDENTIAL_STATUS_LABELS = {
     "verified": "已驗證 Content Credentials 簽章",
-    "present_untrusted": "偵測到 Content Credentials（結構有效，未驗證簽章信任鏈）",
+    "present_untrusted": "偵測到 Content Credentials 標記（未驗證結構與簽章信任鏈）",
     "invalid": "偵測到 credential 資料，但內容無效或已損毀",
     "absent": "未偵測到 Content Credentials（不代表非 AI 產生）",
     "unknown_after_transform": "輸出經過轉換／重新編碼，credential 狀態無法判定",
@@ -172,10 +172,15 @@ def _scan_png(raw: bytes) -> tuple[list[str], bool]:
                 signals.append("c2pa-manifest" if tag == b"caBX" else "xmp-provenance")
             return signals, False
         payload = raw[pos + 8 : pos + 8 + length]
+        signal_count = len(signals)
         if tag == b"caBX":
             signals.append("c2pa-manifest")
         elif tag in _TEXT_CHUNK_TAGS and (_has_c2pa_marker(payload) or (_XMP_HEADER in payload and _has_xmp_marker(payload))):
             signals.append("xmp-provenance")
+        if len(signals) > signal_count and (
+            binascii.crc32(tag + payload) & 0xFFFFFFFF
+        ) != struct.unpack(">I", raw[end - 4:end])[0]:
+            return signals, False
         pos = end
         if tag == b"IEND":
             saw_iend = True
@@ -199,9 +204,11 @@ def _scan_jpeg(raw: bytes) -> tuple[list[str], bool]:
         marker = raw[pos + 1]
         if marker == 0xDA:  # SOS: compressed scan data follows
             break
-        # 0xFF fill bytes before a marker and standalone TEM/SOI/EOI/RSTn
-        # carry no length field — skip 2 bytes rather than misreading a size.
-        if marker == 0xFF or marker == 0x01 or marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
+        # Fill bytes precede the marker prefix; standalone markers use two bytes.
+        if marker == 0xFF:
+            pos += 1
+            continue
+        if marker == 0x01 or marker in (0xD8, 0xD9) or 0xD0 <= marker <= 0xD7:
             pos += 2
             continue
         seg_len = struct.unpack(">H", raw[pos + 2 : pos + 4])[0]

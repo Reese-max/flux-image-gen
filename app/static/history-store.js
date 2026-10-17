@@ -586,7 +586,9 @@
     var normalized = normalizeRecordList(records);
     if (forExport) {
       normalized.forEach(function (record) {
-        record.cloudShareUrl = sanitizeUrlForExport(record.cloudShareUrl);
+        ['image', 'thumbnail', 'imageUrl', 'localImageData', 'cloudShareUrl'].forEach(function (field) {
+          record[field] = sanitizeUrlForExport(record[field]);
+        });
         // Delete URLs may carry capability secrets in either path or query.
         record.cloudDeleteUrl = '';
         if (!root.ImageProvenance) {
@@ -624,21 +626,23 @@
 
   function sanitizeUrlForExport(url) {
     var source = toText(url);
-    if (!source) { return ''; }
+    if (!source || /^data:/i.test(source)) { return source; }
     try {
       var parsed = new root.URL(source);
       var remove = [];
       parsed.searchParams.forEach(function (value, key) {
-        if (/^(token|deletetoken|api_key|apikey|key|secret|signature|sign|access_token|authorization)$/i.test(key)) {
+        if (/^(token|deletetoken|(?:x-)?api[_-]?key|key|secret|signature|sign|sig|(?:access|refresh|id)[_-]?token|authorization|(?:x-amz|x-goog)-.*|awsaccesskeyid|googleaccessid|cf-turnstile-response|turnstile[_-]?token)$/i.test(key)) {
           remove.push(key);
         }
       });
       remove.forEach(function (key) { parsed.searchParams.delete(key); });
+      parsed.username = '';
+      parsed.password = '';
       parsed.hash = '';
       return parsed.toString();
     } catch (error) {
       // Older browsers without URL support export the public path only.
-      return source.split(/[?#]/)[0];
+      return source.split(/[?#]/)[0].replace(/^(https?:\/\/)[^/]*@/i, '$1');
     }
   }
 
