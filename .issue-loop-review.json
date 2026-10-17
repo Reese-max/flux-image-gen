@@ -1,0 +1,50 @@
+{
+  "pr": 30,
+  "head": "de8ebd35fb73d0b42a3dcc3b9bb7b735f97cbed4",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "app/static/history-wall.js",
+      "line": 930,
+      "issue": "The artwork JSON download serializes the private record directly, bypassing exportRecordCollection and exporting cloudDeleteUrl capabilities and share URL tokens."
+    },
+    {
+      "severity": "high",
+      "file": "app/static/history-store.js",
+      "line": 589,
+      "issue": "The export sanitizer only cleans cloudShareUrl, leaving credentials in image, thumbnail and imageUrl; URL userinfo and signed URL query parameters also survive."
+    },
+    {
+      "severity": "med",
+      "file": "app/static/provenance.js",
+      "line": 332,
+      "issue": "JPEG fill bytes are skipped in pairs, swallowing an APP11 marker prefix and misclassifying credential-bearing JPEGs as absent. The Worker and Python scanners have the same defect."
+    },
+    {
+      "severity": "high",
+      "file": "cloudflare/src/index.js",
+      "line": 675,
+      "issue": "Gallery writes persist client-supplied outputSha256 and credentialStatus without comparing them with the uploaded bytes, allowing false provenance on public share pages."
+    },
+    {
+      "severity": "med",
+      "file": "cloudflare/src/provenance.js",
+      "line": 96,
+      "issue": "Credential-bearing PNG chunks with corrupt CRCs are reported as present_untrusted, and marker-only detection is labeled structurally valid without validating manifest structure. The browser and Python twins share this behavior."
+    },
+    {
+      "severity": "high",
+      "file": ".github/workflows/deploy.yml",
+      "line": 71,
+      "issue": "The production workflow directly invokes Wrangler without the new production-config guard, so PREVIEW_READ_ONLY=true can reach production despite local deploy rejection."
+    },
+    {
+      "severity": "high",
+      "file": "cloudflare/src/provenance.js",
+      "line": 181,
+      "issue": "needs-human: Issue #18 requires valid/invalid credential verification and real credential, stripped-image and product roundtrip fixtures. The implementation only detects markers and has no trust-chain validator or real signed-fixture runtime evidence; choosing a verifier/trust policy or narrowing acceptance requires a maintainer decision."
+    }
+  ],
+  "fixed": false,
+  "summary": "Fixed six review findings covering artwork export capability leaks, signed image URL leaks, JPEG fill-byte parsing, PNG CRC checks and misleading labels, unvalidated gallery claims, and the production config guard bypass; each fix has a regression test proven red before implementation. The full offline gate passed with 602 tests, 26 subtests and three mocked browser QA suites; fixes are committed locally without pushing. needs-human: full C2PA verification, its verifier/trust policy, and real signed-fixture runtime acceptance required by #18 remain unresolved, so fixed is false for the review as a whole."
+}

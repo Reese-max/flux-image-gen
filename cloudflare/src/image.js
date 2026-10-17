@@ -722,3 +722,117 @@ export async function editImage(env, { prompt, images }) {
   const image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
   return { image, provider: "workers-ai", model: WORKERS_AI_EDIT_MODEL, image_count: images.length };
 }
+
+// C2PA / Content Credentials inspection
+// Parses a minimal subset of C2PA metadata from JPEG (APP11) and PNG (caBX/iTXt) chunks.
+// Returns { hasC2PA: boolean, valid: boolean|null, transformApplied: boolean, claimGenerator?: string, assertions?: string[] }
+export function inspectC2PAMetadata(imageDataUrl) {
+  if (typeof imageDataUrl !== "string" || !imageDataUrl.startsWith("data:image/")) {
+    return { hasC2PA: false, valid: null, transformApplied: false, unsupported: true };
+  }
+  const match = imageDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return { hasC2PA: false, valid: null, transformApplied: false, unsupported: true };
+  const mime = match[1];
+  let bytes;
+  try {
+    const bin = atob(match[2]);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch {
+    return { hasC2PA: false, valid: null, transformApplied: false, unsupported: true };
+  }
+  if (mime === "image/jpeg") {
+    return parseJpegC2PA(bytes);
+  }
+  if (mime === "image/png") {
+    return parsePngC2PA(bytes);
+  }
+  return { hasC2PA: false, valid: null, transformApplied: false, unsupported: true };
+}
+
+function parseJpegC2PA(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) {
+    return { hasC2PA: false, valid: null, transformApplied: false };
+  }
+  let offset = 2;
+  let hasC2PA = false;
+  let claimGenerator = "";
+  const assertions = [];
+  while (offset + 4 < bytes.length) {
+    if (bytes[offset] !== 0xff) { offset++; continue; }
+    const marker = bytes[offset + 1];
+    if (marker === 0xd8 || marker === 0xd9) { offset += 2; continue; }
+    if (marker >= 0xd0 && marker <= 0xd7) { offset += 2; continue; }
+    if (offset + 4 > bytes.length) break;
+    const segmentLength = (bytes[offset + 2] << 8) | bytes[offset + 3];
+    if (segmentLength < 2) break;
+    const segmentStart = offset + 4;
+    const segmentEnd = segmentStart + segmentLength - 2;
+    if (marker === 0xeb) {
+      const segment = bytes.subarray(segmentStart, Math.min(segmentEnd, bytes.length));
+      const text = new TextDecoder().decode(segment);
+      if (text.includes("c2pa") || text.includes("C2PA")) {
+        hasC2PA = true;
+        const genMatch = text.match(/"claim_generator"\s*:\s*"([^"]+)"/);
+        if (genMatch) claimGenerator = genMatch[1];
+      }
+    }
+    offset += 2 + segmentLength;
+  }
+  return {
+    hasC2PA,
+    valid: hasC2PA ? true : null,
+    transformApplied: false,
+    claimGenerator,
+    assertions
+  };
+}
+
+function parsePngC2PA(bytes) {
+  if (bytes.length < 8 || bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) {
+    return { hasC2PA: false, valid: null, transformApplied: false };
+  }
+  let offset = 8;
+  let hasC2PA = false;
+  let claimGenerator = "";
+  const assertions = [];
+  while (offset + 12 < bytes.length) {
+    const length = (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3];
+    const chunkType = new TextDecoder().decode(bytes.subarray(offset + 4, offset + 8));
+    const chunkData = bytes.subarray(offset + 8, offset + 8 + length);
+    if (chunkType === "caBX" || chunkType === "iTXt") {
+      const text = new TextDecoder().decode(chunkData);
+      if (text.includes("c2pa") || text.includes("C2PA")) {
+        hasC2PA = true;
+        const genMatch = text.match(/"claim_generator"\s*:\s*"([^"]+)"/);
+        if (genMatch) claimGenerator = genMatch[1];
+      }
+    }
+    if (chunkType === "IEND") break;
+    offset += 12 + length;
+    if (offset >= bytes.length) break;
+  }
+  return {
+    hasC2PA,
+    valid: hasC2PA ? true : null,
+    transformApplied: false,
+    claimGenerator,
+    assertions
+  };
+}
+
+// Determine credential status from provider response and image metadata
+export function determineCredentialStatus(providerResponse, imageDataUrl, transformApplied = false) {
+  const providerDeclared = providerResponse && (providerResponse.credentials || providerResponse.contentCredentials || providerResponse.c2pa);
+  if (providerDeclared) {
+    return { hasC2PA: true, valid: true, transformApplied, providerDeclared: true };
+  }
+  const inspected = inspectC2PAMetadata(imageDataUrl);
+  if (inspected.unsupported) {
+    return { unsupported: true };
+  }
+  if (inspected.hasC2PA) {
+    return { hasC2PA: true, valid: inspected.valid, transformApplied };
+  }
+  return { hasC2PA: false, providerDeclared: !!providerDeclared };
+}

@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 30,
+  "base_sha": "de8ebd35fb73d0b42a3dcc3b9bb7b735f97cbed4",
+  "red_proof": "Before implementation, python -m pytest -q tests/test_provenance.py exited 1: 2 failed, 27 passed. JPEG fill bytes yielded AssertionError: assert 'absent' == 'present_untrusted'; a damaged PNG credential CRC yielded AssertionError: assert 'present_untrusted' == 'invalid'. node --test tests/frontend/history-store.test.cjs tests/frontend/provenance.test.cjs tests/frontend/history-wall-export.test.cjs exited 1: 4 failed, 63 passed, including credential-bearing image URLs and an actual artwork JSON download containing fake-share-capability and fake-delete-capability. node --test cloudflare/tests/provenance.test.mjs cloudflare/tests/deploy-readiness.test.mjs exited 1: 4 failed, 31 passed; production must run the config guard failed with actual null, and gallery provenance retained the client-supplied ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff instead of the uploaded bytes' 6b7fa434f92a8b80aab02d9bf1a12e49ffcae424e4013a1c4f68b67e3d2bbcd0. The Worker JPEG and PNG regressions also failed with the same incorrect statuses.",
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 602,
+  "tests_failed": 0,
+  "summary": "Fixed six findings with minimal changes to export sanitization and its real download path, credential container inspection across all three runtimes, gallery byte-derived provenance, and the production workflow config guard. All three focused regression commands turned green after implementation; the full Git Bash verification gate then passed 269 Python tests plus 26 subtests, 145 frontend tests, 188 Worker tests and three mocked browser QA suites. The existing npm check gate, canonical static synchronization checks and a local esbuild Worker bundle passed; no dependencies or tests were removed. Changes are committed locally on devin/issue-18 without pushing.",
+  "not_done": "needs-human: Issue #18 still requires a full C2PA verifier and trust policy plus real signed, absent and stripped-image fixtures exercised through the product runtime; the current implementation only inspects markers and containers and never claims cryptographic verification. No live provider or paid API requests, remote CI, preview deployment, production deployment, merge or push were performed. The review's fixed=false denotes this unresolved acceptance finding, although all six independently fixable findings were repaired."
+}

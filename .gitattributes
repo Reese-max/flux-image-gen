@@ -3,3 +3,12 @@
 *.json text eol=lf
 cloudflare/public/** text eol=lf
 app/static/** text eol=lf
+
+# Image bytes must not pass through the static-source line-ending rules.
+*.webp binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.avif binary

@@ -195,6 +195,10 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
         require(str(vars_section.get("VISION_QA_ENABLED")).lower() in {"true", "false"}, "VISION_QA_ENABLED 必須是 true/false 字串", errors)
     if "TURNSTILE_REQUIRED" in vars_section:
         require(str(vars_section.get("TURNSTILE_REQUIRED")).lower() in {"true", "false"}, "TURNSTILE_REQUIRED 必須是 true/false 字串", errors)
+    if "PREVIEW_READ_ONLY" in vars_section:
+        require(str(vars_section.get("PREVIEW_READ_ONLY")).strip().lower() in {"true", "false"}, "PREVIEW_READ_ONLY 必須是 true/false 字串", errors)
+    if str(vars_section.get("PREVIEW_READ_ONLY", "false")).strip().lower() == "true":
+        checks.append("preview read-only isolation enabled: static/health reads only; provider and R2 routes disabled")
     if "USAGE_ESTIMATED_COST_USD_PER_IMAGE" in vars_section:
         try:
             require(float(vars_section.get("USAGE_ESTIMATED_COST_USD_PER_IMAGE")) >= 0, "USAGE_ESTIMATED_COST_USD_PER_IMAGE 不可為負", errors)
