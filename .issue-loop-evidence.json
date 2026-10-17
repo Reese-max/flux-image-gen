@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 28,
+  "base_sha": "e3a0cc32cd824091fab7f215fc15709fc3dceb86",
+  "red_proof": "On the reviewed head, after adding only regressions and before changing application code: node --test tests/frontend/regenerate-settings.test.cjs exited 1 with 20 passed and 3 failed. Canvas, composition and history restoration without the optional avoid control all sent 'a fluffy cat on green grass, highly detailed' instead of the saved 'a fluffy cat on green grass, highly detailed, avoid blurry'. Independently npm --prefix cloudflare run qa:mobile exited 1 on the new native-page history assertion: the actual /generate request contained 'a cat on green grass' instead of 'a cat on green grass, avoid blurry'. Both commands passed after adding the shared control-presence guard. Red stdout is retained in the session temp directory flux-pr28-review-cdde1c27-39af-4dab-a717-74058c9af70c/red-frontend.log and red-browser.log.",
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 484,
+  "tests_failed": 0,
+  "summary": "The shared settings restore now removes a matching saved avoid suffix only when the optional avoid input can retain and reapply it; the current page preserves the complete saved provider prompt. Added three absent-control regressions, a native-page mobile history request assertion and direct helper-idempotence coverage while retaining every existing test. The declared command ran under Git Bash and exited 0: 242 Python tests (plus 26 subtests), 104 frontend tests, 138 Worker tests, all three browser QA suites, secret scan, deployment preflight, static sync and npm run check passed. The canonical frontend was synced, Python compileall and an offline esbuild Worker bundle passed, and CHANGELOG was corrected.",
+  "not_done": "needs-human: pre-existing custom-size history replay requires a product decision because its controls were intentionally removed; missing/malformed historical provider prompts require a decision before changing the existing exported normalization/backup contract. Neither contract was changed. No push, other-branch changes, external comments, preview/production deployment or live provider calls; remote CI and deployed behavior for this fix remain unverified. The project has no dedicated lint/typecheck scripts, so existing syntax checks, the offline gate and bundle build were used. All 110 initially dirty WebP files remain unstaged and byte-for-byte unchanged by this review."
+}

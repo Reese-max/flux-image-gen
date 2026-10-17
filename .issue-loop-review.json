@@ -1,0 +1,26 @@
+{
+  "pr": 28,
+  "head": "e3a0cc32cd824091fab7f215fc15709fc3dceb86",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "app/static/app.js",
+      "line": 1107,
+      "issue": "The new restore path strips the saved ', avoid X' suffix even though the current index.html has no #avoid control. readGenerationSettings therefore cannot append it again, so history and composition regeneration silently change the saved final provider prompt. Both new VM harnesses fabricate the absent input and miss this regression. Only split the suffix when a control can retain and reapply it."
+    },
+    {
+      "severity": "med",
+      "file": "app/static/history-store.js",
+      "line": 243,
+      "issue": "needs-human (pre-existing acceptance gap): normalizeRecord converts missing providerPrompt to the description and non-string values to strings before history restoration. The new setter's type guard is bypassed, so missing, numeric or object prompts skip compilation on the actual save/load/history path. Existing tests explicitly require the description fallback; correcting this changes the exported normalization/backup contract and needs a decision on legacy and malformed records."
+    },
+    {
+      "severity": "med",
+      "file": "app/static/app.js",
+      "line": 1125,
+      "issue": "needs-human (pre-existing acceptance gap): custom-size history still cannot retain its dimensions on the current page, which intentionally removed the custom size option and width/height controls. The new width/height restoration tests use fabricated controls; a native select rejects 'custom' and generation falls back to square. Decide whether to support replaying retired custom sizes before changing the UI or size contract."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed the new regression that stripped saved exclusions during restoration on the current page, which has no avoid input; three VM regressions and a native-browser history check failed before the fix and now pass. The Git Bash offline gate passed 242 Python tests, 104 frontend tests, 138 Worker tests and all three browser QA suites, plus syntax checks and an offline bundle build. needs-human: legacy custom-size replay and missing/malformed historical provider prompts remain pre-existing acceptance gaps requiring product and normalization-contract decisions; no push or deployment was performed."
+}
