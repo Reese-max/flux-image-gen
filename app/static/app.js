@@ -1102,7 +1102,10 @@ function setGenerationSettings(settings){
   if(Object.prototype.hasOwnProperty.call(source, 'size')){ el('size').value = normalizeSizePreset(source.size); }
   if(Object.prototype.hasOwnProperty.call(source, 'width') && el('customWidth')){ el('customWidth').value = source.width || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'height') && el('customHeight')){ el('customHeight').value = source.height || 1024; }
-  if(Object.prototype.hasOwnProperty.call(source, 'seed') && el('seed')){ el('seed').value = String(source.seed || 0); }
+  if(Object.prototype.hasOwnProperty.call(source, 'seed') && el('seed')){
+    el('seed').value = String(source.seed || 0);
+    setSeedMode(isConcreteSeed(source.seed) ? 'lock' : 'random');
+  }
   if(Object.prototype.hasOwnProperty.call(source, 'steps') && el('devSteps')){
     el('devSteps').value = source.steps != null && source.steps !== '' ? String(source.steps) : '';
   }

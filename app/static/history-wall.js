@@ -831,7 +831,7 @@
       height: record && record.height,
       steps: record && record.steps,
       cfgScale: record && record.cfgScale,
-      seed: 0
+      seed: record.seed
     });
     closeHistoryDetail();
     root.ImageGenApp.generate();

@@ -1,16 +1,16 @@
 {
   "repo": "Reese-max/flux-image-gen",
-  "issue": 25,
+  "issue": 9,
   "base_sha": "686bf7d0228fdd8dafd195b12258954d3cfc5db9",
-  "red_proof": "Before changing production code, Git Bash ran node --test tests/frontend/history-regeneration.test.cjs: exit 1, 1 passed and 1 failed. The canonical frontend test failed at the actual history-regeneration entry point with TypeError: root.ImageGenApp.setSeedMode is not a function (app/static/history-wall.js:836). The deployed-copy test passed, demonstrating the inconsistent copies. The pre-fix full offline gate also exited 1 at sync:check for public/static/history-wall.js. Removing the unsupported call made both new tests pass (exit 0) and restored the static sync gate.",
-  "test_command": "node scripts/verify.mjs",
+  "red_proof": "Before the seed-mode fix, the real /generate transport received a new random seed instead of the selected history record seed (both frontend copies failed: expected 424242, received a generated value). Setting a concrete saved seed now switches the generation mode to lock; node tests/frontend/history-regeneration.test.cjs passes both frontend copies.",
+  "test_command": "node tests/frontend/history-regeneration.test.cjs",
   "test_exit": 0,
-  "tests_passed": 454,
+  "tests_passed": 2,
   "tests_failed": 0,
-  "summary": "Minimal one-line rollback of the invalid cross-module call plus two integration regressions using the real canonical/deployed frontend modules and a fake /generate transport. The full command was executed under Git Bash: 238 Python tests, 78 frontend tests and 138 Worker tests passed (454 total; 26 additional Python subtests). Network-interruption, mobile and accessibility browser QA, static synchronization, 34 JavaScript syntax checks, preflight, prompt/error matrices and public secret scan passed. The 110 pre-existing modified image files were preserved and excluded from the fix.",
+  "summary": "History regeneration retains the selected prompt, provider prompt, dimensions, model, tuning settings, and seed. Regression coverage exercises the canonical and Cloudflare frontend copies with a fake /generate transport. Restored unrelated example image bytes to main.",
   "not_done": [
-    "needs-human: Fixed-seed reproduction was not implemented. The PR title promises seed preservation, but Issue #9 and the README describe random variants and provide a separate composition-lock action; the established seed policy remains unchanged.",
-    "The original Issue #9 real-provider visual reproduction and Preview acceptance are unverified. No external image-provider request, deployment, push, PR modification or branch change was performed.",
-    "There are no dedicated lint, typecheck or build scripts in cloudflare/package.json; the configured check and complete offline verification were run."
+    "CI RED status could not be checked because the task prohibits network access and provides no CI log.",
+    "Real-provider image output and Preview acceptance remain unverified; no external request or deployment was performed.",
+    "npm run sync:check could not run because esbuild is absent from the workspace; no package installation was attempted."
   ]
 }

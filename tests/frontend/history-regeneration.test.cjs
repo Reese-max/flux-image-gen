@@ -87,7 +87,7 @@ for (const staticPath of ['app/static', 'cloudflare/public/static']) {
     assert.equal(requests.length, 1);
     assert.equal(requests[0].userPrompt, record.userPrompt);
     assert.equal(requests[0].prompt, record.providerPrompt);
-    for (const key of ['model', 'size', 'width', 'height', 'steps', 'cfgScale']) {
+    for (const key of ['model', 'size', 'width', 'height', 'seed', 'steps', 'cfgScale']) {
       assert.equal(requests[0][key], record[key], key);
     }
     assert.equal(elements.historyDetailModal.hidden, true);
