@@ -4,6 +4,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { transformSync } from 'esbuild';
 import { inspectGeneratedImage } from '../src/image.js';
+import { detectHighRiskPromptCategory } from '../src/moderation.js';
 import worker, { resetUsageMetrics, transformPlainPrompt } from '../src/index.js';
 
 const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
@@ -494,6 +495,115 @@ test('POST /generate blocks high-risk prompt before provider access', async () =
   assert.equal(data.category, 'fake_documents');
   assert.equal(data.error.includes('假身分證'), false);
   assert.equal(ai.calls.length, 0);
+});
+
+test('moderation rejects identity documents without forgery keywords and allows unrelated words', () => {
+  const documents = [
+    '做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件',
+    '台灣官方身份證正面樣張', '绘制居民身份证模板', '旅行護照資料頁', '护照样张',
+    '駕照正面樣張', '驾驶证模板', '居留證樣張', 'realistic official ID card template',
+    'government identification card sample', 'identity document sample', 'a fictional passport prop',
+    "driver's license sample", 'driver’s licence template', 'DRIVING LICENCE template',
+    'resident permit sample', 'social security card template',
+    '畫一張ID card正面', 'a realistic national ID with name and identification number',
+    'an official residence card template',
+  ];
+  for (const prompt of documents) {
+    assert.equal(detectHighRiskPromptCategory(prompt), 'fake_documents', prompt);
+  }
+  for (const prompt of ['an orchid card for a birthday', 'a brand identity moodboard', 'a landscape painting']) {
+    assert.equal(detectHighRiskPromptCategory(prompt), '', prompt);
+  }
+});
+
+test('identity documents are blocked across image routes before any provider call', async () => {
+  const original = '做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件';
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  for (const path of ['/generate', '/generate/batch', '/edit']) {
+    for (const field of path === '/edit' ? ['prompt'] : ['prompt', 'userPrompt']) {
+      const request = path === '/edit'
+        ? editRequestWithBlobs(original, [pngBlobWithDims(48, 48)])
+        : jsonRequest(path, { prompt: 'a landscape', count: 2, [field]: original });
+      const response = await worker.fetch(request, fakeEnv({ AI: ai }));
+      const body = await response.json();
+      assert.equal(response.status, 422, `${path} ${field}`);
+      assert.equal(body.code, 'prompt_blocked');
+      assert.equal(body.category, 'fake_documents');
+      assert.ok(body.error);
+      assert.equal(JSON.stringify(body).includes(original), false);
+      assert.equal(ai.calls.length, 0);
+    }
+  }
+});
+
+test('identity documents are blocked before prompt processing including enhancement effects', async () => {
+  const original = '做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件';
+  const cases = [
+    ['/prompt/transform', { source: original }],
+    ['/prompt/complete', { source: original }],
+    ['/prompt/enhance', { prompt: original, effect: '更寫實' }],
+    ['/prompt/enhance', { prompt: 'a landscape', effect: original }],
+  ];
+  const originalFetch = globalThis.fetch;
+  let providerCalls = 0;
+  globalThis.fetch = async () => {
+    providerCalls += 1;
+    throw new Error('prompt provider must not be called');
+  };
+  try {
+    for (const [path, payload] of cases) {
+      const response = await worker.fetch(jsonRequest(path, payload), fakeEnv({ GEMINI_API_KEY: 'test-key' }));
+      const body = await response.json();
+      assert.equal(response.status, 422, path);
+      assert.equal(body.code, 'prompt_blocked');
+      assert.equal(body.category, 'fake_documents');
+      assert.ok(body.error);
+      assert.equal(JSON.stringify(body).includes(original), false);
+      assert.equal(providerCalls, 0);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('identity documents from prompt providers are blocked without a successful fallback', async () => {
+  const originalFetch = globalThis.fetch;
+  const document = 'realistic official ID card template';
+  const chineseDocument = '台灣官方身分證正面樣張，姓名與身分證號碼欄位清楚可見。';
+  const cases = [
+    ['/prompt/transform', { source: '一張肖像畫' }, JSON.stringify({ prompt: document })],
+    ['/prompt/complete', { source: '一張肖像畫' }, chineseDocument],
+    ['/prompt/enhance', { prompt: 'a portrait', effect: '更寫實' }, JSON.stringify({ prompt: document })],
+  ];
+  try {
+    for (const [path, payload, text] of cases) {
+      resetUsageMetrics();
+      const env = fakeEnv({
+        GEMINI_API_KEY: 'test-key', GALLERY_ADMIN_TOKEN: 'admin-secret',
+        USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
+      });
+      let providerCalls = 0;
+      globalThis.fetch = async () => {
+        providerCalls += 1;
+        return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text }] } }] }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      };
+      const response = await worker.fetch(jsonRequest(path, payload), env);
+      const body = await response.json();
+      assert.equal(response.status, 422, path);
+      assert.equal(body.code, 'prompt_blocked');
+      assert.equal(body.category, 'fake_documents');
+      assert.equal(JSON.stringify(body).includes(document), false);
+      assert.equal(JSON.stringify(body).includes(chineseDocument), false);
+      assert.equal(providerCalls, 1);
+      const usage = await (await worker.fetch(adminGet('/api/usage'), env)).json();
+      assert.equal(usage.totalAttempts, 1, path);
+      assert.equal(usage.estimatedCostUsd, 0.001, path);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('POST /generate returns demo image when NVIDIA key is missing', async () => {
