@@ -1,26 +1,20 @@
 {
   "pr": 25,
-  "head": "686bf7d0228fdd8dafd195b12258954d3cfc5db9",
+  "head": "221ef74ec29c7bc69ac8230bc0f5140a0d63e0aa",
   "findings": [
     {
       "severity": "high",
-      "file": "app/static/history-wall.js",
-      "line": 836,
-      "issue": "History regeneration calls ImageGenApp.setSeedMode, which app.js does not export. Every valid selected record throws TypeError before closeHistoryDetail() or generate(). Existing tests never execute this cross-module path."
-    },
-    {
-      "severity": "med",
-      "file": "app/static/history-wall.js",
-      "line": 836,
-      "issue": "The changed canonical history-wall.js was not synchronized to cloudflare/public/static/history-wall.js. The existing static sync gate and Worker sync test fail, and the deployed copy runs different behavior."
+      "file": "app/static/examples/gallery-beef-noodle.webp",
+      "line": 0,
+      "issue": "55 example WebP images in each frontend copy (110 files total) have CRLF bytes converted to LF by the broad text attributes, corrupting their RIFF payloads. All 55 changed canonical images fail Pillow decoding while the base versions decode successfully. Restore the base bytes and mark WebP assets binary so Git cannot corrupt them again."
     },
     {
       "severity": "med",
       "file": "app/static/history-wall.js",
       "line": 834,
-      "issue": "needs-human: The PR claims to preserve the original seed, but still sets seed: 0; computeSeedForGeneration() randomizes it even in lock mode. Issue #9 and the README request a variant using the original prompts and dimensions, with a separate composition-lock action. Choosing fixed-seed reproduction would change that established behavior."
+      "issue": "needs-human: Passing record.seed now makes setGenerationSettings() lock a saved positive seed. This changes history regeneration from a new variant to fixed-seed reproduction, conflicting with Issue #9's variant expectation and README.md:23; the separate composition-lock action already supports reproduction. Confirm the intended API/UI behavior before changing the seed policy or its documentation."
     }
   ],
   "fixed": true,
-  "summary": "Removed the unsupported seed-lock call that crashed history regeneration, restoring consistency with the Cloudflare copy and existing variant behavior. Two new regressions execute the real frontend modules and verify the selected prompts, dimensions and tuning reach /generate; the full offline gate passes with 238 Python tests plus 26 subtests, 78 frontend tests, 138 Worker tests and browser QA. needs-human: fixed-seed reproduction contradicts the documented variant behavior; that policy was left unchanged and the original issue's real-provider visual acceptance remains unverified."
+  "summary": "Restored 110 corrupted example WebP files to the PR base bytes and marked WebP assets binary, with two decoding regressions proven red before the fix and green afterward. The full offline gate passes (240 Python tests plus 26 subtests, 78 frontend tests, 138 Worker tests, browser QA, sync and syntax checks), and the Worker bundle builds successfully. needs-human: fixed-seed history reproduction conflicts with the issue's variant expectation and README; that policy remains unchanged and real-provider/Preview acceptance is unverified."
 }
