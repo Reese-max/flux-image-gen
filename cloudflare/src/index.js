@@ -76,6 +76,20 @@ async function recordPromptEvent(env, request, route, started, event) {
   });
 }
 
+// The rate gate can return 429 (limited) or 503 (fail-closed when the binding
+// is absent/broken in production). Telemetry must record the real status and
+// code instead of hardcoding the 429 shape.
+async function rateLimitFailureEvent(response) {
+  let code = response.status === 429 ? "rate_limited" : "rate_limiter_error";
+  try {
+    const body = await response.clone().json();
+    if (body && body.code) code = String(body.code);
+  } catch {
+    // keep the status-derived code when the body is unreadable
+  }
+  return { outcome: "error", statusCode: response.status, errorCode: code };
+}
+
 async function recordVisionQaEvent(env, request, started, visionQa) {
   if (!visionQa) return;
   await recordUsageEvent(env, request, {
@@ -174,9 +188,7 @@ async function handleGenerate(request, env) {
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -306,9 +318,7 @@ async function handleGenerateBatch(request, env) {
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate_batch",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -469,9 +479,7 @@ async function handleEdit(request, env) {
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "edit",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -1019,7 +1027,7 @@ async function handlePromptTransform(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
@@ -1100,7 +1108,7 @@ async function handlePromptComplete(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
@@ -1166,7 +1174,7 @@ async function handlePromptEnhance(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
