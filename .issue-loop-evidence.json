@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 39,
+  "base_sha": "09f3c1db77ce45f90ec173aae32098082d5f9862",
+  "red_proof": "Before fixes: python -X utf8 -m pytest -q tests/test_static_ui.py -k example_webp_assets_are_decodable exited 1: AssertionError: 110 unreadable WebP assets; 1 failed, 50 deselected. node --test cloudflare/tests/provenance.test.mjs exited 1: public artwork and gallery exports redact complete authorization values and URL userinfo failed because synthetic-private-value remained in the exported prompt/providerPrompt and gallery title/prompt; 4 passed, 1 failed. node --test tests/frontend/provenance.test.cjs exited 1: the edit provider does not accept or return an effective seed; actual 0 !== expected null; 14 passed, 1 failed. The same three commands passed after fixes (1, 5 and 15 tests respectively).",
+  "test_command": "PYTHONUTF8=1 node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 475,
+  "tests_failed": 0,
+  "summary": "Self-review of PR #39 / issue #18 fixed corrupted example WebP assets, credential redaction leaks in public artwork/gallery metadata, and fabricated effective edit seeds. Restored 110 images byte-for-byte from main and added binary attributes, hardened the shared redactor, preserved unknown edit seeds as null, synchronized deploy assets and updated the contract. The exact test_command ran in Git Bash and exited 0: 240 Python, 91 frontend, 143 Worker and 1 provenance integration tests, plus 30 Python subtests and three existing browser QA scripts. npm run sync, npm run check, sync:check and a local esbuild Worker bundle also passed; the build produced 154429 bytes.",
+  "not_done": "No push, branch switch, merge, Preview/Production deployment, external comment, remote CI, billable provider call, C2PA signing or formal trust-list/conformance certification. The repository has no dedicated lint/typecheck/coverage-ratchet/CRAP/mutation scripts. Initial native Windows verification encountered cp950 subprocess decoding errors and a missing local C2PA dependency; PYTHONUTF8=1 and npm ci resolved those environment prerequisites without changing dependency versions or weakening tests."
+}

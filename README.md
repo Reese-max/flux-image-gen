@@ -31,6 +31,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 
 ## v1.4 作品管理與分享
 
+- 來源與驗證：新生成、批次與改圖作品保存 versioned、未簽章的 provenance receipt，包含圖片 SHA-256、實際 provider/model/settings 與父版本；詳情可重新驗證、另存 receipt JSON。C2PA 在瀏覽器使用本機 SDK 驗證，原圖下載保留 bytes，改圖記錄原始／提交圖片雜湊與重編碼狀態。作品 JSON 預設隱藏 prompt 並排除敏感連結；能力與限制、驗收對照見 [provenance 契約](docs/provenance.md)。
 - 作品詳情面板：查看圖片、白話描述、最終 prompt、排除描述、model、size、seed、provider、生成時間。
 - Prompt 版本比較：從歷史作品再生時會形成版本鏈，可切換比較不同 prompt / seed / model。
 - 分享卡片／分享頁：可複製分享文案、複製設定 JSON、匯出作品 JSON、下載圖片；雲端分享頁會顯示圖片、模式、風格、用途、尺寸、prompt 公開狀態與「再生成」入口，可選擇分享時隱藏 prompt；上傳成功後會產生一次性刪除連結，使用者打開連結確認後可自助刪除 R2 圖片與 metadata。

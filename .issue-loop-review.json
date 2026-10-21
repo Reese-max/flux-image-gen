@@ -1,0 +1,26 @@
+{
+  "pr": 39,
+  "head": "09f3c1db77ce45f90ec173aae32098082d5f9862",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "app/static/examples/gallery-beef-noodle.webp",
+      "line": 0,
+      "issue": "The PR normalizes CRLF bytes inside 110 WebP assets across app/static/examples and cloudflare/public/static/examples. Every affected image fails decoding, breaking the gallery and prompt examples. Restore the main-branch binary bytes and exempt WebP files from the broad text rules in .gitattributes."
+    },
+    {
+      "severity": "high",
+      "file": "app/static/provenance.js",
+      "line": 16,
+      "issue": "redactText consumes only the Bearer/Basic scheme in Authorization values and leaves the actual credential; URLs with username/password but no query are also preserved. Public artwork exports and gallery prompt/title metadata therefore leak these sensitive values despite the issue's privacy contract."
+    },
+    {
+      "severity": "med",
+      "file": "app/static/provenance.js",
+      "line": 157,
+      "issue": "Edit records hardcode the legacy history seed sentinel to 0, and pendingReceipt copies it as an effective provider seed. Neither edit backend sends or returns a seed, so edit receipts must record null rather than claim the provider used seed 0."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed three defects: restored 110 corrupted WebP assets with binary attributes, removed complete Authorization credentials and URL userinfo from public exports/share metadata, and recorded unknown edit seeds as null. All fixes have failing-before/passing-after regression evidence; the Git-Bash full gate passed 475 tests plus 30 Python subtests and the three existing browser QA scripts, and the local Worker build passed. No needs-human findings remain; no push or deployment was performed."
+}
