@@ -1,0 +1,68 @@
+{
+  "pr": 35,
+  "head": "45e0254b09937838791c06fef10ab22532fe574a",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "app/static/provenance.js",
+      "line": 581,
+      "issue": "[fixed] 新的 C2PA WASM 編譯路徑與 cloudflare/public/_headers 的 script-src 不相容；真實瀏覽器將 signed/absent/invalid fixtures 全部退化為 unsupported。新增最小 wasm-unsafe-eval 權限與使用實際部署 CSP 的瀏覽器回歸驗證。"
+    },
+    {
+      "severity": "high",
+      "file": ".gitattributes",
+      "line": 5,
+      "issue": "[fixed] app/static/** 與 cloudflare/public/** 強制 text/eol=lf，會將新增 WASM 的 CRLF bytes 正規化並破壞二進位檔。Git filtered/raw object hashes 的回歸測試先失敗；現在將 *.wasm 標記為 binary。"
+    },
+    {
+      "severity": "high",
+      "file": "app/static/history-wall.js",
+      "line": 858,
+      "issue": "[fixed] JSON 匯出只清理 cloud links，image/thumbnail/imageUrl/localImageData 仍可洩漏 signed URL 或 access_token；分享文案也沿用未過濾連結。現在移除敏感連結、優先保留本機圖片 bytes，無安全圖片時停止匯出，批次匯出不會默默略過作品。"
+    },
+    {
+      "severity": "med",
+      "file": "app/static/history-wall.js",
+      "line": 1270,
+      "issue": "[fixed] 清空歷史時，先前等待 C2PA 的非同步新增仍會在之後寫回，讓已清除的作品重新出現。事件接收時捕捉 epoch，清空後取消既有佇列與進行中的寫入。"
+    },
+    {
+      "severity": "med",
+      "file": "app/static/provenance.js",
+      "line": 701,
+      "issue": "[fixed] C2PA 初始化或 worker 回應永遠 pending 時，recordWriteChain 會永久停止保存所有後續作品。檢查現在最多等待 10 秒，超時回報 unsupported，讓 receipt 與後續歷史寫入繼續。"
+    },
+    {
+      "severity": "med",
+      "file": "app/static/provenance.js",
+      "line": 517,
+      "issue": "[fixed] 已知 resize/re-encode/edit 後查不到 manifest，receipt 與重新驗證卻顯示 absent，無法區分可能剝除的 credential。共用狀態映射現在保留 unknown_after_transform，仍保留真正 verified/invalid 的目前圖片結果。"
+    },
+    {
+      "severity": "med",
+      "file": "cloudflare/src/gallery.js",
+      "line": 68,
+      "issue": "[fixed] safePublicPrompt 會丟棄含一般問號、井字號或反斜線的完整公開 prompt。移除過廣的標點拒絕規則，仍拒絕含 query/fragment 參數的相對簽名網址與其他 URL/憑證；回歸測試驗證 R2 metadata 與分享頁保留一般標點、排除敏感連結。"
+    },
+    {
+      "severity": "low",
+      "file": "app/static/history-wall.js",
+      "line": 1259,
+      "issue": "[fixed] 一般生成事件沒有 createdAt；receipt 與最後保存的 record 各自建立不同時間，造成稽核資料矛盾。現在在驗證前一起保留 record id 與 createdAt。"
+    },
+    {
+      "severity": "med",
+      "file": "app/static/provenance.js",
+      "line": 507,
+      "issue": "needs-human：沒有 producer 設定 appBuildVersion、APP_BUILD_VERSION 或 __FLUX_APP_BUILD_VERSION，實際 receipt 的 app_build_version 永遠只是產品名稱 flux-image-gen。需決定 FastAPI 與 Worker 共用的 release/build 識別來源及 unavailable 契約，才能滿足 issue #18 的版本可追溯驗收；本次未擅自選用版本政策。"
+    },
+    {
+      "severity": "med",
+      "file": "app/static/image-edit.js",
+      "line": 473,
+      "issue": "needs-human：edit producer 的 mode 是 general/character/product，但 receipt 與 history-store 僅接受 normal/agent，會將所有編輯模式變成 normal。需決定擴充既有 mode enum，或新增獨立 edit_mode 欄位並定義相容性；依要求保留契約決策給人工。"
+    }
+  ],
+  "fixed": true,
+  "summary": "已修正 8 項可重現缺陷，涵蓋 C2PA 部署 CSP／WASM 換行安全、匯出隱私、清空歷史競態、驗證超時、transform 狀態、公開 prompt 與時間一致性，並加入實際 SDK／下載／改圖回歸。needs-human：app/build 版本來源與 edit mode schema 契約仍待人工決定；未推送或部署。"
+}

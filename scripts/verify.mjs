@@ -26,6 +26,7 @@ const steps = [
   { name: 'Cloudflare deployment preflight', command: `${py} scripts/check_deployment_preflight.py`, cwd: rootDir },
   { name: 'Python tests (pytest)', command: `${py} -m pytest -q`, cwd: rootDir },
   { name: 'Frontend JS tests (node --test)', command: `node --test ${frontendTests.join(' ')}`, cwd: rootDir },
+  { name: 'Browser C2PA provenance QA', command: 'node tests/e2e/provenance-qa.mjs', cwd: rootDir },
   { name: 'Browser E2E network interruption QA', command: 'npm run qa:network', cwd: cloudflareDir },
   { name: 'Browser E2E mobile generation QA', command: 'npm run qa:mobile', cwd: cloudflareDir },
   { name: 'Browser E2E accessibility keyboard QA', command: 'npm run qa:a11y', cwd: cloudflareDir },
