@@ -1,0 +1,38 @@
+{
+  "pr": 38,
+  "head": "f2eeaaecf90b832b7db7ef4d0a9128635fc03680",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "app/static/examples/gallery-beef-noodle.webp",
+      "line": 0,
+      "issue": "The PR corrupts 110 WebP assets in both frontend copies: their bytes equal the base blobs after CRLF-to-LF conversion, their RIFF sizes are wrong, and all 110 fail image decoding. The broad text attributes in .gitattributes normalize binary data; restore the exact base blobs and exclude WebP from text conversion."
+    },
+    {
+      "severity": "med",
+      "file": "app/static/history-store.js",
+      "line": 243,
+      "issue": "Legacy history records without providerPrompt are normalized to the untranslated user prompt. History regeneration treats that nonempty fallback as a final provider prompt and skips /prompt/transform, leaving the linked issue's legacy-record acceptance case unsatisfied."
+    },
+    {
+      "severity": "med",
+      "file": "app/static/app.js",
+      "line": 1255,
+      "issue": "Restoring the final provider prompt removes its data-auto-source marker in setGenerationSettings. After history or result regeneration, editing the Chinese description leaves the old final prompt active, so the next image can disagree with its saved description again. Bind replayed prompts to their source while preserving the existing manual-English-edit override."
+    },
+    {
+      "severity": "low",
+      "file": "tests/e2e/accessibility-keyboard-qa.mjs",
+      "line": 254,
+      "issue": "The accessibility gate measures targets during the panel's tab-in translation animation. Restored image loading exposes reproducible 43.999969px floating-point rectangles for computed 44px buttons; wait for the finite panel animation before measuring, retaining the original >=44 assertion."
+    },
+    {
+      "severity": "low",
+      "file": "cloudflare/README.md",
+      "line": 24,
+      "issue": "The Cloudflare feature list still describes regeneration as replaying the previous image with Seed 0, omitting the selected record's final prompt, custom dimensions, quality tuning, and busy guard now documented in the root README."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed all five actionable findings: restored 110 corrupted WebP assets, corrected legacy/replayed prompt handling, synchronized regeneration docs, and waited for the panel animation without weakening accessibility assertions. Five new regressions proved red before their fixes; full offline verify passed 461 tests plus browser QA, and the Worker bundle built. needs-human: previously backfilled records with a nonempty providerPrompt equal to the Chinese prompt have ambiguous intent and were left untouched; no push or deployment was performed."
+}

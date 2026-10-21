@@ -17,7 +17,7 @@ function response(data) {
   return { ok: true, json: async () => data };
 }
 
-function setup(transform) {
+function setup(transform, record = cat) {
   const elements = {};
   const listeners = {};
   const storage = new Map();
@@ -26,6 +26,7 @@ function setup(transform) {
   function element() {
     const attrs = {};
     const children = [];
+    const handlers = {};
     return {
       value: '', dataset: {}, hidden: true, children,
       classList: { add() {}, remove() {}, toggle() {} },
@@ -35,12 +36,14 @@ function setup(transform) {
       appendChild(child) { children.push(child); },
       removeChild(child) { children.splice(children.indexOf(child), 1); },
       get firstChild() { return children[0]; },
-      querySelectorAll() { return []; }, focus() {}, addEventListener() {}
+      querySelectorAll() { return []; }, focus() {},
+      addEventListener(type, handler) { (handlers[type] ||= []).push(handler); },
+      dispatchEvent(event) { for (const handler of handlers[event.type] || []) { handler(event); } }
     };
   }
   for (const id of ['plainPrompt', 'prompt', 'avoid', 'model', 'size', 'seed',
     'devSteps', 'devCfgScale', 'customWidth', 'customHeight', 'stage', 'dl',
-    'status', 'historyDetailModal']) {
+    'status', 'historyDetailModal', 'go', 'random']) {
     elements[id] = element();
   }
   const document = {
@@ -79,11 +82,55 @@ function setup(transform) {
     vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   }
   // Load the selected history record through the real generated-record listener.
-  document.dispatchEvent({ type: 'imagegen:generated', detail: cat });
+  document.dispatchEvent({ type: 'imagegen:generated', detail: record });
   return { context, elements, requests, generated, storage, app: context.ImageGenApp, wall: context.ImageHistoryWall };
 }
 
 const settle = () => new Promise(setImmediate);
+
+test('history regeneration compiles a legacy record without a final provider prompt', async () => {
+  const legacy = { ...cat, providerPrompt: undefined };
+  const { app, wall, context, requests, generated } = setup(() => response({ prompt: 'A tabby cat resting on a green lawn' }), legacy);
+  app.setGenerationSettings({ prompt: girlPrompt, providerPrompt: girlProviderPrompt });
+  wall.openHistoryDetail(context.ImageHistoryStore.loadRecords()[0]);
+  wall.regenerateHistoryDetail();
+  await settle();
+
+  assert.equal(requests[0].url, '/prompt/transform');
+  assert.equal(requests[0].payload.source, cat.prompt);
+  assert.equal(requests[1].payload.prompt, cat.providerPrompt);
+  assert.equal(requests[1].payload.userPrompt, cat.prompt);
+  assert.equal(generated.at(-1).sourceRecordId, cat.id);
+});
+
+for (const entry of ['history', 'result']) {
+  test(`${entry} regeneration clears its restored final prompt when the description is edited`, async () => {
+    const { app, wall, context, elements, requests } = setup();
+    context.document.dispatchEvent({ type: 'DOMContentLoaded' });
+    app.setGenerationSettings(cat);
+    await app.generate();
+    wall.openHistoryDetail(cat);
+    if (entry === 'history') { wall.regenerateHistoryDetail(); } else { context.regenerate(); }
+    await settle();
+
+    elements.plainPrompt.value = girlPrompt;
+    elements.plainPrompt.dispatchEvent({ type: 'input' });
+    await app.generate();
+
+    assert.equal(requests.at(-2).url, '/prompt/transform');
+    assert.equal(requests.at(-2).payload.source, girlPrompt);
+    assert.equal(requests.at(-1).payload.prompt, girlProviderPrompt + ', avoid ' + cat.avoid);
+    assert.equal(requests.at(-1).payload.userPrompt, girlPrompt);
+
+    elements.prompt.value = 'A manually edited provider prompt';
+    elements.prompt.dispatchEvent({ type: 'input' });
+    elements.plainPrompt.value = '使用自訂英文提示詞';
+    elements.plainPrompt.dispatchEvent({ type: 'input' });
+    await app.generate();
+    assert.equal(requests.at(-1).payload.prompt, 'A manually edited provider prompt, avoid ' + cat.avoid);
+    assert.equal(requests.at(-1).payload.userPrompt, '使用自訂英文提示詞');
+  });
+}
 
 test('history regeneration replays the selected final prompt, settings and version source with a fresh seed', async () => {
   const { app, wall, context, requests, generated, storage } = setup();

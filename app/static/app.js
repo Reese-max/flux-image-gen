@@ -1098,7 +1098,11 @@ function setGenerationSettings(settings){
   }
   if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
     el('prompt').value = source.providerPrompt || '';
-    el('prompt').removeAttribute('data-auto-source');
+    if(source.providerPrompt && source.prompt){
+      el('prompt').setAttribute('data-auto-source', String(source.prompt).trim());
+    }else{
+      el('prompt').removeAttribute('data-auto-source');
+    }
   }
   if(Object.prototype.hasOwnProperty.call(source, 'avoid') && el('avoid')){ el('avoid').value = source.avoid || ''; }
   if(Object.prototype.hasOwnProperty.call(source, 'model')){ el('model').value = source.model || 'schnell'; }
