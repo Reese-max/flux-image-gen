@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { webcrypto } from 'node:crypto';
 import worker from '../src/index.js';
-import { issueGalleryToken } from '../src/gallery.js';
+import { issueGalleryToken, sanitizeGalleryMeta } from '../src/gallery.js';
 import '../../app/static/provenance.js';
 
 globalThis.crypto ||= webcrypto;
@@ -63,6 +63,18 @@ test('public gallery metadata strips capability URL queries and credential-like 
   const meta = sanitizeGalleryMeta({ promptPublic: true, prompt: 'cat api_key=do-not-copy',
     title: 'https://example.test/file?token=do-not-copy', model: 'model', token: 'do-not-copy' });
   assert.doesNotMatch(JSON.stringify(meta), /do-not-copy/);
+});
+
+test('public artwork and gallery exports redact complete authorization values and URL userinfo', () => {
+  for (const text of [
+    'Authorization: Bearer synthetic-private-value',
+    'Authorization: Basic synthetic-private-value',
+    'https://fixture-user:synthetic-private-value@example.test/image',
+  ]) {
+    const artwork = api.exportArtwork({ image, prompt: text, providerPrompt: text }, { promptPublic: true });
+    const gallery = sanitizeGalleryMeta({ promptPublic: true, prompt: text, title: text });
+    assert.doesNotMatch(JSON.stringify({ artwork, gallery }), /synthetic-private-value/);
+  }
 });
 
 test('provider results report effective model and settings rather than UI aliases or requested tuning', async () => {

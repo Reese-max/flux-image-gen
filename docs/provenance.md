@@ -6,7 +6,7 @@
 
 `app/static/provenance.js` 定義 `receipt_schema_version: 1`，沿用 history schema v2 的可選 `provenance` 欄位。舊作品不會補造來源。每次生成、批次、版本再生與改圖建立新 record；既有 `createVersionRecord()` 分配版本，子收據保存 source record IDs、parent receipt hash 與 version group，保留父作品。
 
-收據包含 record ID、provider、實際上游 model、seed/size/width/height/steps/cfg/mode、時間、原圖 SHA-256、兩種 prompt 的 SHA-256、app version、可取得的 build version、可取得的 model revision、credential status 與收據本身的 SHA-256。Python 與 Worker provider 在共用的 generation result 回報實際 payload 設定；未提供的 revision、build ID 或 provider 預設參數保留空值，不以 UI 請求值猜測。收據使用排序後的 canonical JSON 計算雜湊，不包含自己的 `receipt_sha256` 欄位。
+收據包含 record ID、provider、實際上游 model、seed/size/width/height/steps/cfg/mode、時間、原圖 SHA-256、兩種 prompt 的 SHA-256、app version、可取得的 build version、可取得的 model revision、credential status 與收據本身的 SHA-256。Python 與 Worker provider 在共用的 generation result 回報實際 payload 設定；未提供的 revision、build ID 或 provider 預設參數保留空值，不以 UI 請求值猜測。改圖 API 不接受也不回報 seed，故 edit receipt 的 `settings.seed` 為 `null`，不沿用歷史資料的 `0`。收據使用排序後的 canonical JSON 計算雜湊，不包含自己的 `receipt_sha256` 欄位。
 
 作品先同步保存含 `unsupported` 狀態的待完成收據，之後補雜湊與檢查結果。憑證檢查上限為 15 秒；SDK 失敗或檢查逾時不會刪除作品、不會重送生成／改圖請求。完成前重新整理仍保留作品，載入時依時間／版本順序恢復未完成收據；完成前詳情顯示無法驗證。儲存仍受既有 localStorage 容量與保留筆數限制。
 
@@ -33,7 +33,7 @@ HTTPS provider 圖片 URL 只能由瀏覽器以 CORS 讀取，省略 cookies、r
 
 ## 匯出、下載與分享
 
-作品詳情可下載原圖、另外下載 `.receipt.json`，或匯出含原圖及收據的作品 JSON。data URL → Blob → download 不經 canvas，保留 upstream C2PA。單件作品 JSON 可由既有 `parseRecords()` 匯入；預設不公開 prompt，使用者明確選擇後才包含經敏感值過濾的 prompt。
+作品詳情可下載原圖、另外下載 `.receipt.json`，或匯出含原圖及收據的作品 JSON。data URL → Blob → download 不經 canvas，保留 upstream C2PA。單件作品 JSON 可由既有 `parseRecords()` 匯入；預設不公開 prompt，使用者明確選擇後才包含經敏感值過濾的 prompt。公開匯出與 gallery metadata 共用過濾，移除完整 Authorization 憑證、帶帳密或 query 的 URL。
 
 分享維持原有 prompt privacy control。Worker 先執行既有 rate limit／gallery token 驗證，再核對收據與上傳 bytes 的 SHA-256；不相符回 `400 invalid_provenance` 且不寫 R2。公開 metadata 僅含 allowlisted provider/model、output/receipt hashes、時間、版本與 lineage；不含 prompt hashes、原始來源 metadata、delete URL、API key 或 Turnstile token。R2 原圖 bytes 與兩個雜湊一併保存。
 
@@ -44,12 +44,12 @@ Worker 未重跑 C2PA，因此分享頁明示 credential status 來自瀏覽器�
 在 repo 根目錄執行（Git Bash 相容）：
 
 ```bash
-node scripts/verify.mjs
+PYTHONUTF8=1 node scripts/verify.mjs
 ```
 
 這會執行既有 Python、前端與 Worker 測試，network/mobile/accessibility browser QA，新增的 `qa:provenance`，靜態同步、JS syntax、秘密掃描與部署 preflight。專案沒有獨立 lint、typecheck、coverage ratchet、CRAP 或 mutation 指令；未為本 issue 安裝額外品質工具。
 
-本次基準為 238 Python／76 前端／138 Worker，共 452 個測試；完成後為 239／91／142，共 472 個，另有 1 個真實 provenance browser integration test、30 個 Python subtests，以及原有 3 組 browser QA。完整指令結束碼為 0。
+本次基準為 238 Python／76 前端／138 Worker，共 452 個測試；審查修正後為 240／91／143，共 474 個，另有 1 個真實 provenance browser integration test、30 個 Python subtests，以及原有 3 組 browser QA。`PYTHONUTF8=1` 避免 Windows cp950 子程序解碼錯誤。範例 WebP 另以實際解碼檢查，Git 屬性明確指定 binary，防止換行正規化破壞圖片。
 
 真實 fixtures 位於 `tests/fixtures/provenance/`，`sources.json` 記錄 contentauth/c2pa-rs 的固定 commit、來源、SHA-256 與授權。`fixture-root.pem` 只含公用測試根憑證。瀏覽器測試使用真實 WASM、圖片與產品 UI／Worker handlers；AI 與 R2 是本機 fixture adapters，不產生付費呼叫。
 

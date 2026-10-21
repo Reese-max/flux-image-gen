@@ -14,6 +14,8 @@
   function status(value) { return STATUSES.indexOf(value) >= 0 ? value : 'unsupported'; }
   function redactText(value) {
     return String(value || '').replace(/https?:\/\/[^\s<>"']*[?][^\s<>"']*/gi, '[redacted-url]')
+      .replace(/https?:\/\/[^\s<>"'/]+@[^\s<>"']*/gi, '[redacted-url]')
+      .replace(/\bauthorization\s*[:=]\s*(?:[a-z][a-z0-9_-]*\s+)?[^\s,;]+/gi, '[redacted]')
       .replace(/\b(?:api[_ -]?key|(?:turnstile|delete|access|refresh)?[_ -]?token|authorization|secret)\s*[:=]\s*[^\s,;]+/gi, '[redacted]')
       .replace(/\b(?:sk-(?:proj-)?|nvapi-|ghp_|github_pat_|hf_)[a-z0-9_-]{20,}\b/gi, '[redacted]');
   }
@@ -154,7 +156,7 @@
       receipt_schema_version: 1, record_id: record.id,
       source_record_ids: opts.sourceRecordIds || (record.sourceRecordId ? [record.sourceRecordId] : []), inputs: inputs,
       provider: record.provider, model: effective.model_id || record.model,
-      settings: { seed: record.seed, size: record.size, width: record.width, height: record.height,
+      settings: { seed: operation === 'edit' ? null : record.seed, size: record.size, width: record.width, height: record.height,
         steps: Object.prototype.hasOwnProperty.call(effective, 'steps') ? effective.steps : record.steps,
         cfg: Object.prototype.hasOwnProperty.call(effective, 'cfg_scale') ? effective.cfg_scale : record.cfgScale, mode: operation },
       created_at: record.createdAt,

@@ -144,6 +144,8 @@ test('edit preparation records both inputs and emits a history-ready record with
   assert.equal(item.provenanceInputs[0].original_sha256, hash(bytes));
   assert.ok(item.id);
   assert.ok(item.createdAt);
+  const receipt = await api.createReceipt(item, { operation: 'edit', inputs: [prepared] });
+  assert.equal(receipt.settings.seed, null, 'the edit provider does not accept or return an effective seed');
 });
 
 test('imported credential badges are revalidated rather than trusted from an unsigned receipt', async () => {

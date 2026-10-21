@@ -327,6 +327,20 @@ def test_showcase_images_are_wired_and_present():
     assert ".idea .idea-thumb" in styles
 
 
+def test_example_webp_assets_are_decodable():
+    from PIL import Image
+
+    broken = []
+    for folder in (STATIC_DIR / "examples", ROOT_DIR / "cloudflare/public/static/examples"):
+        for path in folder.rglob("*.webp"):
+            try:
+                with Image.open(path) as image:
+                    image.load()
+            except (OSError, ValueError):
+                broken.append(path.relative_to(ROOT_DIR).as_posix())
+    assert not broken, f"{len(broken)} unreadable WebP assets: {broken[:3]}"
+
+
 def test_share_template_links_can_prefill_generation_form_without_auto_generation():
     app_js = read_static("app.js")
 
