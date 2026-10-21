@@ -1,0 +1,14 @@
+{
+  "pr": 36,
+  "head": "cea67d0f9373db0489bfaf527a3fc43ed561230f",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "app/static/examples/gallery-beef-noodle.webp",
+      "line": 0,
+      "issue": "PR 中 55 張範例 WebP 及其 Cloudflare 副本共 110 檔遭文字換行正規化，全部在 Pillow 解碼時拋出 OSError；base 的同批檔案全部正常。這會使 Gallery、靈感與精選提示詞縮圖破圖。應還原原始二進位內容，並在 .gitattributes 的 static 文字規則之後加入 WebP binary 例外。"
+    }
+  ],
+  "fixed": true,
+  "summary": "修復 1 項 high：還原 110 個損壞的 WebP 圖檔，並加入 Git binary 規則防止換行正規化再次損壞圖片。新增解碼回歸測試已完成紅→綠；完整離線驗證通過 244 個 Python 測試、61 個 subtests、76 個 frontend 測試、142 個 Worker 測試及三項瀏覽器 QA，Worker bundle 亦通過。"
+}

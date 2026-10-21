@@ -1,0 +1,15 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 36,
+  "base_sha": "cea67d0f9373db0489bfaf527a3fc43ed561230f",
+  "red_proof": "在 reviewed head cea67d0f9373db0489bfaf527a3fc43ed561230f 僅新增回歸測試後，PYTHONUTF8=1 python -m pytest -q tests/test_static_ui.py::test_showcase_webp_assets_decode --tb=short 結束碼為 1：1 failed，PIL.WebPImagePlugin 拋出 OSError: could not create decoder object。另以 Pillow 實測 PR 變更的 110 個 WebP 全部解碼失敗，base dfadcf30ca1d3daf479e05dd97aa457afa265333 的同批 110 個檔案全部成功。",
+  "test_command": "PYTHONUTF8=1 node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 462,
+  "tests_failed": 0,
+  "summary": "110 個 WebP 已逐位元還原為 main base 內容，.gitattributes 新增 *.webp binary，回歸測試驗證兩份 static 目錄共 182 張 WebP 均可解碼。完整離線驗證結束碼 0：244 Python、76 frontend、142 Worker 測試及另計 61 subtests 通過，三項瀏覽器 QA、static sync、npm run check、secret scan 與 preflight 全部通過；另以現有 esbuild 完成 Worker bundle。初次未設定 UTF-8 的驗證因 Windows CP950 造成 6 項既有測試解碼失敗；之後一次無障礙 QA 量測為 43.99997px 而失敗，獨立與完整重跑均通過，未修改或放寬測試。",
+  "not_done": [
+    "未推送；由 driver 決定是否推送。",
+    "未執行 Preview／production 部署或公開站驗收。"
+  ]
+}

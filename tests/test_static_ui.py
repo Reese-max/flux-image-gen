@@ -296,6 +296,17 @@ def test_example_gallery_applies_prompts_without_auto_generation():
     assert ".example-card" in styles
 
 
+def test_showcase_webp_assets_decode():
+    from PIL import Image
+
+    for static_dir in (STATIC_DIR, ROOT_DIR / "cloudflare" / "public" / "static"):
+        images = sorted((static_dir / "examples").rglob("*.webp"))
+        assert images
+        for path in images:
+            with Image.open(path) as image:
+                image.load()
+
+
 def test_showcase_images_are_wired_and_present():
     """範例 Gallery 縮圖與靈感鈕都改用站台自生的真實範例圖，且檔案必須存在（避免破圖）。"""
     html = read_static("index.html")
