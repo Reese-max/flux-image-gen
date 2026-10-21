@@ -817,6 +817,10 @@
       setAppStatus('尚無可再生的作品', 'warn');
       return;
     }
+    if (typeof root.ImageGenApp.isGenerationBusy === 'function' && root.ImageGenApp.isGenerationBusy()) {
+      setAppStatus('正在生成或等待重試，請稍候再生', 'warn');
+      return;
+    }
     if (!switchToGenerateTab()) { return; }
     if (typeof root.ImageGenApp.setNextGenerationSourceRecord === 'function') {
       root.ImageGenApp.setNextGenerationSourceRecord(record.id);
