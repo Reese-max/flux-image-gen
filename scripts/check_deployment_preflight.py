@@ -3,7 +3,7 @@
 
 Default mode verifies the repository is wired safely for deployment without
 requiring production-only values. Use --public before a real public deploy to
-require Turnstile production vars.
+require production fail-closed mode, the limiter binding, and valid Turnstile configuration when enabled.
 """
 from __future__ import annotations
 
@@ -32,6 +32,7 @@ REQUIRED_VARS = {
     "GEMINI_COMPLETE_MODEL",
     "GEMINI_VISION_MODEL",
     "VISION_QA_ENABLED",
+    "ENVIRONMENT",
     "TURNSTILE_REQUIRED",
     "TURNSTILE_SITE_KEY",
     "USAGE_ESTIMATED_COST_USD_PER_IMAGE",
@@ -178,8 +179,13 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
         simple = limiter.get("simple")
         require(isinstance(simple, dict), "GENERATE_RATE_LIMITER 必須設定 simple limit/period", errors)
         if isinstance(simple, dict):
-            require(int(simple.get("limit", 0)) > 0, "rate limit simple.limit 必須大於 0", errors)
-            require(int(simple.get("period", 0)) > 0, "rate limit simple.period 必須大於 0", errors)
+            for bound in ("limit", "period"):
+                try:
+                    value = int(simple.get(bound, 0))
+                except (TypeError, ValueError):
+                    errors.append(f"rate limit simple.{bound} 必須是整數")
+                    continue
+                require(value > 0, f"rate limit simple.{bound} 必須大於 0", errors)
 
     vars_section = data.get("vars")
     require(isinstance(vars_section, dict), "wrangler 必須設定 [vars]", errors)
@@ -213,6 +219,25 @@ def validate_wrangler(root: Path, public: bool, errors: list[str], checks: list[
 
     if public and str(vars_section.get("TURNSTILE_REQUIRED", "")).lower() == "true":
         require(bool(str(vars_section.get("TURNSTILE_SITE_KEY", "")).strip()), "--public 模式啟用 Turnstile 時 TURNSTILE_SITE_KEY 不可空白", errors)
+
+    if public:
+        # Turnstile is not checked by the Gemini-backed /prompt/* routes, so
+        # every public deploy must keep the shared rate limiter fail-closed.
+        # The required binding is validated above; production mode makes a
+        # missing or broken binding reject requests before provider calls.
+        environment_value = str(vars_section.get("ENVIRONMENT", "")).strip().lower()
+        require(
+            environment_value == "production",
+            '--public 模式要求 ENVIRONMENT = "production"（/prompt/* 路由不驗證 Turnstile，rate limiter 必須 fail-closed）',
+            errors,
+        )
+        # The per-IP limiter is trivially rotated, so it cannot stand in for
+        # the human-verification gate on the image routes.
+        require(
+            str(vars_section.get("TURNSTILE_REQUIRED", "")).strip().lower() == "true",
+            '--public 模式要求 TURNSTILE_REQUIRED = "true"（單靠 per-IP rate limit 可被輪替 IP 繞過）',
+            errors,
+        )
 
     checks.append("wrangler bindings OK")
 

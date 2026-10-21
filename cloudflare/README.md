@@ -61,10 +61,12 @@ npm install
 npm test
 npm run check
 npm run deploy:dry-run
-npx wrangler dev --local --port 8787
+npx wrangler dev --local --port 8787 --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false
 ```
 
-本機金鑰放在 `.dev.vars`：
+`wrangler.toml` 追蹤的是公開站硬化值（`ENVIRONMENT = "production"`、`TURNSTILE_REQUIRED = "true"`），本機開發必須用上面的 `--var` 明確切回 development，否則 `/generate`、`/generate/batch`、`/edit` 會在沒有 Turnstile secret 時回 503 `turnstile_unconfigured`。
+
+本機金鑰放在 `.dev.vars`（`.dev.vars` 會覆寫 `[vars]` 的同名鍵，也可直接放 `ENVIRONMENT`／`TURNSTILE_REQUIRED`，但明確的 `--var` 旗標優先且更容易稽核）：
 
 ```text
 NVIDIA_API_KEY=你的 NVIDIA 金鑰
