@@ -87,9 +87,14 @@ for (const staticPath of ['app/static', 'cloudflare/public/static']) {
     assert.equal(requests.length, 1);
     assert.equal(requests[0].userPrompt, record.userPrompt);
     assert.equal(requests[0].prompt, record.providerPrompt);
-    for (const key of ['model', 'size', 'width', 'height', 'seed', 'steps', 'cfgScale']) {
+    for (const key of ['model', 'size', 'width', 'height', 'steps', 'cfgScale']) {
       assert.equal(requests[0][key], record[key], key);
     }
+    assert.notEqual(requests[0].seed, record.seed, 'regeneration should request a fresh seed to produce a variant');
+    assert.ok(
+      Number.isInteger(requests[0].seed) && requests[0].seed > 0 && requests[0].seed <= 2147483647,
+      'regenerated seed should be a valid positive seed'
+    );
     assert.equal(elements.historyDetailModal.hidden, true);
     const generated = sandbox.ImageGenApp.getLastGeneration();
     assert.ok(generated, elements.status.textContent);
