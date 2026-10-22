@@ -1,6 +1,9 @@
 import re
 from pathlib import Path
 
+import pytest
+from PIL import Image
+
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "app" / "static"
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -60,6 +63,16 @@ def test_showcase_images_have_explicit_dimensions():
     assert len(example_imgs) >= 13
     for tag in example_imgs:
         assert 'width="' in tag and 'height="' in tag, f"缺少尺寸：{tag[:80]}"
+
+
+@pytest.mark.parametrize("static_path", ["app/static", "cloudflare/public/static"])
+def test_example_webp_assets_decode(static_path):
+    images = sorted((ROOT_DIR / static_path / "examples").rglob("*.webp"))
+    assert images
+    for path in images:
+        with Image.open(path) as image:
+            assert image.format == "WEBP", str(path)
+            image.load()
 
 
 def test_use_case_size_presets_are_productized():
