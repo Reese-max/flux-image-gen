@@ -240,7 +240,7 @@
       image: image,
       thumbnail: toText(source.thumbnail) || image,
       prompt: prompt,
-      providerPrompt: toText(source.providerPrompt) || prompt,
+      providerPrompt: toText(source.providerPrompt),
       negativePrompt: negativePrompt,
       avoid: negativePrompt,
       model: toText(source.model) || DEFAULT_MODEL,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -33,6 +33,80 @@ test('deployment readiness requires a clean worktree', () => {
     () => assertCleanWorktree(' M cloudflare/src/index.js\n?? scratch.txt\n'),
     /uncommitted or untracked changes/,
   );
+});
+
+test('fresh Git checkouts preserve binary image bytes and pass the real readiness worktree gate', async (t) => {
+  const attributes = await readFile(new URL('../../.gitattributes', import.meta.url), 'utf8');
+  const readiness = await readFile(new URL('../scripts/check-deploy-readiness.mjs', import.meta.url), 'utf8');
+  const config = await readFile(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  // Store historical blobs without clean filters, as the existing images were
+  // stored before the broad static-directory text rules were introduced.
+  // CRLF plus lone LF bytes catch conversion in either autocrlf mode.
+  const image = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 13, 10, 0xff, 10, 0x80, 13, 10]);
+
+  for (const autocrlf of ['false', 'true']) {
+    await t.test(`core.autocrlf=${autocrlf}`, () => {
+      const directory = mkdtempSync(join(tmpdir(), 'deploy-readiness-checkout-'));
+      const source = join(directory, 'source');
+      const checkout = join(directory, 'checkout');
+      mkdirSync(source);
+      const git = (cwd, args, input) => {
+        const result = spawnSync('git', args, {
+          cwd, input, encoding: 'utf8',
+          env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(directory, 'gitconfig') },
+        });
+        assert.equal(result.status, 0, `git ${args[0]} failed: ${result.stderr}`);
+        return result.stdout.trim();
+      };
+
+      try {
+        writeFileSync(join(directory, 'gitconfig'), '');
+        git(source, ['init', '--quiet']);
+        git(source, ['config', 'core.autocrlf', autocrlf]);
+        git(source, ['config', 'user.name', 'Readiness regression']);
+        git(source, ['config', 'user.email', 'readiness@example.invalid']);
+        git(source, ['config', 'commit.gpgsign', 'false']);
+        mkdirSync(join(source, 'cloudflare', 'scripts'), { recursive: true });
+        writeFileSync(join(source, '.gitattributes'), attributes);
+        writeFileSync(join(source, '.gitignore'), 'node_modules/\n');
+        writeFileSync(join(source, 'cloudflare', 'scripts', 'check-deploy-readiness.mjs'), readiness);
+        writeFileSync(join(source, 'cloudflare', 'wrangler.toml'), config);
+        git(source, ['add', '.']);
+
+        const paths = ['app/static', 'cloudflare/public/static'].flatMap((folder) =>
+          ['webp', 'jpg', 'png'].map((extension) => `${folder}/image.${extension}`),
+        );
+        for (const name of paths) {
+          const blob = git(source, ['hash-object', '-w', '--stdin', '--no-filters'], image);
+          git(source, ['update-index', '--add', '--cacheinfo', `100644,${blob},${name}`]);
+        }
+        git(source, ['commit', '--quiet', '-m', 'Binary image fixture']);
+        git(directory, ['clone', '--config', `core.autocrlf=${autocrlf}`, '--quiet', '--no-local', source, checkout]);
+
+        assert.equal(git(checkout, ['status', '--porcelain=v1', '--untracked-files=all']), '');
+        for (const name of paths) {
+          assert.deepEqual(readFileSync(join(checkout, name)), image, `${name} must retain its blob bytes`);
+        }
+        const fakeWrangler = join(checkout, 'cloudflare', 'node_modules', 'wrangler', 'bin');
+        mkdirSync(fakeWrangler, { recursive: true });
+        writeFileSync(join(fakeWrangler, 'wrangler.js'), `console.log(${JSON.stringify(JSON.stringify(completeSecretList))});\n`);
+        const run = () => spawnSync(process.execPath, ['cloudflare/scripts/check-deploy-readiness.mjs'], {
+          cwd: checkout, encoding: 'utf8',
+        });
+        const clean = run();
+        assert.equal(clean.status, 0, clean.stderr);
+        assert.match(clean.stdout, /\[deploy-readiness\] PASS:/);
+
+        // The binary override must not weaken detection of real edits.
+        writeFileSync(join(checkout, paths[0]), Buffer.concat([image, Buffer.from([1])]));
+        const dirty = run();
+        assert.equal(dirty.status, 1);
+        assert.match(dirty.stderr, /Git worktree has uncommitted or untracked changes/);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 test('deployment wrapper accepts only the fixed production target and dry-run switch', () => {
