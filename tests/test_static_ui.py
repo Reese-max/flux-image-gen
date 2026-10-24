@@ -62,6 +62,23 @@ def test_showcase_images_have_explicit_dimensions():
         assert 'width="' in tag and 'height="' in tag, f"缺少尺寸：{tag[:80]}"
 
 
+def test_webp_assets_decode_in_source_and_deploy_copy():
+    from PIL import Image
+
+    for directory in [STATIC_DIR, ROOT_DIR / "cloudflare" / "public" / "static"]:
+        for image_path in directory.rglob("*.webp"):
+            with Image.open(image_path) as image:
+                image.load()
+
+
+def test_worker_regeneration_docs_match_canonical_behavior():
+    descriptions = [
+        next(line for line in read_repo(name).splitlines() if line.startswith("- 一鍵再生："))
+        for name in ["README.md", "cloudflare/README.md"]
+    ]
+    assert descriptions[0] == descriptions[1]
+
+
 def test_use_case_size_presets_are_productized():
     html = read_static("index.html")
     app_js = read_static("app.js")
@@ -294,6 +311,17 @@ def test_example_gallery_applies_prompts_without_auto_generation():
     assert ".example-gallery" in styles
     assert ".example-grid" in styles
     assert ".example-card" in styles
+
+
+def test_showcase_webp_assets_decode():
+    from PIL import Image
+
+    for static_dir in (STATIC_DIR, ROOT_DIR / "cloudflare" / "public" / "static"):
+        images = sorted((static_dir / "examples").rglob("*.webp"))
+        assert images
+        for path in images:
+            with Image.open(path) as image:
+                image.load()
 
 
 def test_showcase_images_are_wired_and_present():

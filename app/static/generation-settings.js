@@ -28,7 +28,8 @@
   function buildProviderPrompt(prompt, avoidText) {
     var base = toText(prompt);
     var avoid = toText(avoidText);
-    return avoid ? base + ', avoid ' + avoid : base;
+    var suffix = ', avoid ' + avoid;
+    return avoid && base.slice(-suffix.length) !== suffix ? base + suffix : base;
   }
 
   function normalizeCustomDimension(value, label) {
