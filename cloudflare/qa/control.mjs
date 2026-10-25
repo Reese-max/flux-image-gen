@@ -118,7 +118,16 @@ export function failureReceipt(stage,error,identity={}) {
   const safeStage=allowed.includes(stage)?stage:'initial_preflight';
   const receipt=error?.receipt;
   const safeDetails=Array.isArray(receipt?.details)?receipt.details.filter(value=>typeof value==='string'&&(/^(Cloudflare API code: [0-9]{3,8}|Authentication error|Permission request failed)$/.test(value)||value==='API endpoint: /accounts/[account]/r2/buckets'||value==='API endpoint: /accounts/[account]/workers/scripts/'+QA_NAME||value==='API endpoint: /accounts/[account]/workers/workers/'+QA_NAME)):[];
-  return {status:'FAILED_CLOSED',...identity,worker:QA_NAME,bucket:QA_BUCKET,action:safeStage,wrangler:receipt?{exitCode:Number.isInteger(receipt.exitCode)?receipt.exitCode:null,details:safeDetails}:null,noCredentialFallback:true};
+  const safeIdentity={};
+  if(typeof identity.run==='string'&&RUN.test(identity.run))safeIdentity.run=identity.run;
+  if(typeof identity.sourceSha==='string'&&SHA.test(identity.sourceSha))safeIdentity.sourceSha=identity.sourceSha;
+  return {status:'FAILED_CLOSED',...safeIdentity,worker:QA_NAME,bucket:QA_BUCKET,action:safeStage,wrangler:receipt?{exitCode:Number.isInteger(receipt.exitCode)?receipt.exitCode:null,details:safeDetails}:null,noCredentialFallback:true};
+}
+export function emitFailureReceipt(stage,error,identity={},write=value=>process.stdout.write(value)) {
+  const report=failureReceipt(stage,error,identity);
+  // Print the exact bounded receipt, never Error.message or subprocess output.
+  // This remains inspectable when an artifact file reference cannot be read.
+  write(JSON.stringify(report)+'\n');return report;
 }
 function gh(args) {
   const result=spawnSync('gh',[...args,'--hostname','github.com'],{cwd:root,encoding:'utf8',timeout:30000,maxBuffer:1024*1024});
@@ -185,7 +194,7 @@ export async function prepare() {
     writeFileSync(path.join(root,'output/qa/preview.json'),JSON.stringify(report,null,2));
     return report;
   } catch(error) {
-    const report=failureReceipt(stage,error,identity);
+    const report=emitFailureReceipt(stage,error,identity);
     writeFileSync(path.join(root,'output/qa/preview.json'),JSON.stringify(report,null,2));throw new Error('Isolated QA stopped; see sanitized preview.json');
   }
 }
@@ -194,7 +203,7 @@ if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.ur
   if(process.argv[2]==='validate') console.log(JSON.stringify({source:validateSource(),config:Boolean(validateConfig(JSON.parse(readFileSync(path.join(here,'wrangler.json'),'utf8'))))}));
   else if(process.argv[2]==='prepare') {
     try{await prepare();}catch{
-      const file=path.join(root,'output/qa/preview.json');if(!existsSync(file))writeFileSync(file,JSON.stringify(failureReceipt('initial_preflight',null),null,2));
+      const file=path.join(root,'output/qa/preview.json');if(!existsSync(file))writeFileSync(file,JSON.stringify(emitFailureReceipt('initial_preflight',null),null,2));
       throw new Error('Isolated QA stopped; see sanitized preview.json');
     }
   }

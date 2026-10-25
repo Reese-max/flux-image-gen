@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { authorized,ownedPrefix,privateResponse,QA_KIND,FEATURE_TREE,QA_NAME } from '../../cloudflare/qa/contract.mjs';
-import { validateSource,validateConfig,validateAdmission,immutableOrigin,parseSecretDeployment,parseInitialDeployment,noOrdinaryScript,bucketNames,sanitizedFailure,failureReceipt,root } from '../../cloudflare/qa/control.mjs';
+import { validateSource,validateConfig,validateAdmission,immutableOrigin,parseSecretDeployment,parseInitialDeployment,noOrdinaryScript,bucketNames,sanitizedFailure,failureReceipt,emitFailureReceipt,root } from '../../cloudflare/qa/control.mjs';
 import { localRuntime } from './local-runtime.mjs';
 const now=Date.now(),key='b'.repeat(64);
 const env={QA_KIND,QA_FROZEN_TREE:FEATURE_TREE,QA_RUN:'12345-1',QA_SOURCE_SHA:'a'.repeat(40),QA_ACCESS_TOKEN:key,QA_CREATED_AT:new Date(now-1000).toISOString(),QA_EXPIRES_AT:new Date(now+100000).toISOString()};
@@ -39,6 +39,15 @@ test('frozen source/config manifest and immutable secret-bound URL reject wrong 
   let malformed;try{JSON.parse('OPAQUE_OWNER_CANARY_DO_NOT_EXPORT');}catch(error){malformed=error;}
   assert.doesNotMatch(JSON.stringify(failureReceipt('r2_owner_read',malformed)),/OPAQUE_OWNER_CANARY/);
   assert.doesNotMatch(JSON.stringify(failureReceipt('unexpectedsecret',{receipt:{exitCode:1,details:['OPAQUE_CANARY','Cloudflare API code: 10000']}})),/OPAQUE_CANARY|unexpectedsecret/);
+  const logged=[];const receipt=emitFailureReceipt('worker_preflight',{message:'RAW_PRIVATE_MESSAGE',receipt:{exitCode:1,details:['Cloudflare API code: 10000','RAW_HEADER_SECRET','/accounts/private-account-id']}},{run:'12345-1',sourceSha:'a'.repeat(40)},value=>logged.push(value));
+  assert.deepEqual(JSON.parse(logged[0]),receipt);assert.equal(receipt.action,'worker_preflight');
+  assert.deepEqual(receipt.wrangler.details,['Cloudflare API code: 10000']);
+  assert.doesNotMatch(logged[0],/RAW_|private-account-id/);
+  const privateKey='b'.repeat(64),encoded=Buffer.from('flux-qa:'+privateKey).toString('base64');
+  const unsafe=[];emitFailureReceipt('UNKNOWN_'+privateKey,{message:privateKey+' '+encoded,receipt:{exitCode:'private',details:[privateKey,encoded,'Cloudflare API code: 10000 '+privateKey]}},{run:privateKey,sourceSha:encoded,unexpected:privateKey},value=>unsafe.push(value));
+  assert.doesNotMatch(unsafe[0],new RegExp(privateKey+'|'+encoded+'|unexpected|UNKNOWN_'));
+  const malformedLog=[];emitFailureReceipt('r2_owner_read',malformed,{unknown:'OPAQUE_OWNER_CANARY_DO_NOT_EXPORT'},value=>malformedLog.push(value));
+  assert.doesNotMatch(malformedLog[0],/OPAQUE_OWNER_CANARY|unknown/);
   assert.deepEqual(bucketNames(' ⛅️ wrangler 4.135.0\n────────────────\nListing buckets...\n'),[]);
   assert.deepEqual(bucketNames('Listing buckets...\nname: flux-image-gallery\ncreation_date: date\n\nname: '+QA_NAME+'\ncreation_date: date'),['flux-image-gallery',QA_NAME]);
   assert.throws(()=>bucketNames('Listing buckets...\nname_changed: existing-unowned'));
