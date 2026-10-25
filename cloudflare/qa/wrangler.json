@@ -1,0 +1,19 @@
+{
+  "name": "flux-pr45-qa-20261025",
+  "main": "entry.mjs",
+  "compatibility_date": "2026-06-24",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": true,
+  "routes": [],
+  "assets": {"directory": "../public", "binding": "ASSETS", "run_worker_first": true},
+  "rules": [{"type": "Data", "globs": ["**/tests/fixtures/provenance/*.jpg"], "fallthrough": true}],
+  "observability": {"enabled": false},
+  "previews": {
+    "vars": {"QA_KIND": "flux-provenance-qa/20261025", "QA_FROZEN_TREE": "f01e1299eed96e70662be5cdc8c951938e2cb877"},
+    "r2_buckets": [{"binding": "QA_BUCKET", "bucket_name": "flux-pr45-qa-20261025"}],
+    "version_metadata": {"binding": "CF_VERSION_METADATA"},
+    "observability": {"enabled": false},
+    "limits": {"cpu_ms": 1000}
+  }
+}
