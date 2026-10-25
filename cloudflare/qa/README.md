@@ -46,6 +46,14 @@ OAuth refresh, billing changes, bucket deletion or project deletion.
    run with a bounded API-code receipt. There is no alternate credential,
    deployment fallback, account upgrade or permissions bypass.
 
+The QA config uses the platform's existing CPU limits. It omits custom
+`limits.cpu_ms`: Cloudflare rejected that paid-only setting with `100328` on
+the actual initial Preview attempt. The Free plan enforces10ms CPU per request;
+no billing plan or resource limit is changed. The controller rejects custom
+limit overrides, including10ms, which also require the supported paid usage
+model. See <https://developers.cloudflare.com/workers/platform/limits/> and
+<https://github.com/cloudflare/workers-sdk/issues/8756>.
+
 Native Preview support is documented for new Workers without a production
 deployment: <https://developers.cloudflare.com/workers/previews/get-started/>.
 Wrangler4.104's experimental Preview and legacy versions upload are deliberately

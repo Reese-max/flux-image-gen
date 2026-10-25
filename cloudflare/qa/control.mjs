@@ -35,11 +35,11 @@ export function validateConfig(config) {
   requireValue(config.compatibility_date==='2026-06-24'&&JSON.stringify(config.compatibility_flags)==='["nodejs_compat"]','Unexpected runtime compatibility');
   requireValue(JSON.stringify(config.routes)==='[]' && config.observability.enabled===false,'Unsafe QA routes/logging');
   requireValue(JSON.stringify(config.assets)===JSON.stringify({directory:'../public',binding:'ASSETS',run_worker_first:true}),'Assets must authenticate first');
-  requireValue(JSON.stringify(Object.keys(config.previews).sort())===JSON.stringify(['vars','r2_buckets','version_metadata','observability','limits'].sort()),'Unexpected Preview binding');
+  requireValue(JSON.stringify(Object.keys(config.previews).sort())===JSON.stringify(['vars','r2_buckets','version_metadata','observability'].sort()),'Unexpected Preview binding or paid-only limit override');
   requireValue(JSON.stringify(config.previews.r2_buckets)===JSON.stringify([{binding:'QA_BUCKET',bucket_name:QA_BUCKET}]),'Unsafe QA R2 binding');
   requireValue(JSON.stringify(config.previews.vars)===JSON.stringify({QA_KIND,QA_FROZEN_TREE:FEATURE_TREE}),'Unexpected Preview variable');
   requireValue(JSON.stringify(config.rules)===JSON.stringify([{type:'Data',globs:['**/tests/fixtures/provenance/*.jpg'],fallthrough:true}]),'Unexpected module rule');
-  requireValue(JSON.stringify(config.previews.version_metadata)==='{"binding":"CF_VERSION_METADATA"}'&&JSON.stringify(config.previews.observability)==='{"enabled":false}'&&JSON.stringify(config.previews.limits)==='{"cpu_ms":1000}','Unexpected Preview runtime setting');
+  requireValue(JSON.stringify(config.previews.version_metadata)==='{"binding":"CF_VERSION_METADATA"}'&&JSON.stringify(config.previews.observability)==='{"enabled":false}','Unexpected Preview runtime setting');
   requireValue(JSON.stringify(config)===JSON.stringify(canonical),'QA config differs from reviewed config');
   return config;
 }

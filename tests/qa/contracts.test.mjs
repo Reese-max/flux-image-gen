@@ -27,7 +27,9 @@ test('owner same-repo open draft exact-head admission rejects fork, nonowner, st
 test('frozen source/config manifest and immutable secret-bound URL reject wrong binding/alias',()=>{
   assert.ok(validateSource().files>=271);
   const config=JSON.parse(readFileSync(path.join(root,'cloudflare/qa/wrangler.json'),'utf8'));assert.equal(validateConfig(config),config);
+  assert.equal(Object.hasOwn(config.previews,'limits'),false,'Free-plan QA must use platform CPU limits without paid-only overrides');
   for(const change of [c=>c.name='flux-image-gen',c=>c.workers_dev=true,c=>c.assets.run_worker_first=false,c=>c.previews.r2_buckets[0].bucket_name='flux-image-gallery',c=>c.previews.ai={},c=>c.previews.vars.QA_ACCESS_TOKEN=key,c=>c.services=[],c=>c.routes=['*example/*']]){const copy=structuredClone(config);change(copy);assert.throws(()=>validateConfig(copy));}
+  for(const cpu_ms of [10,1000]){const copy=structuredClone(config);copy.previews.limits={cpu_ms};assert.throws(()=>validateConfig(copy));}
   const url='https://abcdef12-'+QA_NAME+'.isolated.workers.dev/';assert.equal(immutableOrigin(url,'abcdef12'),url.slice(0,-1));
   assert.equal(parseInitialDeployment(JSON.stringify({preview:{worker_name:QA_NAME,name:'pr45-12345-1'},deployment:{id:'abcdef12',urls:[url]}}),'pr45-12345-1'),url.slice(0,-1));
   assert.throws(()=>parseInitialDeployment(JSON.stringify({worker_name:QA_NAME,preview_name:'pr45-12345-1',deployment_id:'abcdef12',deployment_urls:[url]}),'pr45-12345-1'));

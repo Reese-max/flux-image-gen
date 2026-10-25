@@ -13,7 +13,6 @@
     "vars": {"QA_KIND": "flux-provenance-qa/20261025", "QA_FROZEN_TREE": "f01e1299eed96e70662be5cdc8c951938e2cb877"},
     "r2_buckets": [{"binding": "QA_BUCKET", "bucket_name": "flux-pr45-qa-20261025"}],
     "version_metadata": {"binding": "CF_VERSION_METADATA"},
-    "observability": {"enabled": false},
-    "limits": {"cpu_ms": 1000}
+    "observability": {"enabled": false}
   }
 }
