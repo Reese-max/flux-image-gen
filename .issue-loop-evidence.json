@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 25,
+  "base_sha": "e0333b416216f52bb433794cbe85414be95dd6bd",
+  "red_proof": "Before adding the VM-local Math.random stub, ran node --test tests/frontend/history-regeneration.test.cjs through Git Bash with the new exact-seed regression assertion: exit 1, tests 2, pass 0, fail 2. Both static paths failed with AssertionError: regeneration should use the controlled random seed; expected 1073741824, actual 2140618860 (app/static) and 1478757724 (cloudflare/public/static). After the stub, the identical command exited 0: pass 2, fail 0. The original uncontrolled test was also reproduced failing for a valid random draw yielding the saved seed 424242.",
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 527,
+  "tests_failed": 0,
+  "summary": "Reviewed PR #25 against issue #9 and the current GitHub base fe29d086572b6f37e1704903cd34b1b81d428f95. Fixed the new history-regeneration test's random-seed collision flake using a VM-local deterministic RNG and an exact-seed assertion; existing prompt, provider prompt, model, dimensions, tuning, variant and source-record checks remain intact for both static paths. Full offline verification passed under Git Bash: 249 Python tests plus 26 subtests, 78 frontend tests and 200 Worker tests (527 top-level tests), three browser QA flows, static sync, 35 JavaScript syntax checks, secret scan and preflight.",
+  "not_done": "No push, remote PR changes, deployment or real provider calls. Preview/live-provider acceptance is unverified. No dedicated lint, typecheck or build scripts are declared in cloudflare/package.json; the existing check and static-sync build validation passed. Pre-existing legacy-provider-prompt and avoid-suffix behavior in the base is outside this test-only PR fix."
+}

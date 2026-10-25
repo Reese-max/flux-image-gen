@@ -34,6 +34,7 @@ function loadFrontend(staticDir, record) {
   };
   const sandbox = {
     document, console, Promise, performance: { now: () => 1000 },
+    Math: Object.assign(Object.create(Math), { random: () => 0.5 }),
     navigator: { userAgent: 'test-agent' },
     location: { href: 'http://localhost/' },
     localStorage: {
@@ -91,6 +92,7 @@ for (const staticPath of ['app/static', 'cloudflare/public/static']) {
       assert.equal(requests[0][key], record[key], key);
     }
     assert.notEqual(requests[0].seed, record.seed, 'regeneration should request a fresh seed to produce a variant');
+    assert.equal(requests[0].seed, 1073741824, 'regeneration should use the controlled random seed');
     assert.ok(
       Number.isInteger(requests[0].seed) && requests[0].seed > 0 && requests[0].seed <= 2147483647,
       'regenerated seed should be a valid positive seed'
