@@ -72,11 +72,48 @@ export function parseSecretDeployment(output) {
   requireValue(safe.length===1,'Expected one immutable secret-bound Preview URL');
   return {deploymentId:match[1],origin:safe[0]};
 }
+export function initialPreviewShape(output,previewName) {
+  let first,wholeJson=true;
+  try{first=JSON.parse(output);}catch{wholeJson=false;try{first=JSON.parse(output.slice(output.indexOf('{'),output.lastIndexOf('}')+1));}catch{}}
+  const keys=(value,allowed)=>value&&typeof value==='object'?allowed.filter(name=>Object.hasOwn(value,name)):[];
+  const preview=first?.preview,deployment=first?.deployment,id=deployment?.id;
+  const urls=deployment?.urls;
+  let url;try{if(typeof urls?.[0]==='string')url=new URL(urls[0]);}catch{}
+  const host=url?.hostname||'',idString=typeof id==='string'?id:'';
+  const aliases=Array.isArray(preview?.urls)?preview.urls:[];
+  const boundary=host.includes('-'+QA_NAME+'.')?'-'+QA_NAME+'.':host.includes('.'+QA_NAME+'.')?'.'+QA_NAME+'.':'';
+  const prefix=boundary?host.slice(0,host.indexOf(boundary)):'';
+  return {wholeJson,embeddedJson:Boolean(first&&typeof first==='object'),
+    topKeys:keys(first,['preview','deployment','worker_name','preview_name','deployment_id','deployment_urls']),
+    previewKeys:keys(preview,['id','name','slug','worker_name','worker_id','urls']),
+    deploymentKeys:keys(deployment,['id','preview_id','preview_name','worker_name','worker_id','urls','url','version_id']),
+    workerNamePresent:typeof preview?.worker_name==='string',workerNameMatches:preview?.worker_name===QA_NAME,previewNameMatches:preview?.name===previewName,
+    previewForeignKeyMatches:typeof preview?.id==='string'&&preview.id===deployment?.preview_id,
+    deploymentIdKind:/^[a-f0-9]{8}$/.test(idString)?'short_hex':/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(idString)?'uuid':idString?'other':'missing',
+    urlType:Array.isArray(urls)?'array':typeof urls==='undefined'?'missing':'other',urlCount:Array.isArray(urls)?urls.length===0?'none':urls.length===1?'one':'many':'missing',
+    validUrl:Boolean(url),https:url?.protocol==='https:',rootPath:url?.pathname==='/',queryOrCredentials:Boolean(url&&(url.search||url.hash||url.username||url.password||url.port)),
+    domain:host.endsWith('.workers.dev')?'workers.dev':host.endsWith('.cloudflare.app')?'cloudflare.app':host?'other':'missing',
+    urlPrefixKind:prefix===previewName?'preview_name':/^[a-f0-9]{8}$/.test(prefix)?'short_hex':/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(prefix)?'uuid':prefix?'other':'missing',
+    qaHyphenNamespace:host.includes('-'+QA_NAME+'.'),qaDotNamespace:host.includes('.'+QA_NAME+'.'),
+    fullIdHyphenMatches:Boolean(idString&&host.startsWith(idString+'-'+QA_NAME+'.')),
+    fullIdDotMatches:Boolean(idString&&host.startsWith(idString+'.'+QA_NAME+'.')),
+    shortIdHyphenMatches:Boolean(idString&&host.startsWith(idString.slice(0,8)+'-'+QA_NAME+'.')),
+    sameAsMutableAlias:Boolean(url&&aliases.some(alias=>{try{return new URL(alias).origin===url.origin;}catch{return false;}}))};
+}
+class PreviewContractFailure extends Error {
+  #summary;
+  constructor(reason,summary){super('Initial Preview response contract rejected');this.#summary=JSON.stringify({reason,...summary});}
+  summary(){return JSON.parse(this.#summary);}
+}
 export function parseInitialDeployment(output,previewName) {
-  const first=JSON.parse(output);
-  requireValue(first.preview?.worker_name===QA_NAME&&first.preview?.name===previewName,'Unexpected first Preview identity');
-  requireValue(Array.isArray(first.deployment?.urls)&&first.deployment.urls.length===1,'Missing initial immutable deployment URL');
-  return immutableOrigin(first.deployment.urls[0],first.deployment.id);
+  const shape=initialPreviewShape(output,previewName);
+  let reason='invalid_json';
+  try{
+    const first=JSON.parse(output);
+    reason='preview_identity';requireValue(first.preview?.worker_name===QA_NAME&&first.preview?.name===previewName,'Unexpected first Preview identity');
+    reason='deployment_url_count';requireValue(Array.isArray(first.deployment?.urls)&&first.deployment.urls.length===1,'Missing initial immutable deployment URL');
+    reason='immutable_url';return immutableOrigin(first.deployment.urls[0],first.deployment.id);
+  }catch{throw new PreviewContractFailure(reason,shape);}
 }
 export function noOrdinaryScript(status,stdout,stderr,kind) {
   requireValue(['versions','deployments'].includes(kind),'Invalid Worker preflight');
@@ -121,7 +158,7 @@ export function failureReceipt(stage,error,identity={}) {
   const safeIdentity={};
   if(typeof identity.run==='string'&&RUN.test(identity.run))safeIdentity.run=identity.run;
   if(typeof identity.sourceSha==='string'&&SHA.test(identity.sourceSha))safeIdentity.sourceSha=identity.sourceSha;
-  return {status:'FAILED_CLOSED',...safeIdentity,worker:QA_NAME,bucket:QA_BUCKET,action:safeStage,wrangler:receipt?{exitCode:Number.isInteger(receipt.exitCode)?receipt.exitCode:null,details:safeDetails}:null,noCredentialFallback:true};
+  return {status:'FAILED_CLOSED',...safeIdentity,worker:QA_NAME,bucket:QA_BUCKET,action:safeStage,wrangler:receipt?{exitCode:Number.isInteger(receipt.exitCode)?receipt.exitCode:null,details:safeDetails}:null,...(error instanceof PreviewContractFailure?{contract:error.summary()}:{}),noCredentialFallback:true};
 }
 export function emitFailureReceipt(stage,error,identity={},write=value=>process.stdout.write(value)) {
   const report=failureReceipt(stage,error,identity);

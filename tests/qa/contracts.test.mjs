@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { authorized,ownedPrefix,privateResponse,QA_KIND,FEATURE_TREE,QA_NAME } from '../../cloudflare/qa/contract.mjs';
-import { validateSource,validateConfig,validateAdmission,immutableOrigin,parseSecretDeployment,parseInitialDeployment,noOrdinaryScript,bucketNames,sanitizedFailure,failureReceipt,emitFailureReceipt,root } from '../../cloudflare/qa/control.mjs';
+import { validateSource,validateConfig,validateAdmission,immutableOrigin,parseSecretDeployment,parseInitialDeployment,initialPreviewShape,noOrdinaryScript,bucketNames,sanitizedFailure,failureReceipt,emitFailureReceipt,root } from '../../cloudflare/qa/control.mjs';
 import { localRuntime } from './local-runtime.mjs';
 const now=Date.now(),key='b'.repeat(64);
 const env={QA_KIND,QA_FROZEN_TREE:FEATURE_TREE,QA_RUN:'12345-1',QA_SOURCE_SHA:'a'.repeat(40),QA_ACCESS_TOKEN:key,QA_CREATED_AT:new Date(now-1000).toISOString(),QA_EXPIRES_AT:new Date(now+100000).toISOString()};
@@ -50,6 +50,15 @@ test('frozen source/config manifest and immutable secret-bound URL reject wrong 
   assert.doesNotMatch(unsafe[0],new RegExp(privateKey+'|'+encoded+'|unexpected|UNKNOWN_'));
   const malformedLog=[];emitFailureReceipt('r2_owner_read',malformed,{unknown:'OPAQUE_OWNER_CANARY_DO_NOT_EXPORT'},value=>malformedLog.push(value));
   assert.doesNotMatch(malformedLog[0],/OPAQUE_OWNER_CANARY|unknown/);
+  const payload={preview:{id:'opaque-parent-id',name:'pr45-12345-1',worker_id:'PRIVATE_ACCOUNT_ID',urls:['https://mutable.example'],[privateKey]:encoded},deployment:{id:'opaque-deployment-id',preview_id:'opaque-parent-id',urls:['https://abc12345.'+QA_NAME+'.cloudflare.app'],env:{QA_ACCESS_TOKEN:privateKey},[encoded]:privateKey},[privateKey]:encoded};
+  const shape=initialPreviewShape(JSON.stringify(payload),'pr45-12345-1');
+  assert.equal(shape.previewForeignKeyMatches,true);assert.equal(shape.domain,'cloudflare.app');assert.equal(shape.qaDotNamespace,true);assert.equal(shape.workerNamePresent,false);
+  assert.equal(shape.urlPrefixKind,'short_hex');
+  let contractError;try{parseInitialDeployment(JSON.stringify(payload),'pr45-12345-1');}catch(error){contractError=error;}
+  const contractLog=[];emitFailureReceipt('initial_preview',contractError,{},value=>contractLog.push(value));
+  assert.equal(JSON.parse(contractLog[0]).contract.reason,'preview_identity');
+  assert.doesNotMatch(contractLog[0],new RegExp(privateKey+'|'+encoded+'|PRIVATE_ACCOUNT_ID|opaque-parent-id|mutable.example|abc12345|QA_ACCESS_TOKEN'));
+  assert.equal(initialPreviewShape('opaque '+privateKey+' '+JSON.stringify(payload),'pr45-12345-1').wholeJson,false);
   assert.deepEqual(bucketNames(' ⛅️ wrangler 4.135.0\n────────────────\nListing buckets...\n'),[]);
   assert.deepEqual(bucketNames('Listing buckets...\nname: flux-image-gallery\ncreation_date: date\n\nname: '+QA_NAME+'\ncreation_date: date'),['flux-image-gallery',QA_NAME]);
   assert.throws(()=>bucketNames('Listing buckets...\nname_changed: existing-unowned'));
