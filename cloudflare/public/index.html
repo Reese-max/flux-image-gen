@@ -444,11 +444,12 @@
 
           <section class="edit-control-section">
             <div class="edit-section-label"><span>02</span><strong>加入參考圖片</strong></div>
-            <label id="editDrop" class="edit-drop" for="editFiles">
-              <input id="editFiles" type="file" accept="image/*" multiple hidden>
+            <label id="editDrop" class="edit-drop" for="editFiles" aria-disabled="true" aria-busy="true">
+              <input id="editFiles" type="file" accept="image/*" multiple hidden disabled>
               <span class="edit-drop-icon" aria-hidden="true">＋</span>
               <strong>拖曳圖片到這裡</strong>
               <span class="edit-drop-text">或點一下選擇檔案 · 自動縮至模型可用尺寸</span>
+              <span id="editReadyHint" role="status">正在準備選圖…</span>
             </label>
             <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
           </section>

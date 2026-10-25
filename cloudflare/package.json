@@ -16,6 +16,7 @@
     "qa:perf": "node ../tests/e2e/cloudflare-perf-qa.mjs",
     "qa:mobile": "node ../tests/e2e/mobile-generation-qa.mjs",
     "qa:a11y": "node ../tests/e2e/accessibility-keyboard-qa.mjs",
+    "qa:edit-readiness": "node --test ../tests/e2e/edit-readiness-qa.mjs",
     "qa:provenance": "node ../tests/e2e/provenance-qa.mjs",
     "qa:provenance:workerd": "node --test ../tests/e2e/provenance-workerd-qa.mjs"
   },

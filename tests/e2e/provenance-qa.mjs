@@ -130,6 +130,7 @@ test('real C2PA fixtures and generation/edit/share/download/export roundtrip in 
 
     // Actual edit UI: original credentials are inspected before canvas strips metadata.
     await page.locator('#tab-edit').click();
+    await page.evaluate(() => ImageFeatureLoader.load('edit'));
     await page.locator('#editFiles').setInputFiles(path.join(fixtureDir, 'C.jpg'));
     await page.waitForFunction(() => document.querySelectorAll('.edit-thumb').length === 1);
     await page.locator('#editPrompt').fill('Make the scene blue');

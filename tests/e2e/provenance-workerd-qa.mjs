@@ -155,6 +155,7 @@ for (const mode of ['source','deploy']) {
         const changed=await page.evaluate(item=>ImageProvenance.verifyReceipt({...item,image:item.image.slice(0,-4)+'AAAA'}),parent);
         assert.equal(changed.status,'modified');
         await page.locator('#closeHistoryDetail').click();await page.locator('#tab-edit').click();
+        await page.evaluate(() => ImageFeatureLoader.load('edit'));
         await page.locator('#editFiles').setInputFiles({name:'local-fixture.jpg',mimeType:'image/jpeg',buffer:fixtureBytes});
         await page.waitForFunction(()=>document.querySelectorAll('.edit-thumb').length===1);
         await page.locator('#editPrompt').fill('Make the scene blue');await page.locator('#editGo').click();
