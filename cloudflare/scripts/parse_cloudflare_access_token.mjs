@@ -21,7 +21,8 @@ try {
 }
 
 const token = payload?.access_token;
-if (typeof token !== "string" || token.length === 0 || token.trim() !== token || /[\u0000-\u001F\u007F]/.test(token)) {
+if (!payload || typeof payload !== "object" || Array.isArray(payload) || "error" in payload ||
+    typeof token !== "string" || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) {
   fail("Cloudflare token refresh response did not include a usable access token.");
 }
 

@@ -101,6 +101,7 @@ class GenerationResult:
     height: int
     seed: int
     image_quality: dict[str, Any] = field(default_factory=dict)
+    provider_provenance: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -115,6 +116,7 @@ class EditResult:
     provider: str
     model: str
     image_count: int
+    provider_provenance: dict[str, Any] = field(default_factory=dict)
 
 
 class ProviderError(Exception):
@@ -307,6 +309,7 @@ class DemoProvider:
             height=height,
             seed=seed,
             image_quality=inspect_generated_image(image, width, height),
+            provider_provenance={"model_id": "demo", "steps": None, "cfg_scale": None},
         )
 
 
@@ -386,6 +389,7 @@ class NvidiaProvider:
             height=height,
             seed=seed,
             image_quality=inspect_generated_image(image, width, height),
+            provider_provenance={"model_id": MODEL_ENDPOINTS[model], "steps": payload.get("steps"), "cfg_scale": payload.get("cfg_scale")},
         )
 
     def _endpoint_for(self, model: str) -> str:
@@ -483,6 +487,7 @@ class WorkersAiProvider:
             height=height,
             seed=effective_seed,
             image_quality=inspect_generated_image(image, width, height),
+            provider_provenance={"model_id": model_id, "steps": payload.get("steps"), "cfg_scale": None},
         )
 
 
@@ -544,6 +549,7 @@ class PollinationsProvider:
             height=height,
             seed=effective_seed,
             image_quality=inspect_generated_image(image, width, height),
+            provider_provenance={"model_id": "flux", "steps": None, "cfg_scale": None},
         )
 
 
@@ -800,7 +806,8 @@ async def edit_image(request: EditRequest, settings: Settings | None = None) -> 
     result_payload = payload.get("result") if isinstance(payload, dict) else None
     image = extract_image(result_payload if result_payload is not None else payload, "Workers AI")
     return EditResult(
-        image=image, provider="workers-ai", model=settings.workers_ai_edit_model, image_count=len(resized)
+        image=image, provider="workers-ai", model=settings.workers_ai_edit_model, image_count=len(resized),
+        provider_provenance={"model_id": settings.workers_ai_edit_model, "steps": None, "cfg_scale": None},
     )
 
 

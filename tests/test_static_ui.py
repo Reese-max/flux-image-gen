@@ -62,6 +62,23 @@ def test_showcase_images_have_explicit_dimensions():
         assert 'width="' in tag and 'height="' in tag, f"缺少尺寸：{tag[:80]}"
 
 
+def test_webp_assets_decode_in_source_and_deploy_copy():
+    from PIL import Image
+
+    for directory in [STATIC_DIR, ROOT_DIR / "cloudflare" / "public" / "static"]:
+        for image_path in directory.rglob("*.webp"):
+            with Image.open(image_path) as image:
+                image.load()
+
+
+def test_worker_regeneration_docs_match_canonical_behavior():
+    descriptions = [
+        next(line for line in read_repo(name).splitlines() if line.startswith("- 一鍵再生："))
+        for name in ["README.md", "cloudflare/README.md"]
+    ]
+    assert descriptions[0] == descriptions[1]
+
+
 def test_use_case_size_presets_are_productized():
     html = read_static("index.html")
     app_js = read_static("app.js")
@@ -296,6 +313,17 @@ def test_example_gallery_applies_prompts_without_auto_generation():
     assert ".example-card" in styles
 
 
+def test_showcase_webp_assets_decode():
+    from PIL import Image
+
+    for static_dir in (STATIC_DIR, ROOT_DIR / "cloudflare" / "public" / "static"):
+        images = sorted((static_dir / "examples").rglob("*.webp"))
+        assert images
+        for path in images:
+            with Image.open(path) as image:
+                image.load()
+
+
 def test_showcase_images_are_wired_and_present():
     """範例 Gallery 縮圖與靈感鈕都改用站台自生的真實範例圖，且檔案必須存在（避免破圖）。"""
     html = read_static("index.html")
@@ -325,6 +353,20 @@ def test_showcase_images_are_wired_and_present():
     assert html.count("v1.4.0") == 2
     assert ".example-thumb img" in styles
     assert ".idea .idea-thumb" in styles
+
+
+def test_example_webp_assets_are_decodable():
+    from PIL import Image
+
+    broken = []
+    for folder in (STATIC_DIR / "examples", ROOT_DIR / "cloudflare/public/static/examples"):
+        for path in folder.rglob("*.webp"):
+            try:
+                with Image.open(path) as image:
+                    image.load()
+            except (OSError, ValueError):
+                broken.append(path.relative_to(ROOT_DIR).as_posix())
+    assert not broken, f"{len(broken)} unreadable WebP assets: {broken[:3]}"
 
 
 def test_share_template_links_can_prefill_generation_form_without_auto_generation():
@@ -537,7 +579,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v24" in service_worker_js
+    assert "ai-image-generator-pwa-v25" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -580,7 +622,7 @@ def test_cloudflare_csp_allows_local_image_preview_blobs():
 def test_cloudflare_csp_allows_turnstile_script_and_frame():
     headers = read_repo("cloudflare/public/_headers")
 
-    assert "script-src 'self' https://challenges.cloudflare.com" in headers
+    assert "script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com" in headers
     assert "frame-src https://challenges.cloudflare.com" in headers
 
 
@@ -1126,7 +1168,9 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'exportHistoryJson' in history_wall_js
     assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
     assert "已取消匯出作品 JSON" in history_wall_js
-    assert "檔案可能包含完整描述與雲端刪除連結" in history_wall_js
+    assert "已排除雲端刪除連結與敏感網址" in history_wall_js
+    assert 'id="historyDetailProvenance"' in html
+    assert 'id="downloadHistoryReceipt"' in html
     assert 'sourceRecordId' in app_js
     assert '.history-detail' in styles
     assert '.history-cloud-actions' in styles
@@ -1264,6 +1308,8 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "history-store.js",
         "history-wall.js",
         "image-edit.js",
+        "provenance.js",
+        "provenance-inspector.js",
             "prompt-enhancer.js",
             "prompt-pack.js",
             "prompt-transform.js",

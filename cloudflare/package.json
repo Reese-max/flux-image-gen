@@ -11,14 +11,22 @@
     "deploy:dry-run": "node scripts/deploy.mjs --dry-run",
     "qa:browser:install": "playwright install chromium",
     "qa:browser": "node ../tests/e2e/cloudflare-v14-qa.mjs",
+    "qa:history-exports": "node ../tests/e2e/cloudflare-v14-qa.mjs --history-export-offline",
     "qa:network": "node ../tests/e2e/network-interrupted-qa.mjs",
     "qa:perf": "node ../tests/e2e/cloudflare-perf-qa.mjs",
     "qa:mobile": "node ../tests/e2e/mobile-generation-qa.mjs",
-    "qa:a11y": "node ../tests/e2e/accessibility-keyboard-qa.mjs"
+    "qa:a11y": "node ../tests/e2e/accessibility-keyboard-qa.mjs",
+    "qa:edit-readiness": "node --test ../tests/e2e/edit-readiness-qa.mjs",
+    "qa:provenance": "node ../tests/e2e/provenance-qa.mjs",
+    "qa:provenance:workerd": "node --test ../tests/e2e/provenance-workerd-qa.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.1",
+    "miniflare": "4.20260623.0",
     "playwright": "^1.61.1",
     "wrangler": "^4.104.0"
+  },
+  "dependencies": {
+    "@contentauth/c2pa-web": "0.15.3"
   }
 }

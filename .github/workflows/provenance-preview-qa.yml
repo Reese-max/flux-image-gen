@@ -1,0 +1,74 @@
+name: Isolated provenance HTTPS Preview QA
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, converted_to_draft]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: flux-pr45-isolated-provenance-qa
+  cancel-in-progress: false
+
+jobs:
+  isolated-preview:
+    if: >-
+      github.repository == 'Reese-max/flux-image-gen' &&
+      github.actor == 'Reese-max' && github.triggering_actor == 'Reese-max' &&
+      github.event.pull_request.number == 45 &&
+      github.event.pull_request.state == 'open' && github.event.pull_request.draft == true &&
+      github.event.pull_request.user.login == 'Reese-max' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/flux-reliability-sweep-20261024'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install locked product and isolated Preview tooling
+        run: |
+          npm ci --ignore-scripts --prefix cloudflare
+          npm ci --ignore-scripts --prefix cloudflare/qa
+          npm --prefix cloudflare run qa:browser:install -- --with-deps
+      - name: Verify frozen source and isolated controls before credentials
+        run: |
+          node cloudflare/qa/control.mjs validate
+          npm --prefix cloudflare run sync:check
+          npm --prefix cloudflare run check
+          npm --prefix cloudflare test
+          npm --prefix cloudflare run qa:edit-readiness
+          node --test --test-concurrency=1 tests/qa/*.test.mjs
+      - name: Create only the fixed authenticated native Preview and private QA bucket
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+        run: node cloudflare/qa/control.mjs prepare
+      - name: Verify immutable HTTPS Preview with fixture providers and real R2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node cloudflare/qa/run-browser.mjs
+      - name: Upload only sanitized proof receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-pr45-isolated-preview-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/qa/preview.json
+            output/qa/browser.json
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove private runner credentials and downloads
+        if: always()
+        shell: bash
+        run: |
+          rm -rf -- "$RUNNER_TEMP/flux-isolated-qa"
