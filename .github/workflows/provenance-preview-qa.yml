@@ -72,3 +72,71 @@ jobs:
         shell: bash
         run: |
           rm -rf -- "$RUNNER_TEMP/flux-isolated-qa"
+
+  isolated-abuse:
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) &&
+      github.repository == 'Reese-max/flux-image-gen' &&
+      github.actor == 'Reese-max' && github.triggering_actor == 'Reese-max' &&
+      github.event.pull_request.state == 'open' && github.event.pull_request.draft == true &&
+      github.event.pull_request.user.login == 'Reese-max' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'feature/issue11-isolated-abuse-qa-20261025' &&
+      contains(github.event.pull_request.body, '<!-- flux-issue11-isolated-qa:20261025 -->')
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: flux-issue11-isolated-abuse-qa
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install existing locked product and Preview CLI without scripts
+        run: |
+          npm ci --ignore-scripts --prefix cloudflare
+          npm ci --ignore-scripts --prefix cloudflare/qa
+      - name: Validate unchanged product and isolated runtime before credentials
+        run: |
+          node cloudflare/qa-abuse/control.mjs validate
+          npm --prefix cloudflare run sync:check
+          npm --prefix cloudflare run check
+          npm --prefix cloudflare test
+          node --test tests/qa-abuse/*.test.mjs
+      - name: Fresh owner draft PR and exact source lease before Cloudflare credentials
+        id: abuse-guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node cloudflare/qa-abuse/control.mjs guard
+      - name: Create only the new no-storage no-provider authenticated native Preview
+        if: steps.abuse-guard.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node cloudflare/qa-abuse/control.mjs prepare
+      - name: Verify fixed abuse faults, concurrency and actual grant expiry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node cloudflare/qa-abuse/control.mjs verify
+      - name: Remove only owned private runner state
+        if: always()
+        run: node cloudflare/qa-abuse/control.mjs cleanup
+      - name: Upload only fixed schema public proof receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flux-issue11-isolated-abuse-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            output/qa-abuse/preview.json
+            output/qa-abuse/runtime.json
+          if-no-files-found: ignore
+          retention-days: 7
