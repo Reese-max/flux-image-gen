@@ -4,7 +4,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { QA_NAME, QA_BUCKET, QA_KIND, FEATURE_HEAD, FEATURE_TREE, RUN, SHA, KEY } from './contract.mjs';
+import { QA_NAME, QA_BUCKET, QA_KIND, FEATURE_HEAD, FEATURE_TREE, RUN, SHA, KEY,immutableOrigin,qaWorkerNamespace } from './contract.mjs';
+import {emitReadyReceipt} from './receipts.mjs';
+export {immutableOrigin} from './contract.mjs';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const here = path.join(root, 'cloudflare/qa');
@@ -54,23 +56,46 @@ export function validateAdmission(env, event, pr, checkedOut) {
   requireValue(RUN.test(env.GITHUB_RUN_ID+'-'+env.GITHUB_RUN_ATTEMPT),'Invalid CI run identity');
   return {run:env.GITHUB_RUN_ID+'-'+env.GITHUB_RUN_ATTEMPT,sourceSha:checkedOut};
 }
-export function immutableOrigin(url, deploymentId) {
-  requireValue(/^[a-z0-9-]{8,64}$/.test(deploymentId),'Invalid Preview deployment ID');
-  const parsed=new URL(url);
-  requireValue(parsed.protocol==='https:' && !parsed.username&&!parsed.password&&!parsed.port&&!parsed.search&&!parsed.hash && parsed.pathname==='/','Unsafe Preview URL');
-  const suffix='-'+QA_NAME+'.';
-  const host=parsed.hostname;
-  requireValue(host.startsWith(deploymentId+suffix) && /^[a-z0-9-]+\.workers\.dev$/.test(host.slice((deploymentId+suffix).length)),'Expected immutable QA deployment URL');
-  return parsed.origin;
-}
-export function parseSecretDeployment(output) {
+export function parseSecretDeployment(output,context) {
+  requireValue(context&&/^pr45-[0-9]{1,20}-[1-9][0-9]{0,3}$/.test(context.previewName),'Missing secret Preview context');
+  immutableOrigin(context.initialOrigin,context.initialDeploymentId);
   const clean=output.replace(/\x1b\[[0-9;]*m/g,'');
   const match=clean.match(/Created Preview deployment ([a-z0-9-]{8,64}) with secret QA_ACCESS_TOKEN\./);
   requireValue(match,'Wrangler did not return a secret-bound Preview deployment');
+  requireValue(clean.includes('Your Preview "'+context.previewName+'" is now live at '),'Secret reply belongs to another Preview');
   const urls=clean.match(/https:\/\/[^\s,]+/g)||[];
-  const safe=urls.flatMap(url=>{try{return [immutableOrigin(url,match[1])];}catch{return [];}});
+  const safe=urls.flatMap(url=>{try{const origin=immutableOrigin(url,match[1]);
+    requireValue(qaWorkerNamespace(origin)===qaWorkerNamespace(context.initialOrigin),'Secret reply belongs to another account');
+    requireValue(origin!==context.initialOrigin&&match[1]!==context.initialDeploymentId&&!context.aliasOrigins.includes(origin),'Secret reply is not a new immutable deployment');
+    return [origin];}catch{return [];}});
   requireValue(safe.length===1,'Expected one immutable secret-bound Preview URL');
   return {deploymentId:match[1],origin:safe[0]};
+}
+export function initialPreviewArgs(configFile,previewName){return ['preview','--config',configFile,'--worker-name',QA_NAME,'--name',previewName,'--ignore-base-config','--json'];}
+export function parseInitialPreviewRecord(output,previewName,createdAt,now=Date.now(),configFile) {
+  let reason='record_size';
+  try{
+    requireValue(typeof output==='string'&&Buffer.byteLength(output,'utf8')<=16384,'Oversized Preview record');
+    reason='record_count';const lines=output.split(/\r?\n/).filter(line=>line.trim());requireValue(lines.length===2,'Ambiguous Preview records');
+    reason='record_json';const session=JSON.parse(lines[0]),record=JSON.parse(lines[1]);
+    reason='session_schema';const sessionKeys=['type','version','wrangler_version','command_line_args','log_file_path','timestamp'];
+    requireValue(session&&typeof session==='object'&&!Array.isArray(session)&&Object.keys(session).every(key=>sessionKeys.includes(key))&&session.type==='wrangler-session'&&session.version===1&&session.wrangler_version==='4.135.0','Unexpected Wrangler session');
+    reason='session_context';requireValue(typeof configFile==='string'&&path.isAbsolute(configFile)&&JSON.stringify(session.command_line_args)===JSON.stringify(initialPreviewArgs(configFile,previewName)),'Unexpected Wrangler invocation');
+    requireValue(session.log_file_path===undefined||(typeof session.log_file_path==='string'&&session.log_file_path.length<=4096),'Unexpected Wrangler log metadata');
+    reason='record_schema';const allowed=['type','version','worker_name','preview_id','preview_name','preview_slug','preview_urls','deployment_id','deployment_urls','timestamp'];
+    requireValue(record&&typeof record==='object'&&!Array.isArray(record)&&Object.keys(record).every(key=>allowed.includes(key))&&record.type==='preview'&&record.version===1,'Unexpected Preview record schema');
+    reason='record_context';requireValue(record.preview_name===previewName&&/^pr45-[0-9]{1,20}-[1-9][0-9]{0,3}$/.test(previewName),'Unexpected Preview name');
+    requireValue(record.worker_name===undefined||record.worker_name===QA_NAME,'Unexpected Worker name');
+    requireValue(typeof record.preview_id==='string'&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(record.preview_id),'Invalid Preview identity');
+    reason='record_time';const created=Date.parse(createdAt);
+    for(const value of [session.timestamp,record.timestamp]){const timestamp=Date.parse(value);requireValue(typeof value==='string'&&/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)&&Number.isFinite(created)&&timestamp>=created&&timestamp<=now+5000&&now-timestamp<=300000,'Stale Preview record');}
+    reason='deployment_url_count';requireValue(Array.isArray(record.deployment_urls)&&record.deployment_urls.length===1&&Array.isArray(record.preview_urls)&&record.preview_urls.length<=4,'Ambiguous Preview URLs');
+    reason='immutable_url';const origin=immutableOrigin(record.deployment_urls[0],record.deployment_id),namespace=qaWorkerNamespace(origin);
+    reason='mutable_alias';const aliasOrigins=record.preview_urls.map(value=>{
+      const url=new URL(value);requireValue(url.protocol==='https:'&&url.pathname==='/'&&!url.username&&!url.password&&!url.port&&!url.search&&!url.hash&&qaWorkerNamespace(url.origin)===namespace,'Unexpected Preview alias namespace');return url.origin;
+    });requireValue(!aliasOrigins.includes(origin),'Deployment URL is a mutable alias');
+    return {initialOrigin:origin,initialDeploymentId:record.deployment_id,previewId:record.preview_id,aliasOrigins};
+  }catch{throw new PreviewContractFailure(reason,initialPreviewShape(typeof output==='string'&&Buffer.byteLength(output,'utf8')<=16384?output:'',previewName));}
 }
 export function initialPreviewShape(output,previewName) {
   let first,wholeJson=true;
@@ -142,9 +167,9 @@ export function bucketNames(output) {
   requireValue(lines.includes('Listing buckets...')&&lines.every(line=>line==='Listing buckets...'||/wrangler 4\.135\.0/.test(line)||/^[─━\s]+$/.test(line)),'Unrecognised R2 inventory output');
   return [];
 }
-function cli(args,{input,key,ordinaryKind}={}) {
+function cli(args,{input,key,ordinaryKind,outputFile}={}) {
   const result=spawnSync(process.execPath,[path.join(here,'node_modules/wrangler/bin/wrangler.js'),...args],{
-    cwd:root,env:{...process.env,CI:'true',WRANGLER_SEND_METRICS:'false',WRANGLER_WRITE_LOGS:'false',WRANGLER_LOG_SANITIZE:'true',NO_COLOR:'1'},input,encoding:'utf8',maxBuffer:8*1024*1024,timeout:240000
+    cwd:root,env:{...process.env,CI:'true',WRANGLER_SEND_METRICS:'false',WRANGLER_WRITE_LOGS:'false',WRANGLER_LOG_SANITIZE:'true',WRANGLER_OUTPUT_FILE_PATH:outputFile||'',WRANGLER_OUTPUT_FILE_DIRECTORY:'',NO_COLOR:'1'},input,encoding:'utf8',maxBuffer:8*1024*1024,timeout:240000
   });
   if(ordinaryKind){try{return noOrdinaryScript(result.status,result.stdout,result.stderr,ordinaryKind);}catch{const error=new Error('Ordinary Worker collision/permission preflight failed: '+ordinaryKind);error.receipt={exitCode:result.status,details:sanitizedFailure(result.stdout+'\n'+result.stderr,key)};throw error;}}
   if(result.status!==0){const error=new Error('Wrangler command failed: '+args.slice(0,3).join(' '));error.receipt={exitCode:result.status,details:sanitizedFailure(result.stdout+'\n'+result.stderr,key)};throw error;}
@@ -215,20 +240,24 @@ export async function prepare() {
     }
     admitted();
     stage='initial_preview';
-    state.initialOrigin=parseInitialDeployment(cli(['preview','--config',paths.config,'--name',state.previewName,'--ignore-base-config','--json'],{key}),state.previewName);
+    const outputFile=path.join(paths.dir,'initial-preview.jsonl');writeFileSync(outputFile,'',{mode:0o600,flag:'wx'});
+    cli(initialPreviewArgs(paths.config,state.previewName),{key,outputFile});
+    const fileStat=statSync(outputFile);requireValue(fileStat.isFile()&&(fileStat.mode&0o077)===0&&fileStat.size<=16384,'Invalid private Preview record file');
+    Object.assign(state,parseInitialPreviewRecord(readFileSync(outputFile,'utf8'),state.previewName,config.previews.vars.QA_CREATED_AT,Date.now(),paths.config));
     // No secret yet: every asset/API must deny. No auth header is sent here.
-    stage='missing_key_denial';for(const asset of ['/','/__qa/status','/static/provenance.js','/static/vendor/c2pa.wasm','/static/vendor/c2pa-worker.js']) {
+    let deniedBeforeKey=0;stage='missing_key_denial';for(const asset of ['/','/__qa/status','/static/provenance.js','/static/vendor/c2pa.wasm','/static/vendor/c2pa-worker.js']) {
       const response=await fetch(state.initialOrigin+asset,{redirect:'error'});
-      requireValue(response.status===401,'Initial missing-key Preview was not deny-all');await response.arrayBuffer();
+      requireValue(response.status===401,'Initial missing-key Preview was not deny-all');await response.arrayBuffer();deniedBeforeKey++;
     }
     admitted();
     stage='preview_secret_put';
-    Object.assign(state,parseSecretDeployment(cli(['preview','secret','put','QA_ACCESS_TOKEN','--config',paths.config,'--name',state.previewName],{input:key+'\n',key})));
+    Object.assign(state,parseSecretDeployment(cli(['preview','secret','put','QA_ACCESS_TOKEN','--config',paths.config,'--worker-name',QA_NAME,'--name',state.previewName],{input:key+'\n',key}),state));
     writeFileSync(paths.state,JSON.stringify(state),{mode:0o600});
     stage='secret_bound_status';const status=await fetch(state.origin+'/__qa/status',{headers:{authorization:'Bearer '+key},redirect:'error'}).then(async response=>{requireValue(response.status===200,'Secret-bound Preview not ready');return response.json();});
-    requireValue(status.kind===QA_KIND&&status.run===state.run&&status.sourceSha===state.sourceSha&&status.frozenTree===FEATURE_TREE,'Preview status identity mismatch');
-    const report={status:'READY_FOR_BROWSER',...identity,worker:QA_NAME,bucket:QA_BUCKET,previewName:state.previewName,deploymentId:state.deploymentId,origin:state.origin,frozenHead:FEATURE_HEAD,frozenTree:FEATURE_TREE,noProductionDeployment:true,ordinaryPreflight,noPaidProviderCalls:true,expiresAt:state.expiresAt};
+    requireValue(status.kind===QA_KIND&&status.run===state.run&&status.sourceSha===state.sourceSha&&status.frozenHead===FEATURE_HEAD&&status.frozenTree===FEATURE_TREE,'Preview status identity mismatch');
+    const report={status:'READY_FOR_BROWSER',...identity,worker:QA_NAME,bucket:QA_BUCKET,previewName:state.previewName,deploymentId:state.deploymentId,origin:state.origin,frozenHead:FEATURE_HEAD,frozenTree:FEATURE_TREE,noProductionDeployment:true,ordinaryPreflight,noPaidProviderCalls:true,deniedBeforeKey,expiresAt:state.expiresAt};
     writeFileSync(path.join(root,'output/qa/preview.json'),JSON.stringify(report,null,2));
+    emitReadyReceipt(report,key);
     return report;
   } catch(error) {
     const report=emitFailureReceipt(stage,error,identity);

@@ -30,17 +30,27 @@ OAuth refresh, billing changes, bucket deletion or project deletion.
 3. Generate a 32-byte ephemeral key, mask its raw and Basic-encoded forms, and
    keep it only in a private runner file (0600, directory0700) and the scoped
    Preview secret. The wrapper expires the grant after one hour.
-4. Create the named native Preview with explicit `--ignore-base-config`,
+4. Create the named native Preview with explicit fixed `--worker-name` and
+   `--ignore-base-config`,
    `workers_dev=false`, `preview_urls=true`, an explicit Preview-only R2 binding,
    disabled observability and `assets.run_worker_first=true`. Missing key means
    **deny all**, including static JS/WASM/assets. Probe that initial immutable
    deployment without authentication before proceeding.
+   Read metadata only from Wrangler's official `WRANGLER_OUTPUT_FILE_PATH`
+   JSONL output, freshly created0600 under the owned0700 directory. Accept
+   exactly one known4.135 session record followed by one bounded version1
+   Preview record, with exact command arguments, expected name, fresh
+   timestamp and IDs. Console output is never metadata. The actual native
+   backend omits `worker_name`; the fixed command/config and validated Worker
+   hostname bind its namespace. The unique URL uses the first8 UUID characters,
+   which must match its deployment ID. Mutable Preview aliases are rejected.
 5. Pipe the key to **`wrangler preview secret put QA_ACCESS_TOKEN --name ...`**.
    This is the Preview-scoped secret-put path; it creates a new Preview
    deployment, without changing the parent production script or Preview base
    config. The secret command does not support `--ignore-base-config`; it
    patches this already isolated child deployment. Parse the new deployment ID
    and its matching **immutable Deployment URL**, never the mutable alias.
+   Require a new ID/origin in the same already vetted Worker/account namespace.
 6. Verify kind, run, exact source hash and frozen feature identity before browser
    actions. Any missing permission/unsupported API/resource collision stops the
    run with a bounded API-code receipt. There is no alternate credential,
@@ -100,6 +110,15 @@ disabled; raw subprocess errors are reduced to fixed classifications/API codes.
 Private runner state is removed even on failure. Failures before credentials
 or permissions remain honest gates; HTTPS success is claimed only after an
 actual successful hosted run.
+
+CI also prints strictly projected READY and browser proof summaries so they can
+be reviewed without opening an artifact ZIP. READY contains validated immutable
+origin/deployment/run/source/product pins, the real pre-key denial count and
+fixed safety flags. Browser success contains exactly four scenario/status/hash
+tuples, CSP/WASM/module-worker booleans, bounded transport counters and owned
+cleanup scope/count. Unknown payload fields are discarded; raw and Basic-encoded
+QA keys cause emission to fail. Neither raw stdout/JSONL nor private state,
+headers, prompts, paths, downloads or provider bodies are printed.
 
 ## Local review commands
 

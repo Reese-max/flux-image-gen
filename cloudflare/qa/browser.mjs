@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { QA_NAME, QA_KIND, FEATURE_HEAD, FEATURE_TREE, KEY, RUN, SHA, SCENARIOS } from './contract.mjs';
+import { QA_NAME, QA_KIND, FEATURE_HEAD, FEATURE_TREE, KEY, RUN, SHA, SCENARIOS,immutableOrigin } from './contract.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -13,7 +13,7 @@ const fixturePath = name => path.join(root, 'tests/fixtures/provenance', name);
 class ProofError extends Error {}
 const check = (condition, code) => { if (!condition) throw new ProofError(code); };
 
-function validatedOrigin(value, local) {
+function validatedOrigin(value, local,deploymentId) {
   check(typeof value === 'string', 'invalid_origin');
   let url;
   try { url = new URL(value); } catch { throw new Error('invalid_origin'); }
@@ -21,9 +21,7 @@ function validatedOrigin(value, local) {
   if (local) {
     check(['localhost', '127.0.0.1', '[::1]'].includes(url.hostname), 'invalid_local_origin');
   } else {
-    const worker = QA_NAME.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const immutable = new RegExp('^[a-f0-9-]{8,64}-' + worker + '\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.workers\\.dev$');
-    check(!url.port && immutable.test(url.hostname), 'immutable_qa_origin_required');
+    check(immutableOrigin(value,deploymentId)===value,'immutable_qa_origin_required');
   }
   return url.origin;
 }
@@ -51,9 +49,9 @@ export async function selectEditInput(page,bytes,phase=()=>{}) {
 }
 
 /** Exact-origin transport, exported for two-origin/redirect security canaries. */
-export function createQaOriginRouter({ origin, key, scenario = 'signed', local = false, transport } = {}) {
+export function createQaOriginRouter({ origin, key, scenario = 'signed', local = false, transport,deploymentId } = {}) {
   check(typeof local === 'boolean', 'invalid_local_flag');
-  origin = validatedOrigin(origin, local);
+  origin = validatedOrigin(origin, local,deploymentId);
   check(typeof key === 'string' && KEY.test(key), 'invalid_qa_key');
   check(SCENARIOS.includes(scenario), 'invalid_fixture_scenario');
   const stats = transport || { externalBlocked: 0, redirectsRejected: 0, failures: 0, teardownCanceled: 0, wasmLoaded: false, moduleWorkerLoaded: false };
@@ -112,9 +110,9 @@ export function createQaOriginRouter({ origin, key, scenario = 'signed', local =
  * Errors deliberately discard Playwright diagnostics that can contain headers.
  * No tracing, HAR, screenshots, console forwarding or persistent browser profile.
  */
-export async function prove({ origin, key, run, sourceSha, local = false } = {}) {
+export async function prove({ origin, key, run, sourceSha, local = false,deploymentId } = {}) {
   check(typeof local === 'boolean', 'invalid_local_flag');
-  origin = validatedOrigin(origin, local);
+  origin = validatedOrigin(origin, local,deploymentId);
   check(KEY.test(key || '') && typeof key === 'string', 'invalid_qa_key');
   check(typeof run === 'string' && RUN.test(run), 'invalid_qa_run');
   check(typeof sourceSha === 'string' && SHA.test(sourceSha), 'invalid_source_sha');
@@ -155,7 +153,7 @@ export async function prove({ origin, key, run, sourceSha, local = false } = {})
       if (url.pathname === '/static/vendor/c2pa.wasm') transport.wasmLoaded = true;
       if (url.pathname === '/static/vendor/c2pa-worker.js') transport.moduleWorkerLoaded = true;
     });
-    const router = createQaOriginRouter({ origin, key, scenario, local, transport });
+    const router = createQaOriginRouter({ origin, key, scenario, local, transport,deploymentId });
     routers.set(context, router);
     await context.route('**/*', router.handle);
     await context.addInitScript(() => localStorage.setItem('aiImageTutorialSeen.v1', 'true'));
@@ -375,7 +373,7 @@ export async function prove({ origin, key, run, sourceSha, local = false } = {})
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const result = await prove({ origin: process.env.FLUX_QA_ORIGIN, key: process.env.FLUX_QA_KEY,
-      run: process.env.FLUX_QA_RUN, sourceSha: process.env.FLUX_QA_SOURCE_SHA, local: process.env.FLUX_QA_LOCAL === 'true' });
+      run: process.env.FLUX_QA_RUN, sourceSha: process.env.FLUX_QA_SOURCE_SHA, deploymentId:process.env.FLUX_QA_DEPLOYMENT_ID, local: process.env.FLUX_QA_LOCAL === 'true' });
     process.stdout.write(JSON.stringify(result) + '\n');
   } catch {
     process.stderr.write('Isolated QA browser proof failed; no credential-bearing diagnostics were emitted.\n');

@@ -33,9 +33,10 @@ test('frozen source/config manifest and immutable secret-bound URL reject wrong 
   const url='https://abcdef12-'+QA_NAME+'.isolated.workers.dev/';assert.equal(immutableOrigin(url,'abcdef12'),url.slice(0,-1));
   assert.equal(parseInitialDeployment(JSON.stringify({preview:{worker_name:QA_NAME,name:'pr45-12345-1'},deployment:{id:'abcdef12',urls:[url]}}),'pr45-12345-1'),url.slice(0,-1));
   assert.throws(()=>parseInitialDeployment(JSON.stringify({worker_name:QA_NAME,preview_name:'pr45-12345-1',deployment_id:'abcdef12',deployment_urls:[url]}),'pr45-12345-1'));
-  assert.equal(parseSecretDeployment('Success! Created Preview deployment abcdef12 with secret QA_ACCESS_TOKEN.\nYour Preview is live at '+url).origin,url.slice(0,-1));
+  const secretContext={previewName:'pr45-12345-1',initialDeploymentId:'11111111',initialOrigin:'https://11111111-'+QA_NAME+'.isolated.workers.dev',aliasOrigins:[]};
+  assert.equal(parseSecretDeployment('Success! Created Preview deployment abcdef12 with secret QA_ACCESS_TOKEN.\nYour Preview "pr45-12345-1" is now live at '+url,secretContext).origin,url.slice(0,-1));
   for(const changed of [url.replace('https:','http:'),url.replace('abcdef12-','pr45-12345-1-'),url.replace(QA_NAME,'flux-image-gen'),url+'?key=secret',url.replace('.workers.dev','.workers.dev.attacker.test'),url.replace('https://','https://user:pass@')])assert.throws(()=>immutableOrigin(changed,'abcdef12'));
-  assert.throws(()=>parseSecretDeployment('Success at '+url));
+  assert.throws(()=>parseSecretDeployment('Success at '+url,secretContext));
   assert.doesNotMatch(JSON.stringify(sanitizedFailure('Authentication error [code: 10000] '+key+' Basic '+Buffer.from('flux-qa:'+key).toString('base64'),key)),new RegExp(key));
   assert.deepEqual(sanitizedFailure('Authentication error [code: 10000] opaqueFormalToken_WITH_nonhex_value'),['Cloudflare API code: 10000','Authentication error']);
   let malformed;try{JSON.parse('OPAQUE_OWNER_CANARY_DO_NOT_EXPORT');}catch(error){malformed=error;}

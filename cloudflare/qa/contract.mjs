@@ -7,6 +7,19 @@ export const RUN = /^[0-9]{1,20}-[1-9][0-9]{0,3}$/;
 export const SHA = /^[a-f0-9]{40}$/;
 export const KEY = /^[a-f0-9]{64}$/;
 export const SCENARIOS = ['signed', 'absent', 'stripped', 'tampered'];
+export const DEPLOYMENT_ID = /^(?:[a-f0-9]{8}|[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})$/;
+export function immutableOrigin(value, deploymentId) {
+  if(typeof deploymentId!=='string'||!DEPLOYMENT_ID.test(deploymentId))throw new Error('Invalid Preview deployment ID');
+  const url=new URL(value),prefix=deploymentId.slice(0,8)+'-'+QA_NAME+'.';
+  if(url.protocol!=='https:'||url.username||url.password||url.port||url.search||url.hash||url.pathname!=='/')throw new Error('Unsafe Preview URL');
+  if(!url.hostname.startsWith(prefix)||!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.workers\.dev$/.test(url.hostname.slice(prefix.length)))throw new Error('Expected immutable QA deployment URL');
+  return url.origin;
+}
+export function qaWorkerNamespace(origin) {
+  const host=new URL(origin).hostname,marker='-'+QA_NAME+'.',offset=host.indexOf(marker);
+  if(offset<0)throw new Error('Invalid QA Worker namespace');
+  return host.slice(offset+1);
+}
 export function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
   let result = 0; for (let i = 0; i < a.length; i++) result |= a.charCodeAt(i) ^ b.charCodeAt(i);
