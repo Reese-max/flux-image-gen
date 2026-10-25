@@ -232,7 +232,7 @@
       id = toText(idFactory());
     }
 
-    return {
+    var normalized = {
       id: id,
       schemaVersion: RECORD_SCHEMA_VERSION,
       userPrompt: prompt,
@@ -271,6 +271,10 @@
       versionNumber: normalizeVersionNumber(source.versionNumber),
       createdAt: toText(source.createdAt) || new Date().toISOString()
     };
+    if (source.provenance && root.ImageProvenance) {
+      normalized.provenance = root.ImageProvenance.normalizeReceipt(source.provenance);
+    }
+    return normalized;
   }
 
   function findRecordById(records, id) {
@@ -447,6 +451,8 @@
         return [];
       }
       rawRecords = Array.isArray(source.records) ? source.records : [];
+    } else if (source.image && source.provenance) {
+      rawRecords = [source];
     } else if (Array.isArray(source.records)) {
       rawRecords = source.records;
     } else {

@@ -1496,6 +1496,8 @@ function renderBatchResults(stage, images, base){
     grid.appendChild(card);
 
     record = {
+      id: createHistoryRecordId(),
+      createdAt: new Date().toISOString(),
       image: image,
       thumbnail: image,
       prompt: base.prompt,
@@ -1509,7 +1511,8 @@ function renderBatchResults(stage, images, base){
       width: typeof item.width === 'number' ? item.width : fallback.width,
       height: typeof item.height === 'number' ? item.height : fallback.height,
       provider: typeof item.provider === 'string' ? item.provider : '',
-      sourceRecordId: '',
+      providerProvenance: item.providerProvenance,
+      sourceRecordId: pendingSourceRecordId,
       mode: 'normal'
     };
     records.push(record);
@@ -1802,6 +1805,7 @@ function generate(options){
       fallbackDimensions = getSizeDimensions(size);
       generatedRecord = {
         id: createHistoryRecordId(),
+        createdAt: new Date().toISOString(),
         image: image,
         thumbnail: typeof data.thumbnail === 'string' ? data.thumbnail : image,
         prompt: prompt,
@@ -1815,6 +1819,7 @@ function generate(options){
         width: typeof data.width === 'number' ? data.width : fallbackDimensions.width,
         height: typeof data.height === 'number' ? data.height : fallbackDimensions.height,
         provider: typeof data.provider === 'string' ? data.provider : '',
+        providerProvenance: data.providerProvenance,
         sourceRecordId: pendingSourceRecordId,
         mode: 'normal'
       };

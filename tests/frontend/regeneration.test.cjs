@@ -57,6 +57,7 @@ function setup(transform, record = cat) {
   };
   const context = vm.createContext({
     document, navigator: {}, console, performance: { now: () => 1000 },
+    crypto: require('node:crypto').webcrypto, Blob, TextEncoder, Uint8Array, ArrayBuffer, atob, btoa, URL, AbortController,
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
     localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value) },
@@ -77,7 +78,7 @@ function setup(transform, record = cat) {
     }
   });
   context.window = context;
-  for (const name of ['generation-settings.js', 'history-store.js', 'app.js', 'history-wall.js']) {
+  for (const name of ['generation-settings.js', 'provenance.js', 'history-store.js', 'app.js', 'history-wall.js']) {
     const filename = path.resolve(__dirname, '../../app/static', name);
     vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   }

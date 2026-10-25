@@ -81,10 +81,11 @@ function setupEnvironment(options = {}) {
       listeners[type] = listeners[type] || [];
       listeners[type].push(handler);
     },
-    dispatchEvent: () => true
+    dispatchEvent: (event) => Promise.all((listeners[event.type] || []).map(handler => handler(event)))
   };
 
   const window = {
+    crypto: require('node:crypto').webcrypto,
     document,
     addEventListener() {},
     localStorage: { getItem: () => stored, setItem: (_key, value) => { stored = value; } },
@@ -130,6 +131,12 @@ function setupEnvironment(options = {}) {
     performance: { now: () => Date.now() },
     console,
     Blob,
+    TextEncoder,
+    Uint8Array,
+    ArrayBuffer,
+    atob,
+    btoa,
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
     setTimeout: (fn, delay) => { timers.push(fn); timerDelays.push(delay); return timers.length; },
     clearTimeout: () => {},
     setInterval: () => 0,
@@ -137,6 +144,7 @@ function setupEnvironment(options = {}) {
   });
   context.globalThis = window;
 
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../app/static/provenance.js'), 'utf8'), context);
   if (options.useRealStore) { vm.runInContext(historyStoreJsSource, context); }
   vm.runInContext(historyWallJsSource, context, { filename: historyWallJsPath });
   (listeners['DOMContentLoaded'] || []).forEach((handler) => handler());
@@ -231,7 +239,7 @@ test('export-all button downloads every record and the backup survives a storage
   ];
   const env = setupEnvironment({ records, useRealStore: true });
   const store = env.window.ImageHistoryStore;
-  const expected = JSON.parse(JSON.stringify(store.loadRecords()));
+  const expected = JSON.parse(JSON.stringify(store.loadRecords())).map(item => ({ ...item, cloudDeleteUrl: '' }));
   assert.equal(env.elements.exportAllHistoryJson.hidden, false);
   assert.equal(env.elements.exportAllHistoryJson.disabled, false);
   env.elements.exportAllHistoryJson.click();
@@ -283,3 +291,95 @@ test('export-all honours cancellation and hides the button with no history', () 
   assert.equal(empty.createdUrls.length, 0);
   assert.ok(empty.statuses.some(entry => entry.cls === 'warn' && entry.text.includes('尚無可匯出')));
 });
+
+test('all-history backup preserves receipts and safe UI data without exporting capability secrets', async () => {
+  const seed = setupEnvironment().record;
+  const env = setupEnvironment({ useRealStore: true, records: [{ ...seed,
+    tags: ['收藏'], favorite: true, cloudDeleteUrl: '/gallery/item/delete?deleteToken=fixture-secret',
+    cloudShareUrl: '/share/item?token=fixture-secret',
+    providerPrompt: 'a cat Authorization: Bearer fixture-secret',
+    imageUrl: 'https://provider.invalid/image?token=fixture-secret' }] });
+  const store = env.window.ImageHistoryStore;
+  const records = store.loadRecords();
+  records[0].provenance = await env.window.ImageProvenance.createReceipt(records[0]);
+  store.saveRecords(records);
+  env.elements.exportAllHistoryJson.click();
+  const payload = JSON.parse(await env.createdUrls[0].blob.text());
+  assert.doesNotMatch(JSON.stringify(payload), /fixture-secret|deleteToken|Authorization: Bearer/);
+  const restored = store.parseRecords(JSON.stringify(payload))[0];
+  assert.deepEqual(JSON.parse(JSON.stringify(restored.tags)), ['收藏']);
+  assert.equal(restored.favorite, true);
+  assert.equal(restored.provenance.receipt_sha256, records[0].provenance.receipt_sha256);
+  assert.equal((await env.window.ImageProvenance.verifyReceipt(restored)).status, 'hash_verified');
+});
+
+for (const variant of ['original', 'tampered', 'legacy', 'uncached']) {
+  test('backup handles existing local original bytes for remote history: ' + variant, async () => {
+    const seed = setupEnvironment().record;
+    const env = setupEnvironment({ records: [], useRealStore: true });
+    const store = env.window.ImageHistoryStore;
+    const original = store.normalizeRecord(seed);
+    const receipt = await env.window.ImageProvenance.createReceipt(original);
+    const changed = Buffer.from(seed.image.split(',')[1], 'base64'); changed[changed.length - 1] ^= 1;
+    const cached = variant === 'tampered' ? 'data:image/png;base64,' + changed.toString('base64') : seed.image;
+    store.saveRecords([{ ...original, image: 'https://provider.invalid/image?token=fixture-cached-secret',
+      imageUrl: 'https://provider.invalid/image?token=fixture-cached-secret',
+      localImageData: variant === 'uncached' ? '' : cached,
+      provenance: variant === 'legacy' ? undefined : receipt }]);
+    env.elements.exportAllHistoryJson.click();
+    if (variant === 'uncached') {
+      assert.equal(env.createdUrls.length, 0);
+      assert.ok(env.statuses.some(s => s.cls === 'fail' && s.text.includes('本機圖片')));
+      return;
+    }
+    const backup = JSON.parse(await env.createdUrls[0].blob.text());
+    assert.equal(backup.records[0].image, cached);
+    assert.doesNotMatch(JSON.stringify(backup), /fixture-cached-secret|https:\/\/provider/);
+    const restored = store.parseRecords(JSON.stringify(backup))[0];
+    if (variant === 'legacy') { assert.equal(restored.provenance, undefined); }
+    else {
+      assert.equal(restored.provenance.receipt_sha256, receipt.receipt_sha256);
+      const checked = await env.window.ImageProvenance.verifyReceipt(restored);
+      assert.equal(checked.status, variant === 'tampered' ? 'modified' : 'hash_verified');
+      if (variant === 'tampered') { assert.equal(checked.credential_status, 'invalid'); }
+    }
+  });
+}
+
+for (const mutation of ['delete', 'metadata', 'image', 'cache']) {
+  test('pending receipt respects a newer persisted history change: ' + mutation, async () => {
+    const seed = setupEnvironment().record;
+    const env = setupEnvironment({ records: [], useRealStore: true });
+    let release;
+    env.window.C2paInspector = { inspect: () => new Promise(resolve => { release = resolve; }) };
+    const detail = mutation === 'cache' ? { ...seed, image: 'https://provider.invalid/output', localImageData: seed.image } : seed;
+    const work = env.context.document.dispatchEvent({ type: 'imagegen:generated', detail });
+    while (!release) { await new Promise(setImmediate); }
+    const store = env.window.ImageHistoryStore;
+    const pending = store.loadRecords();
+    assert.equal(pending.length, 1);
+    if (mutation === 'delete') { store.saveRecords([]); }
+    else if (mutation === 'metadata') {
+      store.saveRecords([{ ...pending[0], favorite: true, tags: ['other-tab'] }, { ...pending[0], id: 'other-tab' }]);
+    } else if (mutation === 'cache') { store.saveRecords([{ ...pending[0], localImageData: 'data:image/png;base64,AAAA' }]); }
+    else { store.saveRecords([{ ...pending[0], image: 'data:image/png;base64,AAAA', localImageData: 'data:image/png;base64,AAAA' }]); }
+    release({ status: 'absent' }); await work;
+    const latest = store.loadRecords();
+    if (mutation === 'delete') { assert.equal(latest.length, 0, 'another tab deletion must never be resurrected'); }
+    if (mutation === 'metadata') {
+      assert.equal(latest.length, 2);
+      assert.equal(latest[0].favorite, true);
+      assert.deepEqual(JSON.parse(JSON.stringify(latest[0].tags)), ['other-tab']);
+      assert.ok(latest[0].provenance.receipt_sha256);
+    }
+    if (mutation === 'image') {
+      assert.equal(latest[0].image, 'data:image/png;base64,AAAA');
+      assert.equal(latest[0].provenance.receipt_sha256, '');
+    }
+    if (mutation === 'cache') {
+      assert.equal(latest[0].image, 'https://provider.invalid/output');
+      assert.equal(latest[0].localImageData, 'data:image/png;base64,AAAA');
+      assert.equal(latest[0].provenance.receipt_sha256, '');
+    }
+  });
+}

@@ -230,11 +230,17 @@ async function main() {
 }
 
 async function downloaded(page, selector, expectedName, destination) {
-  page.once('dialog', dialog => dialog.accept());
-  const [download] = await Promise.all([
-    page.waitForEvent('download', { timeout: 10000 }),
-    page.locator(selector).click(),
-  ]);
+  // Private artwork export needs no confirmation. Keep its unused listener
+  // from accepting a later backup dialog twice.
+  const accept = dialog => dialog.accept();
+  let download;
+  page.on('dialog', accept);
+  try {
+    [download] = await Promise.all([
+      page.waitForEvent('download', { timeout: 10000 }),
+      page.locator(selector).click(),
+    ]);
+  } finally { page.off('dialog', accept); }
   assert.equal(download.suggestedFilename(), expectedName);
   assert.equal(await download.failure(), null);
   await download.saveAs(destination);
@@ -249,7 +255,15 @@ async function verifyHistoryExports(page, expected, output, tag) {
   assert.equal(await page.locator('#historyDetailPrompt').innerText(), selected.prompt);
   const safeId = String(selected.id).replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'history';
   const single = await downloaded(page, '#exportHistoryJson', 'history_' + safeId + '.json', path.join(output, tag + '-single.json'));
-  assert.deepEqual(single.payload, expected.find(record => record.id === selected.id));
+  assert.equal(single.payload.id, selected.id);
+  assert.equal(single.payload.image, selected.image);
+  assert.equal(single.payload.seed, selected.seed);
+  assert.equal(single.payload.versionNumber, selected.versionNumber);
+  assert.deepEqual(single.payload.provenance, selected.provenance || null);
+  const privatePrompt = await page.locator('#hidePromptInShare').isChecked();
+  assert.equal(single.payload.prompt, privatePrompt ? '[private]' : selected.prompt);
+  assert.equal(single.payload.cloudDeleteUrl, undefined);
+  assert.equal(single.payload.imageUrl, undefined);
   await page.keyboard.press('Escape');
   await page.waitForSelector('#historyDetailModal[hidden]', { state: 'attached' });
   await page.locator('#historySearch').fill(expected[0].prompt);
@@ -258,14 +272,15 @@ async function verifyHistoryExports(page, expected, output, tag) {
   const all = await downloaded(page, '#exportAllHistoryJson', 'history_backup_' + date + '.json', path.join(output, tag + '-all.json'));
   assert.equal(all.payload.schema, 'GenerationRecordCollection');
   assert.equal(all.payload.version, 2);
-  assert.deepEqual(all.payload.records, expected);
+  const safeBackup = expected.map(record => ({ ...record, cloudDeleteUrl: '' }));
+  assert.deepEqual(all.payload.records, safeBackup);
   const restored = await page.evaluate(payload => {
     localStorage.removeItem(window.ImageHistoryStore.STORAGE_KEY);
     const parsed = window.ImageHistoryStore.parseRecords(JSON.stringify(payload));
     window.ImageHistoryStore.saveRecords(parsed);
     return window.ImageHistoryStore.loadRecords();
   }, all.payload);
-  assert.deepEqual(restored, expected);
+  assert.deepEqual(restored, safeBackup);
   let extraDownloads = 0;
   const countUnexpectedDownload = () => { extraDownloads += 1; };
   page.on('download', countUnexpectedDownload);
