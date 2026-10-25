@@ -55,6 +55,7 @@ def run_smoke(base_url, *args):
         [sys.executable, str(SCRIPT), "--base-url", base_url, *args],
         cwd=ROOT,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         timeout=20,
         check=False,

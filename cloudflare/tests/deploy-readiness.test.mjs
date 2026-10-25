@@ -1,11 +1,22 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+async function readDeployWorkflow() {
+  const contents = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  return contents.replace(/\r\n?/g, '\n');
+}
 
 import {
   REQUIRED_PRODUCTION_SECRETS,
   assertCleanWorktree,
   assertFixedProductionDeployArgs,
+  assertProductionAbuseControls,
   findMissingSecrets,
   parseSecretNames,
   validateReadinessInputs,
@@ -22,6 +33,80 @@ test('deployment readiness requires a clean worktree', () => {
     () => assertCleanWorktree(' M cloudflare/src/index.js\n?? scratch.txt\n'),
     /uncommitted or untracked changes/,
   );
+});
+
+test('fresh Git checkouts preserve binary image bytes and pass the real readiness worktree gate', async (t) => {
+  const attributes = await readFile(new URL('../../.gitattributes', import.meta.url), 'utf8');
+  const readiness = await readFile(new URL('../scripts/check-deploy-readiness.mjs', import.meta.url), 'utf8');
+  const config = await readFile(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  // Store historical blobs without clean filters, as the existing images were
+  // stored before the broad static-directory text rules were introduced.
+  // CRLF plus lone LF bytes catch conversion in either autocrlf mode.
+  const image = Buffer.from([0x52, 0x49, 0x46, 0x46, 0, 13, 10, 0xff, 10, 0x80, 13, 10]);
+
+  for (const autocrlf of ['false', 'true']) {
+    await t.test(`core.autocrlf=${autocrlf}`, () => {
+      const directory = mkdtempSync(join(tmpdir(), 'deploy-readiness-checkout-'));
+      const source = join(directory, 'source');
+      const checkout = join(directory, 'checkout');
+      mkdirSync(source);
+      const git = (cwd, args, input) => {
+        const result = spawnSync('git', args, {
+          cwd, input, encoding: 'utf8',
+          env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(directory, 'gitconfig') },
+        });
+        assert.equal(result.status, 0, `git ${args[0]} failed: ${result.stderr}`);
+        return result.stdout.trim();
+      };
+
+      try {
+        writeFileSync(join(directory, 'gitconfig'), '');
+        git(source, ['init', '--quiet']);
+        git(source, ['config', 'core.autocrlf', autocrlf]);
+        git(source, ['config', 'user.name', 'Readiness regression']);
+        git(source, ['config', 'user.email', 'readiness@example.invalid']);
+        git(source, ['config', 'commit.gpgsign', 'false']);
+        mkdirSync(join(source, 'cloudflare', 'scripts'), { recursive: true });
+        writeFileSync(join(source, '.gitattributes'), attributes);
+        writeFileSync(join(source, '.gitignore'), 'node_modules/\n');
+        writeFileSync(join(source, 'cloudflare', 'scripts', 'check-deploy-readiness.mjs'), readiness);
+        writeFileSync(join(source, 'cloudflare', 'wrangler.toml'), config);
+        git(source, ['add', '.']);
+
+        const paths = ['app/static', 'cloudflare/public/static'].flatMap((folder) =>
+          ['webp', 'jpg', 'png'].map((extension) => `${folder}/image.${extension}`),
+        );
+        for (const name of paths) {
+          const blob = git(source, ['hash-object', '-w', '--stdin', '--no-filters'], image);
+          git(source, ['update-index', '--add', '--cacheinfo', `100644,${blob},${name}`]);
+        }
+        git(source, ['commit', '--quiet', '-m', 'Binary image fixture']);
+        git(directory, ['clone', '--config', `core.autocrlf=${autocrlf}`, '--quiet', '--no-local', source, checkout]);
+
+        assert.equal(git(checkout, ['status', '--porcelain=v1', '--untracked-files=all']), '');
+        for (const name of paths) {
+          assert.deepEqual(readFileSync(join(checkout, name)), image, `${name} must retain its blob bytes`);
+        }
+        const fakeWrangler = join(checkout, 'cloudflare', 'node_modules', 'wrangler', 'bin');
+        mkdirSync(fakeWrangler, { recursive: true });
+        writeFileSync(join(fakeWrangler, 'wrangler.js'), `console.log(${JSON.stringify(JSON.stringify(completeSecretList))});\n`);
+        const run = () => spawnSync(process.execPath, ['cloudflare/scripts/check-deploy-readiness.mjs'], {
+          cwd: checkout, encoding: 'utf8',
+        });
+        const clean = run();
+        assert.equal(clean.status, 0, clean.stderr);
+        assert.match(clean.stdout, /\[deploy-readiness\] PASS:/);
+
+        // The binary override must not weaken detection of real edits.
+        writeFileSync(join(checkout, paths[0]), Buffer.concat([image, Buffer.from([1])]));
+        const dirty = run();
+        assert.equal(dirty.status, 1);
+        assert.match(dirty.stderr, /Git worktree has uncommitted or untracked changes/);
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    });
+  }
 });
 
 test('deployment wrapper accepts only the fixed production target and dry-run switch', () => {
@@ -98,4 +183,354 @@ test('both real deployment paths invoke readiness before resolving the commit', 
   assert.ok(cleanupBody.indexOf('sync_windows_credentials') < cleanupBody.indexOf('restore_wsl_credentials'));
   assert.match(wslScript, /BORROWED_WSL_CREDS_READY=yes/);
   assert.match(wslScript, /default\.toml.*\.bak-|\$\{WIN_CREDS\}\.bak-/);
+});
+
+
+
+const LIMITER_BINDING = '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\nsimple = { limit = 12, period = 60 }';
+
+test('assertProductionAbuseControls rejects development mode even when Turnstile is active', () => {
+  // Turnstile is not verified by Gemini-backed /prompt/* routes.
+  assert.throws(
+    () => assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n${LIMITER_BINDING}`,
+    ),
+    /ENVIRONMENT must be "production"/,
+  );
+});
+
+test('assertProductionAbuseControls rejects a production config that opts out of Turnstile', () => {
+  // The per-IP limiter is trivially rotated, so it cannot stand in for the
+  // human-verification gate on /generate, /generate/batch and /edit.
+  assert.throws(
+    () => assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"\n${LIMITER_BINDING}`,
+    ),
+    /TURNSTILE_REQUIRED must be "true"/,
+  );
+});
+
+test('assertProductionAbuseControls rejects a production config with no site key', () => {
+  assert.throws(
+    () => assertProductionAbuseControls(
+      '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\n' + LIMITER_BINDING,
+    ),
+    /TURNSTILE_SITE_KEY/,
+  );
+});
+
+test('assertProductionAbuseControls passes when every control is enabled', () => {
+  assert.doesNotThrow(() =>
+    assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n${LIMITER_BINDING}`,
+    )
+  );
+});
+
+test('assertProductionAbuseControls rejects when Turnstile is off and the limiter is not fail-closed', () => {
+  assert.throws(
+    () => assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\n${LIMITER_BINDING}`,
+    ),
+    /Production deployment rejected/,
+  );
+});
+
+test('assertProductionAbuseControls rejects production mode without the limiter binding', () => {
+  // The GENERATE_RATE_LIMITER binding is mandatory: without it the
+  // Gemini-backed prompt routes have no equivalent hard gate at all.
+  assert.throws(
+    () => assertProductionAbuseControls('[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "false"'),
+    /GENERATE_RATE_LIMITER/,
+  );
+});
+
+test('assertProductionAbuseControls rejects a Turnstile-only config without the limiter binding', () => {
+  // Even a correct Turnstile gate does not cover /prompt/* routes, which
+  // never verify Turnstile tokens — the limiter binding is still required.
+  assert.throws(
+    () => assertProductionAbuseControls(
+      '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"',
+    ),
+    /GENERATE_RATE_LIMITER/,
+  );
+});
+
+test('assertProductionAbuseControls rejects Turnstile-required config without a site key', () => {
+  assert.throws(
+    () => assertProductionAbuseControls(
+      `[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\n${LIMITER_BINDING}`,
+    ),
+    /TURNSTILE_SITE_KEY/,
+  );
+});
+
+test('assertProductionAbuseControls rejects a commented-out limiter binding', () => {
+  // Wrangler ignores commented tables, so the deployment would ship with no
+  // limiter at all; a raw-text match would wrongly accept this.
+  const commentedOut =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '# [[ratelimits]]\n# name = "GENERATE_RATE_LIMITER"\n# simple = { limit = 12, period = 60 }\n';
+  assert.throws(
+    () => assertProductionAbuseControls(commentedOut),
+    /must declare the \[\[ratelimits\]\] GENERATE_RATE_LIMITER binding/,
+  );
+});
+
+test('assertProductionAbuseControls ignores a limiter name declared under another table', () => {
+  // A whole-file name scan would accept this and only trip the later bounds
+  // check, so the fixture also carries a valid `simple` block.
+  const foreign =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '[observability]\nname = "GENERATE_RATE_LIMITER"\nsimple = { limit = 12, period = 60 }\n';
+  assert.throws(
+    () => assertProductionAbuseControls(foreign),
+    /must declare the \[\[ratelimits\]\] GENERATE_RATE_LIMITER binding/,
+  );
+});
+
+test('assertProductionAbuseControls accepts the equivalent TOML spellings of a hardened config', () => {
+  // Wrangler accepts a [ratelimits.simple] sub-table and TOML literal strings;
+  // the Python preflight does too, so the JS gate must not reject either.
+  const subTable =
+    "[vars]\nENVIRONMENT = 'production'\nTURNSTILE_REQUIRED = 'true'\nTURNSTILE_SITE_KEY = '0x_site'\n" +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\n' +
+    '[ratelimits.simple]\nlimit = 12\nperiod = 60\n';
+  assert.doesNotThrow(() => assertProductionAbuseControls(subTable));
+});
+
+test('assertProductionAbuseControls rejects a limiter without usable simple bounds', () => {
+  // `[[ratelimits]]` with no `simple` block is the same fail-open state as a
+  // missing binding: the gate allows every request. Mirrors the Python gate.
+  const unbounded =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\n';
+  assert.throws(
+    () => assertProductionAbuseControls(unbounded),
+    /simple = \{ limit = N, period = M \}/,
+  );
+
+  const zeroLimit =
+    '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nsimple = { limit = 0, period = 60 }\n';
+  assert.throws(
+    () => assertProductionAbuseControls(zeroLimit),
+    /simple = \{ limit = N, period = M \}/,
+  );
+});
+
+test('assertProductionAbuseControls applies the bounds rule to the sub-table form too', () => {
+  // A zero limit in the `[ratelimits.simple]` sub-table form is the same
+  // fail-open state as an inline `limit = 0`; both must be rejected.
+  const subTableZero =
+    "[vars]\nENVIRONMENT = 'production'\nTURNSTILE_REQUIRED = 'true'\nTURNSTILE_SITE_KEY = '0x_site'\n" +
+    '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\n[ratelimits.simple]\nlimit = 0\nperiod = 60\n';
+  assert.throws(
+    () => assertProductionAbuseControls(subTableZero),
+    /simple = \{ limit = N, period = M \}/,
+  );
+});
+
+test('validateReadinessInputs applies the abuse-control policy to the checked-in config', () => {
+  // main() feeds the tracked wrangler.toml through this single validation
+  // pass, so the policy must be enforced here and not only at a second site.
+  const insecure = '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\n' + LIMITER_BINDING;
+  assert.throws(
+    () => validateReadinessInputs({
+      gitStatus: '',
+      secretListOutput: JSON.stringify(completeSecretList),
+      wranglerTomlContent: insecure,
+    }),
+    /Production deployment rejected/,
+  );
+  assert.doesNotThrow(() => validateReadinessInputs({
+    gitStatus: '',
+    secretListOutput: JSON.stringify(completeSecretList),
+    wranglerTomlContent:
+      '[vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n'
+      + LIMITER_BINDING,
+  }));
+});
+
+test('assertProductionAbuseControls rejects when no vars set', () => {
+  assert.throws(
+    () => assertProductionAbuseControls(''),
+    /Production deployment rejected|GENERATE_RATE_LIMITER/,
+  );
+});
+
+test('assertProductionAbuseControls ignores matching names outside the [vars] table', () => {
+  // The env-specific table comes first so a whole-file scan would read the
+  // spoofed production value instead of the real [vars] deployment policy.
+  const spoofed =
+    '[env.staging.vars]\nENVIRONMENT = "production"\nTURNSTILE_REQUIRED = "true"\nTURNSTILE_SITE_KEY = "0x_site"\n' +
+    '[vars]\nENVIRONMENT = "development"\nTURNSTILE_REQUIRED = "false"\n' +
+    LIMITER_BINDING;
+  assert.throws(
+    () => assertProductionAbuseControls(spoofed),
+    /ENVIRONMENT must be "production"|TURNSTILE_REQUIRED must be "true"/,
+  );
+});
+
+test('assertProductionAbuseControls accepts the tracked production wrangler.toml', async () => {
+  const toml = await readFile(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  assert.doesNotThrow(() => assertProductionAbuseControls(toml));
+});
+
+test('GitHub Actions production deploy runs the hardened abuse gates before wrangler deploy', async () => {
+  const workflow = await readDeployWorkflow();
+  const productionJob = workflow.slice(workflow.indexOf('deploy-production:'));
+
+  const preflightIndex = productionJob.indexOf('check_deployment_preflight.py --public');
+  const readinessIndex = productionJob.indexOf('check-deploy-readiness.mjs');
+  const deployIndex = productionJob.indexOf('command: deploy');
+
+  assert.ok(preflightIndex >= 0, 'production job must run the public deployment preflight');
+  assert.ok(readinessIndex >= 0, 'production job must run check-deploy-readiness.mjs');
+  assert.ok(
+    deployIndex > preflightIndex && deployIndex > readinessIndex,
+    'wrangler deploy must run only after both abuse-control gates pass',
+  );
+});
+
+test('GitHub Actions PR workflow does not upload a production Worker version', async () => {
+  const workflow = await readDeployWorkflow();
+
+  assert.match(workflow, /pull_request:/);
+  assert.doesNotMatch(workflow, /^  deploy-preview:/m);
+  assert.doesNotMatch(workflow, /command:\s*versions upload/);
+});
+
+test('GitHub Actions PR workflow never weakens the production abuse policy', async () => {
+  const workflow = await readDeployWorkflow();
+
+  assert.doesNotMatch(workflow, /command:\s*versions upload/);
+  assert.doesNotMatch(workflow, /ENVIRONMENT:development/);
+  assert.doesNotMatch(workflow, /TURNSTILE_REQUIRED:false/);
+});
+
+test('GitHub Actions deploy jobs run the Worker checks before any upload', async () => {
+  // `npx tsc --noEmit || true` could never fail, so the gate job previously
+  // uploaded whatever was on the branch. Lock in the real checks.
+  const workflow = await readDeployWorkflow();
+  const checkJob = workflow.slice(workflow.indexOf('\n  check:\n'), workflow.indexOf('\n  deploy-production:\n'));
+
+  assert.match(checkJob, /- run: npm run check/);
+  assert.match(checkJob, /- run: npm test/);
+  assert.doesNotMatch(checkJob, /tsc --noEmit \|\| true/);
+  assert.match(workflow, /deploy-production:\n\s+needs: check/);
+  assert.doesNotMatch(workflow, /command:\s*versions upload/);
+});
+
+test('GitHub Actions deploy jobs reference script paths that exist from their working directory', async () => {
+  // GitHub Actions resolves each step from the job's working directory; a path
+  // that only exists relative to another job makes the deploy step fail.
+  const repoRoot = new URL('../../', import.meta.url);
+  const workflow = await readDeployWorkflow();
+
+  // Only the `jobs:` block declares jobs; `on:` triggers share the same indent.
+  const lines = workflow.slice(workflow.indexOf('\njobs:\n')).split('\n');
+  const jobStarts = lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => /^ {2}[A-Za-z0-9_-]+:\s*$/.test(line));
+  assert.equal(jobStarts.length, 2, 'expected the check and production jobs');
+
+  for (const [position, { line }] of jobStarts.entries()) {
+    const name = line.trim().replace(/:$/, '');
+    const body = lines
+      .slice(jobStarts[position].index, jobStarts[position + 1]?.index ?? lines.length)
+      .join('\n');
+    const defaultsIndex = body.search(/^\s+defaults:\s*$/m);
+    const stepsIndex = body.search(/^\s+steps:\s*$/m);
+    assert.ok(stepsIndex >= 0, `${name} must declare steps`);
+    const jobWorkingDirectory =
+      defaultsIndex >= 0 && defaultsIndex < stepsIndex
+        ? body.slice(defaultsIndex, stepsIndex).match(/working-directory:\s*(\S+)/)?.[1] ?? ''
+        : '';
+
+    // Steps start at the six-space `-` indent; run-block continuation lines are
+    // indented further, so anchoring the split keeps them inside their own step.
+    for (const step of body.slice(stepsIndex).split(/\n(?= {6}- )/)) {
+      const stepWorkingDirectory =
+        step.match(/^\s+working-directory:\s*(\S+)/m)?.[1] ?? jobWorkingDirectory;
+      for (const [, reference] of step.matchAll(/\b(?:node|python3?|bash|sh)\s+([\w./-]+\.(?:mjs|js|py|sh))/g)) {
+        const resolved = new URL(
+          stepWorkingDirectory ? `${stepWorkingDirectory}/${reference}` : reference,
+          repoRoot,
+        );
+        assert.ok(
+          existsSync(fileURLToPath(resolved)),
+          `${name}: ${reference} does not exist from ${stepWorkingDirectory || 'the repository root'}`,
+        );
+      }
+    }
+  }
+});
+
+
+const tokenParserPath = fileURLToPath(new URL('../scripts/parse_cloudflare_access_token.mjs', import.meta.url));
+
+function parseTokenResponse(body, status) {
+  const directory = mkdtempSync(join(tmpdir(), 'cf-token-response-'));
+  const responsePath = join(directory, 'response.json');
+  try {
+    writeFileSync(responsePath, body, 'utf8');
+    return spawnSync(process.execPath, [tokenParserPath, responsePath, String(status)], { encoding: 'utf8' });
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test('Cloudflare token response parser emits only a valid synthetic token', () => {
+  const result = parseTokenResponse(JSON.stringify({ access_token: 'synthetic-access-token' }), 200);
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, 'synthetic-access-token');
+  assert.equal(result.stderr, '');
+});
+
+test('Cloudflare token response parser rejects non-200 responses without echoing response bodies', () => {
+  const result = parseTokenResponse(JSON.stringify({ access_token: 'SYNTHETIC_SECRET_SENTINEL' }), 400);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /HTTP 400/);
+  assert.doesNotMatch(result.stderr, /SYNTHETIC_SECRET_SENTINEL/);
+});
+
+test('Cloudflare token response parser rejects malformed JSON without echoing it', () => {
+  const result = parseTokenResponse('{"access_token":"SYNTHETIC_SECRET_SENTINEL"', 200);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '');
+  assert.match(result.stderr, /invalid JSON/);
+  assert.doesNotMatch(result.stderr, /SYNTHETIC_SECRET_SENTINEL/);
+});
+
+test('Cloudflare token response parser rejects missing, empty, or newline-bearing access tokens', () => {
+  const cases = [
+    ['missing', {}],
+    ['null', { access_token: null }],
+    ['number', { access_token: 1 }],
+    ['empty', { access_token: '' }],
+    ['whitespace', { access_token: ' ' }],
+    ['newline', { access_token: 'synthetic-token\ninjected=value' }],
+  ];
+  for (const [name, body] of cases) {
+    const result = parseTokenResponse(JSON.stringify(body), 200);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /usable access token/);
+  }
+});
+
+test('production deploy validates the refreshed token and masks it before exporting', async () => {
+  const workflow = await readDeployWorkflow();
+  const production = workflow.slice(workflow.indexOf('  deploy-production:'));
+  const stepStart = production.indexOf('      - name: Refresh Cloudflare Token');
+  assert.ok(stepStart >= 0, 'production deploy must refresh its token');
+  const nextStep = production.indexOf('\n      - name:', stepStart + 1);
+  const step = production.slice(stepStart, nextStep < 0 ? undefined : nextStep);
+  assert.match(step, /CF_REFRESH_TOKEN: \$\{\{ secrets\.CF_REFRESH_TOKEN \}\}/);
+  assert.match(step, /--write-out '%\{http_code\}'/);
+  assert.match(step, /parse_cloudflare_access_token\.mjs/);
+  assert.ok(step.indexOf('::add-mask::') >= 0 && step.indexOf('::add-mask::') < step.indexOf('$GITHUB_OUTPUT'));
+  assert.doesNotMatch(step, /jq -r '\.access_token'/);
 });

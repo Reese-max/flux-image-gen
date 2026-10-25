@@ -374,6 +374,7 @@ async def generate(payload: GeneratePayload, request: Request):
         "height": result.height,
         "seed": result.seed,
         "imageQuality": result.image_quality,
+        "providerProvenance": result.provider_provenance,
     }
     if vision_qa:
         body["visionQa"] = vision_qa
@@ -491,6 +492,7 @@ async def generate_batch_route(payload: BatchGeneratePayload, request: Request):
                 "height": result.height,
                 "seed": result.seed,
                 "imageQuality": result.image_quality,
+                "providerProvenance": result.provider_provenance,
             }
         if payload.visionQa:
             vision_qa = maybe_run_vision_qa(result.image, payload.prompt, settings)
@@ -628,6 +630,7 @@ async def edit(
         "provider": result.provider,
         "model": result.model,
         "image_count": result.image_count,
+        "providerProvenance": result.provider_provenance,
     }
 
 
@@ -652,10 +655,16 @@ def prompt_transform(request: Request, payload: PromptTransformPayload):
     decision = check_generation_rate_limit(request, settings, route="prompt_transform")
     if not decision.allowed:
         return rate_limit_response(decision)
+    moderation_decision = moderate_prompt(payload.source)
+    if not moderation_decision.allowed:
+        return moderation_response(moderation_decision)
     try:
         result = transform_plain_prompt(payload.source, payload.style)
     except ValueError as exc:
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    moderation_decision = moderate_prompt(result.prompt)
+    if not moderation_decision.allowed:
+        return moderation_response(moderation_decision)
     return {
         "source": result.source,
         "prompt": result.prompt,
@@ -670,10 +679,16 @@ def prompt_enhance(request: Request, payload: PromptEnhancePayload):
     decision = check_generation_rate_limit(request, settings, route="prompt_enhance")
     if not decision.allowed:
         return rate_limit_response(decision)
+    moderation_decision = moderate_prompt(combined_prompt_for_moderation(payload.prompt, payload.effect))
+    if not moderation_decision.allowed:
+        return moderation_response(moderation_decision)
     try:
         result = enhance_prompt(payload.prompt, payload.effect)
     except ValueError as exc:
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    moderation_decision = moderate_prompt(result.prompt)
+    if not moderation_decision.allowed:
+        return moderation_response(moderation_decision)
     return {
         "prompt": result.prompt,
         "provider": result.provider,
@@ -688,10 +703,16 @@ def prompt_complete(request: Request, payload: PromptTransformPayload):
     decision = check_generation_rate_limit(request, settings, route="prompt_complete")
     if not decision.allowed:
         return rate_limit_response(decision)
+    moderation_decision = moderate_prompt(payload.source)
+    if not moderation_decision.allowed:
+        return moderation_response(moderation_decision)
     try:
         result = complete_plain_prompt(payload.source, payload.style)
     except ValueError as exc:
         return JSONResponse({"error": str(exc), "code": "bad_request"}, status_code=400)
+    moderation_decision = moderate_prompt(result.prompt)
+    if not moderation_decision.allowed:
+        return moderation_response(moderation_decision)
     return {
         "source": result.source,
         "prompt": result.prompt,

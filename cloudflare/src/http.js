@@ -45,6 +45,16 @@ function envFlag(value) {
   return String(value || "").trim().toLowerCase() === "true";
 }
 
+/**
+ * Only explicit development and test environments may pass through a missing
+ * or failed limiter. Production, staging, and unknown/missing modes fail closed
+ * regardless of provider configuration.
+ */
+function isExplicitDevelopmentOrTestMode(env) {
+  const mode = String((env && env.ENVIRONMENT) || "").trim().toLowerCase();
+  return mode === "development" || mode === "test";
+}
+
 export function turnstileConfig(env) {
   const required = envFlag(env && env.TURNSTILE_REQUIRED);
   return {
@@ -64,7 +74,7 @@ export async function verifyTurnstileToken(token, request, env) {
   if (!config.required) return null;
 
   const secret = String((env && env.TURNSTILE_SECRET_KEY) || "").trim();
-  if (!secret) {
+  if (!secret || !config.siteKey) {
     return new HttpError("真人驗證尚未完成設定，請稍後再試", 503, "turnstile_unconfigured");
   }
 
@@ -205,21 +215,67 @@ export function sanitizeClientErrorReport(payload) {
   };
 }
 
-// Optional edge rate limiting. Active only when a Cloudflare Rate Limiting binding
-// named GENERATE_RATE_LIMITER is configured in wrangler.toml; otherwise this is a
-// no-op so local dev and un-provisioned deploys keep working. Rate limiting must
-// never fail the request itself, so any binding error is ignored.
-export async function checkRateLimit(request, limiter) {
-  if (!limiter || typeof limiter.limit !== "function") return null;
+// Edge rate limiting. Active when a Cloudflare Rate Limiting binding named
+// GENERATE_RATE_LIMITER is configured in wrangler.toml.
+//
+// Fail-closed policy:
+//   A missing or broken limiter returns 503 unless ENVIRONMENT explicitly says
+//   "development" or "test". Public, staging, and unknown deployments cannot
+//   bypass the gate based on whether provider credentials happen to be present.
+//
+// Pass-through is limited to explicitly configured local development and tests.
+export async function checkRateLimit(request, limiter, env) {
+  const allowPassThrough = isExplicitDevelopmentOrTestMode(env);
+  const failClosed = !allowPassThrough;
+
+  // Check if limiter binding is present.
+  if (!limiter || typeof limiter.limit !== "function") {
+    if (failClosed) {
+      // Fail closed: a public or unknown environment cannot lose its provider quota gate.
+      return json(
+        {
+          error: "服務暫時維護中，請稍後再試",
+          code: "rate_limiter_unavailable",
+        },
+        503,
+      );
+    }
+    // Explicit dev/test: pass-through without the binding.
+    return null;
+  }
+
   const key = request.headers.get("cf-connecting-ip") || "anonymous";
   let outcome;
   try {
     outcome = await limiter.limit({ key });
   } catch {
+    if (failClosed) {
+      // Fail closed: a limiter error cannot authorize server-funded work.
+      return json(
+        {
+          error: "服務暫時維護中，請稍後再試",
+          code: "rate_limiter_error",
+        },
+        503,
+      );
+    }
+    // Explicit dev/test: swallow binding errors.
     return null;
   }
+
   if (outcome && outcome.success === false) {
     return json({ error: "叫用太頻繁，請稍後再試", code: "rate_limited", retry_after: 60 }, 429);
+  }
+  if ((!outcome || outcome.success !== true) && failClosed) {
+    // Fail closed: a limiter that resolves with an unexpected shape gives no
+    // trustworthy allow/deny decision, so server-funded work stays blocked.
+    return json(
+      {
+        error: "服務暫時維護中，請稍後再試",
+        code: "rate_limiter_error",
+      },
+      503,
+    );
   }
   return null;
 }
