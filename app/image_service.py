@@ -7,6 +7,7 @@ import re
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -63,6 +64,9 @@ CUSTOM_SIZE_ERROR_MESSAGE = (
 IMAGE_MAX_ATTEMPTS = 2
 RETRYABLE_IMAGE_STATUS = frozenset({500, 502, 503, 504})
 IMAGE_RETRY_BACKOFF_SECONDS = 0.5
+MAX_PROVIDER_OUTPUT_BYTES = 24 * 1024 * 1024
+PROVIDER_OUTPUT_TIMEOUT_SECONDS = 15.0
+PROVIDER_OUTPUT_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 
 # Batch generation: one prompt -> several variations, each with its own seed.
 MAX_BATCH_COUNT = 4
@@ -381,6 +385,7 @@ class NvidiaProvider:
                 code="content_filtered",
             )
         image = extract_image(data)
+        image = await resolve_provider_output(image, endpoint, self.settings.request_timeout_seconds)
         return GenerationResult(
             image=image,
             provider=self.provider_name,
@@ -479,6 +484,7 @@ class WorkersAiProvider:
         # Cloudflare wraps the payload as {"result": {...}, "success": bool}.
         result_payload = data.get("result") if isinstance(data, dict) else None
         image = extract_image(result_payload if result_payload is not None else data, "Workers AI")
+        image = await resolve_provider_output(image, endpoint, self.settings.request_timeout_seconds)
         return GenerationResult(
             image=image,
             provider=self.provider_name,
@@ -629,7 +635,11 @@ async def _run_fallback_chain(request: GenerationRequest, settings: Settings) ->
         try:
             return await WorkersAiProvider(settings).generate(request)
         except ProviderError as wa_error:
-            if pollinations_enabled and (wa_error.status_code or 0) >= 500:
+            if (
+                pollinations_enabled
+                and wa_error.code != "bad_provider_response"
+                and (wa_error.status_code or 0) >= 500
+            ):
                 return await PollinationsProvider(settings).generate(request)
             raise
     if pollinations_enabled:
@@ -654,7 +664,12 @@ async def _generate_one_with_fallback(
     try:
         return await provider.generate(request)
     except ProviderError as error:
-        if not (isinstance(provider, NvidiaProvider) and (error.status_code or 0) >= 500):
+        should_fallback = (
+            isinstance(provider, NvidiaProvider)
+            and error.code != "bad_provider_response"
+            and (error.status_code or 0) >= 500
+        )
+        if not should_fallback:
             raise
         if not _has_fallback(settings):
             raise
@@ -805,6 +820,7 @@ async def edit_image(request: EditRequest, settings: Settings | None = None) -> 
         raise ProviderError("Workers AI 回應不是有效 JSON", status_code=502, code="bad_provider_response") from exc
     result_payload = payload.get("result") if isinstance(payload, dict) else None
     image = extract_image(result_payload if result_payload is not None else payload, "Workers AI")
+    image = await resolve_provider_output(image, endpoint, settings.request_timeout_seconds)
     return EditResult(
         image=image, provider="workers-ai", model=settings.workers_ai_edit_model, image_count=len(resized),
         provider_provenance={"model_id": settings.workers_ai_edit_model, "steps": None, "cfg_scale": None},
@@ -878,6 +894,89 @@ def extract_image(data: Any, provider_label: str = "NVIDIA") -> str:
             f"{provider_label} 回應的圖片資料格式不正確", status_code=502, code="bad_provider_response"
         ) from exc
     return f"data:{_detect_image_mime(raw)};base64," + candidate
+
+
+async def resolve_provider_output(image: str, provider_endpoint: str, timeout_seconds: float) -> str:
+    """Materialize URL-shaped provider outputs before they reach browser history.
+
+    The fetch is deliberately limited to the configured provider API's HTTPS
+    origin, carries no provider credentials, follows no redirects, and streams
+    at most 24 MiB. This avoids turning a user-facing URL proxy into an SSRF
+    endpoint while ensuring receipts can hash the exact original output bytes.
+    """
+    if not image.startswith(("http://", "https://")):
+        match = re.fullmatch(
+            r"data:(image/(?:png|jpeg|webp|gif));base64,([a-z0-9+/=\s]+)", image, re.IGNORECASE
+        )
+        if not match:
+            raise ProviderError("Provider 圖片格式不受支援", status_code=502, code="bad_provider_response")
+        encoded = re.sub(r"\s+", "", match.group(2))
+        if len(encoded) > 4 * ((MAX_PROVIDER_OUTPUT_BYTES + 2) // 3):
+            raise ProviderError("Provider 圖片超出 24 MiB 限制", status_code=502, code="bad_provider_response")
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except ValueError:
+            raise ProviderError("Provider 圖片資料格式不正確", status_code=502, code="bad_provider_response") from None
+        if len(raw) > MAX_PROVIDER_OUTPUT_BYTES or _sniff_image_mime(raw) != match.group(1).lower():
+            raise ProviderError("Provider 圖片資料格式不正確", status_code=502, code="bad_provider_response")
+        return image
+
+    try:
+        source = urlsplit(provider_endpoint)
+        target = urlsplit(image)
+        source_origin = (source.scheme.lower(), source.hostname.lower() if source.hostname else None, source.port or 443)
+        target_origin = (target.scheme.lower(), target.hostname.lower() if target.hostname else None, target.port or 443)
+        if (source.scheme.lower() != "https" or target.scheme.lower() != "https"
+                or source.username or source.password or target.username or target.password
+                or not source_origin[1] or source_origin != target_origin):
+            raise ValueError("provider output origin is not allowed")
+        output_url = target.geturl()
+    except (TypeError, ValueError):
+        raise ProviderError("Provider 回傳的圖片網址不受支援", status_code=502, code="bad_provider_response") from None
+
+    timeout = max(0.1, min(float(timeout_seconds or PROVIDER_OUTPUT_TIMEOUT_SECONDS), PROVIDER_OUTPUT_TIMEOUT_SECONDS))
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            async with client.stream(
+                "GET", output_url,
+                headers={"Accept": ", ".join(sorted(PROVIDER_OUTPUT_MIME_TYPES)), "Accept-Encoding": "identity"},
+                follow_redirects=False,
+            ) as response:
+                content_type = (response.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+                if response.status_code != 200 or content_type not in PROVIDER_OUTPUT_MIME_TYPES:
+                    raise ValueError("provider output response is not a supported image")
+                raw_length = response.headers.get("content-length")
+                if raw_length is not None and (not raw_length.isdigit() or int(raw_length) > MAX_PROVIDER_OUTPUT_BYTES):
+                    raise ValueError("provider output exceeds the size limit")
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > MAX_PROVIDER_OUTPUT_BYTES:
+                        raise ValueError("provider output exceeds the size limit")
+                    chunks.append(chunk)
+    except (httpx.HTTPError, TimeoutError, OSError):
+        raise ProviderError("Provider 圖片資料無法讀取", status_code=502, code="bad_provider_response") from None
+    except ValueError as exc:
+        raise ProviderError("Provider 圖片資料無效或超出限制", status_code=502, code="bad_provider_response") from None
+
+    raw = b"".join(chunks)
+    actual_type = _sniff_image_mime(raw)
+    if not raw or actual_type != content_type:
+        raise ProviderError("Provider 圖片資料格式不正確", status_code=502, code="bad_provider_response")
+    return f"data:{content_type};base64," + base64.b64encode(raw).decode("ascii")
+
+
+def _sniff_image_mime(raw: bytes) -> str | None:
+    if raw.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if raw.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if raw.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if raw.startswith(b"RIFF") and raw[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def _find_image_candidate(data: Any) -> str | None:

@@ -5,6 +5,7 @@ import {
   IMAGE_FETCH_TIMEOUT_MS,
   IMAGE_MAX_ATTEMPTS,
   IMAGE_RETRY_BACKOFF_MS,
+  MAX_PROVIDER_OUTPUT_BYTES,
   MAX_BATCH_COUNT,
   MAX_EDIT_IMAGES,
   MAX_EDIT_IMAGE_BYTES,
@@ -12,6 +13,7 @@ import {
   MODEL_ENDPOINTS,
   POLLINATIONS_BASE_URL,
   POLLINATIONS_FETCH_TIMEOUT_MS,
+  PROVIDER_OUTPUT_TIMEOUT_MS,
   RETRYABLE_IMAGE_STATUS,
   SIZE_MAP,
   WORKERS_AI_EDIT_MODEL,
@@ -235,6 +237,94 @@ function extractImage(data, providerLabel = "NVIDIA") {
   return `data:${detectMimeFromBase64(candidate)};base64,` + candidate;
 }
 
+function sniffImageMime(bytes) {
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+      && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return "image/png";
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46
+      && bytes[3] === 0x38 && (bytes[4] === 0x37 || bytes[4] === 0x39) && bytes[5] === 0x61) return "image/gif";
+  if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+      && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return "image/webp";
+  return null;
+}
+
+async function resolveProviderOutput(image, providerEndpoint) {
+  if (!image.startsWith("http://") && !image.startsWith("https://")) {
+    const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i.exec(image);
+    if (!match) throw new HttpError("Provider 圖片格式不受支援", 502, "bad_provider_response");
+    const encoded = match[2].replace(/\s+/g, "");
+    const validBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2,3}={0,2})?$/.test(encoded);
+    if (!validBase64 || encoded.length > 4 * Math.ceil(MAX_PROVIDER_OUTPUT_BYTES / 3)
+        || detectImageMimeStrict(encoded) !== match[1].toLowerCase()) {
+      throw new HttpError("Provider 圖片資料格式不正確或超出限制", 502, "bad_provider_response");
+    }
+    return image;
+  }
+
+  let url;
+  try {
+    const target = new URL(image);
+    const source = new URL(providerEndpoint);
+    if (target.protocol !== "https:" || source.protocol !== "https:" || target.username || target.password
+        || source.username || source.password || target.origin !== source.origin) {
+      throw new Error("provider output origin is not allowed");
+    }
+    url = target.href;
+  } catch {
+    throw new HttpError("Provider 回傳的圖片網址不受支援", 502, "bad_provider_response");
+  }
+
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "image/gif,image/jpeg,image/png,image/webp", "Accept-Encoding": "identity" },
+      redirect: "error",
+      signal: AbortSignal.timeout(PROVIDER_OUTPUT_TIMEOUT_MS),
+    });
+  } catch {
+    throw new HttpError("Provider 圖片資料無法讀取", 502, "bad_provider_response");
+  }
+
+  const contentType = (response.headers.get("content-type") || "").split(";", 1)[0].trim().toLowerCase();
+  const allowedTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+  const contentLength = response.headers.get("content-length");
+  if (!response.ok || !allowedTypes.has(contentType)
+      || (contentLength !== null && (!/^\d+$/.test(contentLength) || Number(contentLength) > MAX_PROVIDER_OUTPUT_BYTES))) {
+    try { if (response.body) await response.body.cancel(); } catch { /* response was rejected before reading */ }
+    throw new HttpError("Provider 圖片資料無效或超出限制", 502, "bad_provider_response");
+  }
+
+  const reader = response.body && response.body.getReader ? response.body.getReader() : null;
+  if (!reader) {
+    throw new HttpError("Provider 圖片資料無效或超出限制", 502, "bad_provider_response");
+  }
+  const chunks = [];
+  let size = 0;
+  try {
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.byteLength;
+      if (size > MAX_PROVIDER_OUTPUT_BYTES) {
+        await reader.cancel();
+        throw new Error("provider output exceeds the size limit");
+      }
+      chunks.push(part.value);
+    }
+  } catch {
+    throw new HttpError("Provider 圖片資料無效或超出限制", 502, "bad_provider_response");
+  }
+
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  if (sniffImageMime(bytes) !== contentType) {
+    throw new HttpError("Provider 圖片資料格式不正確", 502, "bad_provider_response");
+  }
+  return `data:${contentType};base64,` + bytesToBase64(bytes.buffer);
+}
+
 // Workers AI has no artifacts/finishReason on the error path; a flagged prompt
 // surfaces as a thrown AiError whose message mentions the safety filter.
 function isWorkersAiContentFilterError(e) {
@@ -370,7 +460,8 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
   // shared length heuristic, so keep this direct path before extractImage.
   const direct = data && typeof data.image === "string" ? data.image.trim() : "";
   const directMime = direct && isValidBase64(direct) ? detectImageMimeStrict(direct) : null;
-  const image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
+  const image = await resolveProviderOutput(directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI"),
+    "https://api.cloudflare.com");
   return {
     image,
     provider: "workers-ai",
@@ -528,7 +619,7 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed, ste
   }
   let image;
   try {
-    image = extractImage(data);
+    image = await resolveProviderOutput(extractImage(data), base);
   } catch (error) {
     throw withProviderAttempts(error, providerAttempts);
   }
@@ -544,6 +635,7 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed, ste
 // (429) are request-level: falling back would just fail again (Workers AI's
 // filter is stricter), so those errors propagate unchanged.
 function shouldFallbackToWorkersAi(error) {
+  if (error && error.code === "bad_provider_response") return false;
   const status = error && typeof error.status === "number" ? error.status : 0;
   return status >= 500;
 }
@@ -724,7 +816,8 @@ export async function editImage(env, { prompt, images }) {
 
   const direct = data && typeof data.image === "string" ? data.image.trim() : "";
   const directMime = direct && isValidBase64(direct) ? detectImageMimeStrict(direct) : null;
-  const image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
+  const image = await resolveProviderOutput(directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI"),
+    "https://api.cloudflare.com");
   return { image, provider: "workers-ai", model: WORKERS_AI_EDIT_MODEL, image_count: images.length,
     providerProvenance: { model_id: WORKERS_AI_EDIT_MODEL, steps: null, cfg_scale: null } };
 }

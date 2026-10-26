@@ -139,6 +139,79 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent_payload["seed"], 12345)
         self.assertEqual(result.seed, 12345)
 
+    async def test_nvidia_provider_materializes_same_origin_image_urls_without_forwarding_credentials(self):
+        import base64
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.demo_image import make_demo_png_data_url
+        from app.image_service import NvidiaProvider
+
+        raw = base64.b64decode(make_demo_png_data_url("fixture", 64, 64, "schnell").split(",", 1)[1])
+        calls = []
+
+        async def handle(request):
+            calls.append(request)
+            if request.method == "POST":
+                return httpx.Response(200, json={"image_url": "https://nvidia.fixture.test/output/image.png?signature=private"})
+            return httpx.Response(200, content=raw, headers={"content-type": "image/png"})
+
+        transport = httpx.MockTransport(handle)
+        real_client = httpx.AsyncClient
+        provider = NvidiaProvider(Settings(
+            nvidia_api_key="fixture-secret", image_provider="nvidia",
+            nvidia_base_url="https://nvidia.fixture.test/v1/genai",
+        ))
+        with patch("app.image_service.httpx.AsyncClient", side_effect=lambda **kwargs: real_client(transport=transport, **kwargs)):
+            result = await provider.generate(GenerationRequest(prompt="fixture", model="schnell", size="square", seed=7))
+
+        self.assertEqual([request.method for request in calls], ["POST", "GET"])
+        self.assertEqual(calls[1].headers.get("authorization"), None)
+        self.assertIn("signature=private", str(calls[1].url))
+        self.assertEqual(result.image, "data:image/png;base64," + base64.b64encode(raw).decode("ascii"))
+
+    async def test_nvidia_provider_rejects_off_origin_and_redirected_image_urls(self):
+        from unittest.mock import patch
+
+        import httpx
+
+        from app.image_service import NvidiaProvider, ProviderError
+
+        methods = []
+
+        async def handle(request):
+            methods.append(request.method)
+            if request.method == "POST":
+                return httpx.Response(200, json={"image_url": "https://attacker.fixture.test/output.png"})
+            return httpx.Response(302, headers={"location": "https://attacker.fixture.test/next.png"})
+
+        transport = httpx.MockTransport(handle)
+        real_client = httpx.AsyncClient
+        provider = NvidiaProvider(Settings(
+            nvidia_api_key="fixture-secret", image_provider="nvidia",
+            nvidia_base_url="https://nvidia.fixture.test/v1/genai",
+        ))
+        with patch("app.image_service.httpx.AsyncClient", side_effect=lambda **kwargs: real_client(transport=transport, **kwargs)):
+            with self.assertRaises(ProviderError) as ctx:
+                await provider.generate(GenerationRequest(prompt="fixture", model="schnell", size="square", seed=7))
+        self.assertEqual(ctx.exception.code, "bad_provider_response")
+        self.assertEqual(methods, ["POST"], "off-origin URLs must never be fetched")
+
+        methods.clear()
+        async def same_origin_redirect(request):
+            methods.append(request.method)
+            if request.method == "POST":
+                return httpx.Response(200, json={"image_url": "https://nvidia.fixture.test/output.png"})
+            return httpx.Response(302, headers={"location": "https://nvidia.fixture.test/redirected.png"})
+
+        transport = httpx.MockTransport(same_origin_redirect)
+        with patch("app.image_service.httpx.AsyncClient", side_effect=lambda **kwargs: real_client(transport=transport, **kwargs)):
+            with self.assertRaises(ProviderError) as ctx:
+                await provider.generate(GenerationRequest(prompt="fixture", model="schnell", size="square", seed=7))
+        self.assertEqual(ctx.exception.code, "bad_provider_response")
+        self.assertEqual(methods, ["POST", "GET"], "redirects must not be followed")
+
     async def test_nvidia_provider_schnell_payload_has_exact_public_keys(self):
         import base64
         from unittest.mock import patch
@@ -847,6 +920,28 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(ctx.exception.status_code, 500)
         self.assertEqual(ctx.exception.code, "nvidia_error")
+        workers_ai_cls.return_value.generate.assert_not_awaited()
+        pollinations_cls.return_value.generate.assert_not_awaited()
+
+    async def test_malformed_nvidia_output_does_not_trigger_another_billable_generation(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import NvidiaProvider, ProviderError, generate_image
+
+        settings = Settings(
+            nvidia_api_key="dummy-key", image_provider="nvidia", cf_account_id="acct", cf_api_token="tok",
+            pollinations_fallback_enabled=True,
+        )
+        error = ProviderError("unreadable provider output", status_code=502, code="bad_provider_response")
+        with patch.object(NvidiaProvider, "generate", new=AsyncMock(side_effect=error)), \
+             patch("app.image_service.WorkersAiProvider") as workers_ai_cls, \
+             patch("app.image_service.PollinationsProvider") as pollinations_cls:
+            workers_ai_cls.return_value.generate = AsyncMock()
+            pollinations_cls.return_value.generate = AsyncMock()
+            with self.assertRaises(ProviderError) as ctx:
+                await generate_image(GenerationRequest(prompt="a cat", model="schnell", size="square"), settings)
+
+        self.assertIs(ctx.exception, error)
         workers_ai_cls.return_value.generate.assert_not_awaited()
         pollinations_cls.return_value.generate.assert_not_awaited()
 

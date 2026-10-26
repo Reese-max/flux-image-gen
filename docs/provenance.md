@@ -10,7 +10,7 @@
 
 作品先同步保存含 `unsupported` 狀態的待完成收據，之後補雜湊與檢查結果。憑證檢查上限為 15 秒；SDK 失敗或檢查逾時不會刪除作品、不會重送生成／改圖請求。完成前重新整理仍保留作品，載入時依時間／版本順序恢復未完成收據；完成前詳情顯示無法驗證。背景檢查完成後會重讀最新 storage，只為仍存在、原始 bytes／來源指向未變且沒有別分頁完成收據的 record 補寫；不會還原另一分頁的刪除、覆寫較新的圖片／快取或丟失收藏／標籤。儲存仍受既有 localStorage 容量與保留筆數限制。
 
-HTTPS provider 圖片 URL 只能由瀏覽器以 CORS 讀取，省略 cookies、referrer 並拒絕 redirect，限制 15 秒與 24 MiB；可讀取時轉成保留原始 bytes 的 data URL。沒有 server URL proxy。CORS、格式、大小或網路限制導致 bytes 無法取得時，保留歷史作品及明確的 `unsupported` 收據，`output_sha256` 留空，**不能宣稱 output hash verified**。這是無法取得原始 bytes 時的明確限制。
+生成與改圖 provider 若回傳 HTTPS 圖片 URL，後端只會讀取與該 provider API 相同的 HTTPS origin，不帶 provider credentials、不跟隨 redirect，限制 15 秒、24 MiB 與 PNG/JPEG/WebP/GIF，取得後以原始 bytes 回傳 data URL。這讓瀏覽器可對同一份輸出計算 receipt hash，避免依賴 CORS。非同源 URL、超時、超限或非支援格式會在 provider 邊界以 `bad_provider_response` 拒絕，且不會因此再付費呼叫另一個 provider；因此不會把沒有原始 bytes 的結果當成成功作品保存。舊歷史／匯入作品若仍只有遠端 URL，瀏覽器仍以 CORS、credentials omit、no-referrer、no-redirect、15 秒與 24 MiB 限制嘗試讀取；失敗時保留作品及明確的 `unsupported` 收據，`output_sha256` 留空，**不能宣稱 output hash verified**。
 
 改圖在 canvas 之前雜湊原始檔案，並另計算上傳 `/edit` 的重編碼 PNG 雜湊，保存 `original_credential_status` 與 `resize_reencode`。不保存來源檔名、EXIF/GPS 或私人 assertions。`submitted_sha256` 指 API 上傳 bytes；Python 後端既有的再次縮圖／PNG 編碼仍可能改變 provider 最終輸入，並未宣稱兩者相同。
 
