@@ -3,7 +3,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { transformSync } from 'esbuild';
-import { inspectGeneratedImage } from '../src/image.js';
+import { generateOneImage, inspectGeneratedImage } from '../src/image.js';
 import { detectHighRiskPromptCategory } from '../src/moderation.js';
 import worker, { resetUsageMetrics, transformPlainPrompt } from '../src/index.js';
 
@@ -18,6 +18,65 @@ function jsonRequest(path, body) {
 }
 
 const TEST_GALLERY_SECRET = 'test-gallery-secret';
+
+test('NVIDIA URL outputs are captured as exact bytes from the same HTTPS origin without credentials or redirects', async () => {
+  const originalFetch = globalThis.fetch;
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+  const calls = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = new URL(input);
+    calls.push({ url, init });
+    if (init.method === 'POST') {
+      return new Response(JSON.stringify({ image_url: 'https://nvidia.fixture.test/image.png?signature=private' }),
+        { headers: { 'content-type': 'application/json' } });
+    }
+    return new Response(png, { headers: { 'content-type': 'image/png' } });
+  };
+  try {
+    const result = await generateOneImage({ NVIDIA_API_KEY: 'fixture-secret', NVIDIA_BASE_URL: 'https://nvidia.fixture.test/v1/genai' },
+      { prompt: 'fixture', model: 'schnell', size: 'square', seed: 7 });
+    assert.equal(result.image, `data:image/png;base64,${png.toString('base64')}`);
+    assert.deepEqual(calls.map(call => call.init.method), ['POST', 'GET']);
+    assert.equal(calls[1].url.searchParams.get('signature'), 'private');
+    assert.equal(calls[1].init.headers.Authorization, undefined);
+    assert.equal(calls[1].init.redirect, 'error');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('NVIDIA URL outputs never fetch off-origin URLs and reject oversized or non-image responses', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  let output = { image_url: 'https://attacker.fixture.test/image.png' };
+  let outputResponse = new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } });
+  globalThis.fetch = async (input, init = {}) => {
+    calls++;
+    if (init.method === 'POST') return new Response(JSON.stringify(output), { headers: { 'content-type': 'application/json' } });
+    return outputResponse;
+  };
+  const env = { NVIDIA_API_KEY: 'fixture-secret', NVIDIA_BASE_URL: 'https://nvidia.fixture.test/v1/genai' };
+  const args = { prompt: 'fixture', model: 'schnell', size: 'square', seed: 7 };
+  try {
+    await assert.rejects(generateOneImage(env, args), error => error.code === 'bad_provider_response');
+    assert.equal(calls, 1, 'off-origin image URL is rejected before a fetch');
+
+    output = { image_url: 'https://nvidia.fixture.test/image.png' };
+    outputResponse = new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'content-type': 'image/png', 'content-length': String(24 * 1024 * 1024 + 1) },
+    });
+    calls = 0;
+    await assert.rejects(generateOneImage(env, args), error => error.code === 'bad_provider_response');
+    assert.equal(calls, 2, 'same-origin image fetch is attempted once and rejected by the size header');
+
+    outputResponse = new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'text/html' } });
+    calls = 0;
+    await assert.rejects(generateOneImage(env, args), error => error.code === 'bad_provider_response');
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 function adminGet(path, token = 'admin-secret') {
   return new Request(`https://example.test${path}`, {
@@ -1140,6 +1199,32 @@ test('POST /generate falls back to Workers AI when NVIDIA fails with a 5xx', asy
     // attempt, then exactly one Workers AI run.
     assert.equal(nvidiaCalls, 1);
     assert.equal(ai.calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate does not pay for another provider when NVIDIA returns an unreadable image URL', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  let nvidiaCalls = 0;
+  globalThis.fetch = async function () {
+    nvidiaCalls += 1;
+    return new Response(JSON.stringify({ image_url: 'https://attacker.fixture.test/output.png' }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', NVIDIA_BASE_URL: 'https://nvidia.fixture.test/v1/genai', AI: ai })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(data.code, 'bad_provider_response');
+    assert.equal(nvidiaCalls, 1, 'the URL is rejected without requesting the image host');
+    assert.equal(ai.calls.length, 0, 'malformed output is not treated as provider downtime or regenerated');
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -160,6 +160,8 @@ export const IMAGE_RETRY_BACKOFF_MS = 500;
 // waits until the edge kills the whole request as an ugly 1101. Mirrors the
 // FastAPI request_timeout_seconds + 504 "timeout" mapping.
 export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
+export const PROVIDER_OUTPUT_TIMEOUT_MS = 15_000;
+export const MAX_PROVIDER_OUTPUT_BYTES = 24 * 1024 * 1024;
 // Workers AI normally completes well below this threshold. Fail over before the
 // old 2 × 60s retry path turns a transient model stall into a two-minute wait.
 export const WORKERS_AI_FETCH_TIMEOUT_MS = 45_000;
