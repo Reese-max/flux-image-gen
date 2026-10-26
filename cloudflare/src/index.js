@@ -1,7 +1,7 @@
 // Cloudflare Worker entry: serves the static SPA and routes the JSON API.
 // Request handlers live here; pure helpers are split into sibling modules
 // (constants / http / prompt / image / gallery). Mirrors the Python backend.
-import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
+import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_BATCH_CONCURRENCY, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
 import {
   HttpError,
   checkRateLimit,
@@ -53,6 +53,25 @@ function providerAttemptCount(source, fallback = 0) {
   const raw = source && source.providerAttempts;
   const parsed = Number(raw == null ? fallback : raw);
   return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : Math.max(0, fallback);
+}
+
+async function settleBatch(tasks, concurrency = MAX_BATCH_CONCURRENCY) {
+  const settled = new Array(tasks.length);
+  let next = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), tasks.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (true) {
+      const index = next++;
+      if (index >= tasks.length) return;
+      try {
+        settled[index] = { status: "fulfilled", value: await tasks[index]() };
+      } catch (reason) {
+        settled[index] = { status: "rejected", reason };
+      }
+    }
+  });
+  await Promise.all(workers);
+  return settled;
 }
 
 function promptUsageTarget(env, route, provider, attempts = 0) {
@@ -405,14 +424,14 @@ async function handleGenerateBatch(request, env) {
   }
 
   try {
-    // The variations are independent network calls; run them concurrently so a
-    // 4-image batch costs one round-trip of latency instead of four.
+    // Keep provider requests within their single in-flight capacity. Each
+    // variation still settles independently and retains its original index.
     const tasks = [];
     for (let index = 0; index < count; index++) {
       const variationSeed = index === 0 && hasExplicitSeed ? seed : randomImageSeed();
-      tasks.push(generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
+      tasks.push(() => generateOneImage(env, { prompt, model, size, width, height, seed: variationSeed, steps, cfgScale }));
     }
-    const settled = await Promise.allSettled(tasks);
+    const settled = await settleBatch(tasks);
     const images = [];
     const errors = [];
     const target = generationUsageTarget(env, model);
