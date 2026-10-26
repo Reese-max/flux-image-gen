@@ -183,6 +183,10 @@ export const MAX_EDIT_IMAGES = 4;
 // 單張上傳上限（前端已縮到 <512，這是防濫用的硬上限）。
 export const MAX_EDIT_IMAGE_BYTES = 12 * 1024 * 1024;
 export const MAX_BATCH_COUNT = 4;
+// Keep multi-image requests within the upstream provider's single in-flight
+// capacity. Each task still settles independently so the API can return partial
+// successes with the original batch indexes when one provider call fails.
+export const MAX_BATCH_CONCURRENCY = 1;
 
 // --- Cloud gallery (R2) ---
 export const GALLERY_PREFIX = "gallery/";

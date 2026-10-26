@@ -2511,6 +2511,42 @@ test('POST /generate/batch returns partial successes and records every image att
   assert.equal(usage.byProvider['workers-ai'].images, 3);
 });
 
+test('POST /generate/batch serializes provider calls limited to one in-flight request', async () => {
+  const originalFetch = globalThis.fetch;
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    if (inFlight > 1) {
+      inFlight -= 1;
+      return new Response(JSON.stringify({ error: 'synthetic provider capacity exceeded' }), { status: 429 });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight -= 1;
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'dev', size: 'square', count: 4, seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'synthetic-capacity-test', POLLINATIONS_FALLBACK_ENABLED: 'false' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 4);
+    assert.equal(data.errors.length, 0);
+    assert.equal(maxInFlight, 1);
+    assert.equal(calls, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /generate/batch returns non-2xx when every image fails', async () => {
   resetUsageMetrics();
   const ai = fakeAi([
