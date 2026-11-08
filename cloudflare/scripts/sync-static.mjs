@@ -16,6 +16,7 @@ import { readdirSync, readFileSync, writeFileSync, mkdirSync, statSync, unlinkSy
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'esbuild';
+import { provenanceAssets } from './build-provenance.mjs';
 
 const cloudflareDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDir = path.join(cloudflareDir, '..', 'app', 'static');
@@ -28,6 +29,17 @@ const publicStaticDir = path.join(publicDir, 'static');
 const ROOT_SCOPE_FILES = new Set(['index.html', 'manifest.webmanifest', 'service-worker.js']);
 
 const checkOnly = process.argv.includes('--check');
+
+for (const [relativePath, bytes] of provenanceAssets()) {
+  const target = path.join(sourceDir, relativePath);
+  if (statSync(target, { throwIfNoEntry: false })?.isFile() && readFileSync(target).equals(bytes)) continue;
+  if (checkOnly) {
+    console.error(`[sync-static] SDK asset out of sync: ${relativePath}`);
+    process.exit(1);
+  }
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, bytes);
+}
 
 function listRelativeFiles(root) {
   const files = [];

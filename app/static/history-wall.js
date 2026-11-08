@@ -2,9 +2,11 @@
   'use strict';
 
   var records = [];
-  var recordWriteChain = Promise.resolve();
   var selectedRecordId = '';
   var selectedRecordIds = {};
+  var receiptWrites = Promise.resolve();
+  var pendingReceipts = {};
+  var detailVerification = 0;
   var filters = { query: '', model: '', size: '', dateFrom: '', dateTo: '', favoritesOnly: false, cloudOnly: false };
 
   function el(id) {
@@ -14,17 +16,6 @@
   function toText(value) {
     if (value === null || value === undefined) { return ''; }
     return String(value).trim();
-  }
-
-  function safeMetadataValue(value, kind) {
-    var helper = root.ProvenanceReceipt;
-    if (helper && typeof helper.sanitizeMetadataValue === 'function') {
-      return helper.sanitizeMetadataValue(value, kind);
-    }
-    var text = toText(value);
-    if (!text || /[?#\\]/.test(text) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(text)) { return ''; }
-    if (/(?:api[_-]?key|token|secret|password|bearer|authorization|signature|signed)/i.test(text)) { return ''; }
-    return text.slice(0, 512);
   }
 
   function clearNode(node) {
@@ -446,65 +437,12 @@
     parts.push('尺寸：' + (toText(record.size) || 'square'));
     parts.push('Seed：' + String(record.seed || 0));
     if (record.width && record.height) { parts.push('解析度：' + record.width + '×' + record.height); }
-    var provider = safeMetadataValue(record.provider, 'provider');
-    if (provider) { parts.push('Provider：' + provider); }
+    if (record.provider) { parts.push('Provider：' + toText(record.provider)); }
     if (record.mode) { parts.push('模式：' + (record.mode === 'agent' ? '智慧體' : '一般')); }
     if (record.recommended) { parts.push('推薦圖'); }
     parts.push('版本：v' + String(record.versionNumber || 1));
     if (record.createdAt) { parts.push('建立：' + toText(record.createdAt)); }
     return parts.join(' · ');
-  }
-
-  function credentialStatusLabel(status) {
-    var labels = {
-      verified: '已驗證',
-      present_untrusted: '存在但未受信任',
-      invalid: '無效',
-      absent: '未發現',
-      unknown_after_transform: '轉換後未知',
-      unsupported: '尚未支援檢查'
-    };
-    return labels[toText(status)] || '未知';
-  }
-
-  function receiptStatusLabel(status) {
-    var labels = {
-      valid: '有效，圖片與 receipt 相符',
-      modified: '已修改或 receipt 不相符',
-      unavailable: '無法在此瀏覽器重新計算',
-      absent: '尚未建立'
-    };
-    return labels[toText(status)] || '尚未驗證';
-  }
-
-  function formatProvenanceStatus(record, verification) {
-    var receipt = record && record.provenanceReceipt;
-    var lines = [];
-    if (!receipt) {
-      return '本產品 receipt：尚未建立。Content Credentials：未提供檢查結果；缺少 credential 不代表是真人圖片。';
-    }
-    lines.push('本產品 receipt：' + receiptStatusLabel(verification && verification.status));
-    if (receipt.receipt_hash) { lines.push('Receipt hash：' + receipt.receipt_hash); }
-    if (receipt.output_sha256) { lines.push('Output SHA-256：' + receipt.output_sha256); }
-    lines.push('Content Credentials：' + credentialStatusLabel(verification && verification.credential_status ? verification.credential_status : 'unsupported'));
-    if (receipt.operation === 'edit') { lines.push('流程：AI 編輯；來源圖 hash 已保存。'); }
-    lines.push('缺少 credential 不代表是真人圖片；receipt 只描述本產品記錄的來源。');
-    return lines.join('\n');
-  }
-
-  function refreshProvenanceStatus(record) {
-    var sourceRecord = normalizeRecordForUi(record);
-    var verifier = root.ProvenanceReceipt && root.ProvenanceReceipt.verifyRecord;
-    if (!sourceRecord || !verifier) { return; }
-    Promise.resolve(verifier(sourceRecord)).then(function (verification) {
-      if (selectedRecordId === toText(sourceRecord.id)) {
-        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, verification));
-      }
-    }, function () {
-      if (selectedRecordId === toText(sourceRecord.id)) {
-        setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, { status: 'unavailable', credential_status: 'unsupported' }));
-      }
-    });
   }
 
   function formatQaReport(record) {
@@ -745,7 +683,19 @@
     setDetailText('historyDetailProviderPrompt', sourceRecord.providerPrompt);
     setDetailText('historyDetailMeta', formatHistoryMeta(sourceRecord));
     setDetailText('historyDetailQaReport', formatQaReport(sourceRecord));
-    setDetailText('historyProvenanceStatus', formatProvenanceStatus(sourceRecord, null));
+    var verification = ++detailVerification;
+    setDetailText('historyDetailProvenance', sourceRecord.provenance ? '正在驗證原始圖片與 receipt…' : '此舊作品尚無來源 receipt。');
+    if (root.ImageProvenance && sourceRecord.provenance) {
+      root.ImageProvenance.verifyReceipt(sourceRecord).then(function (result) {
+        if (verification !== detailVerification || selectedRecordId !== sourceRecord.id) { return; }
+        var internal = { hash_verified: 'hash verified：圖片與 receipt 雜湊相符', modified: 'modified since receipt：圖片或 receipt 已變更', unavailable: '無法讀取原始 bytes／receipt，未驗證' };
+        var external = { verified: '已驗證（指定信任錨）', present_untrusted: '存在，簽章有效但簽發者未受信任', invalid: '無效', absent: '未找到', unknown_after_transform: '轉換後未知／可能已剝除', unsupported: '驗證器不可用或格式不支援' };
+        setDetailText('historyDetailProvenance', internal[result.status] + '；Content Credentials：' + external[result.credential_status] +
+          '；Provider：' + sourceRecord.provenance.provider + '；Model：' + sourceRecord.provenance.model +
+          '；來源：' + (sourceRecord.provenance.source_record_ids.join(', ') || '本次生成') +
+          '；Receipt SHA-256：' + sourceRecord.provenance.receipt_sha256);
+      });
+    }
     renderCloudLinks(sourceRecord);
     if (tagEditor) {
       tagEditor.value = getRecordTags(sourceRecord).join(', ');
@@ -756,10 +706,10 @@
     } else {
       modal.hidden = false;
     }
-    refreshProvenanceStatus(sourceRecord);
   }
 
   function closeHistoryDetail() {
+    detailVerification += 1;
     var modal = el('historyDetailModal');
     if (modal && root.ModalA11y && typeof root.ModalA11y.close === 'function') {
       root.ModalA11y.close(modal);
@@ -797,22 +747,14 @@
     var sourceRecord = normalizeRecordForUi(record);
     var lines = [];
     var cloudShareUrl;
-    var verification = arguments.length > 2 ? arguments[2] : null;
-    var credentialStatus = verification && toText(verification.credential_status) ? verification.credential_status : 'unsupported';
     if (!sourceRecord) { return ''; }
     lines.push('AI 圖片作品');
     lines.push('畫質：' + qualityLabel(sourceRecord));
     lines.push('尺寸：' + (toText(sourceRecord.size) || 'square'));
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
-    var provider = safeMetadataValue(sourceRecord.provider, 'provider');
-    if (provider) { lines.push('Provider：' + provider); }
-    if (sourceRecord.provenanceReceipt) {
-      lines.push('Provenance receipt：' + (toText(sourceRecord.provenanceReceipt.receipt_hash) || 'unavailable'));
-      // A serialized receipt carries only a claim. Only the current-image
-      // verification result supplied by verifyRecord may appear in share text.
-      lines.push('Content Credentials：' + credentialStatusLabel(credentialStatus));
-    }
+    lines.push('Content Credentials：尚未驗證，請在收到圖片後自行檢查');
+    if (sourceRecord.provider) { lines.push('Provider：' + toText(sourceRecord.provider)); }
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
     if (!hidePrompt) {
@@ -825,23 +767,14 @@
   function copyHistoryShareText() {
     var record = getSelectedRecord();
     var hidePrompt = !!(el('hidePromptInShare') && el('hidePromptInShare').checked);
-    var verifier = root.ProvenanceReceipt && root.ProvenanceReceipt.verifyRecord;
     if (!record) {
       setAppStatus('尚無可分享的作品', 'warn');
-      return Promise.resolve(false);
+      return;
     }
-    // Revalidate the exact current image before copying a credential status.
-    // Imported/localStorage claims and receipt fields are never sufficient.
-    return Promise.resolve(typeof verifier === 'function' ? verifier(record) : { credential_status: 'unsupported' }).catch(function () {
-      return { credential_status: 'unsupported' };
-    }).then(function (verification) {
-      return copyWithApp(buildShareText(record, hidePrompt, verification));
-    }).then(function () {
+    copyWithApp(buildShareText(record, hidePrompt)).then(function () {
       setAppStatus('已複製分享文案', 'done');
-      return true;
     }).catch(function (error) {
       setAppStatus('複製失敗：' + error.message, 'fail');
-      return false;
     });
   }
 
@@ -849,32 +782,56 @@
     return (toText(value) || 'history').replace(/[^a-z0-9_-]+/gi, '_').slice(0, 60) || 'history';
   }
 
+  function reportJsonExportError(message) {
+    setAppStatus(message, 'fail');
+    if (root.ImageGenApp && typeof root.ImageGenApp.showToast === 'function') {
+      root.ImageGenApp.showToast(message, 'warn');
+    }
+  }
+
+  // Shared single/all export flow adapted from Reese-max/flux-image-gen PR #19
+  // (8af0e0c), with failure messages from PR #21 (ae92c1f).
+  // Keep PR #24's deferred cleanup and cover failures before anchor creation.
   function downloadJsonPayload(payload, filename) {
     var blob;
-    var url;
+    var blobUrl;
     var link;
+    var succeeded = false;
+    var errorLabel = '作品資料無法序列化為 JSON';
     if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
+      reportJsonExportError('瀏覽器不支援匯出 JSON');
       return false;
     }
-    blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    url = root.URL.createObjectURL(blob);
-    link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
     try {
+      blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      errorLabel = '無法建立下載連結';
+      blobUrl = root.URL.createObjectURL(blob);
+      errorLabel = '下載觸發失敗';
+      link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = filename;
       document.body.appendChild(link);
       link.click();
+      succeeded = true;
+    } catch (error) {
+      reportJsonExportError(errorLabel + '：' + error.message);
     } finally {
-      if (link.parentNode) {
-        link.parentNode.removeChild(link);
+      try {
+        if (link && link.parentNode) {
+          link.parentNode.removeChild(link);
+        }
+      } catch (error) {
+        succeeded = false;
+        reportJsonExportError('下載連結清理失敗：' + error.message);
+      } finally {
+        if (blobUrl) {
+          setTimeout(function () {
+            try { root.URL.revokeObjectURL(blobUrl); } catch (_) {}
+          }, 30000);
+        }
       }
-      // Keep the object URL alive until the browser has consumed the download.
-      // Revoking it in the same task cancels downloads in Chromium.
-      setTimeout(function () {
-        try { root.URL.revokeObjectURL(url); } catch (_) {}
-      }, 30000);
     }
-    return true;
+    return succeeded;
   }
 
   function exportHistoryJson() {
@@ -884,40 +841,62 @@
       setAppStatus('尚無可匯出的作品', 'warn');
       return;
     }
+    if (!root.URL || typeof root.URL.createObjectURL !== 'function') {
+      reportJsonExportError('瀏覽器不支援匯出 JSON');
+      return;
+    }
     normalized = normalizeRecordForUi(record);
     if (!normalized) {
-      setAppStatus('作品資料格式不正確，無法匯出', 'fail');
+      reportJsonExportError('作品資料格式不正確，無法匯出');
       return;
     }
-    if (root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+    var promptPublic = !(el('hidePromptInShare') && el('hidePromptInShare').checked);
+    if (promptPublic && root.confirm && !root.confirm('匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定。確定公開這些提示詞並匯出？')) {
       setAppStatus('已取消匯出作品 JSON', 'warn');
+      if (root.ImageGenApp && typeof root.ImageGenApp.showToast === 'function') {
+        root.ImageGenApp.showToast('已取消匯出作品 JSON', 'warn');
+      }
       return;
     }
+    normalized = root.ImageProvenance.exportArtwork(normalized, { promptPublic: promptPublic });
     if (!downloadJsonPayload(normalized, 'history_' + safeFilePart(normalized.id) + '.json')) {
-      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
       return;
     }
-    setAppStatus('已匯出備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+    setAppStatus('已匯出備份檔與 receipt；已排除雲端刪除連結與敏感網址。', 'done');
+  }
+
+  function downloadReceipt() {
+    var record = getSelectedRecord();
+    if (!record || !record.provenance) { setAppStatus('此作品尚無來源 receipt', 'warn'); return; }
+    downloadJsonPayload(root.ImageProvenance.normalizeReceipt(record.provenance), 'history_' + safeFilePart(record.id) + '.receipt.json');
   }
 
   function exportAllHistoryJson() {
     var normalized;
+    loadHistoryWall();
     if (!records.length) {
       setAppStatus('尚無可匯出的歷史作品', 'warn');
       return;
     }
-    normalized = root.ImageHistoryStore && typeof root.ImageHistoryStore.exportRecordCollection === 'function'
-      ? root.ImageHistoryStore.exportRecordCollection(records)
-      : { schema: 'GenerationRecordCollection', version: 2, records: records };
-    if (!confirmAction('匯出的備份檔會包含全部歷史作品、完整提示詞與設定，並可能包含雲端分享或刪除連結。公開分享前請先檢查內容，確定要匯出？')) {
+    if (!confirmAction('匯出的備份檔會包含全部歷史作品、完整提示詞與設定；會排除刪除權杖與敏感網址。確定要匯出？')) {
       setAppStatus('已取消匯出全部歷史 JSON', 'warn');
+      if (root.ImageGenApp && typeof root.ImageGenApp.showToast === 'function') {
+        root.ImageGenApp.showToast('已取消匯出全部歷史 JSON', 'warn');
+      }
+      return;
+    }
+    try {
+      normalized = root.ImageHistoryStore.exportRecordCollection(records.map(function (record) {
+        return root.ImageProvenance.exportBackupRecord(record);
+      }));
+    } catch (error) {
+      reportJsonExportError('無法安全匯出備份：' + error.message);
       return;
     }
     if (!downloadJsonPayload(normalized, 'history_backup_' + new Date().toISOString().slice(0, 10) + '.json')) {
-      setAppStatus('瀏覽器不支援匯出 JSON', 'fail');
       return;
     }
-    setAppStatus('已匯出全部歷史備份檔；檔案可能包含完整描述與雲端刪除連結，請勿公開分享此檔。', 'done');
+    setAppStatus('已匯出全部歷史備份檔與 receipts；保留完整描述，已排除刪除權杖與敏感網址。', 'done');
   }
 
   function switchToGenerateTab() {
@@ -938,10 +917,12 @@
       setAppStatus('尚無可再生的作品', 'warn');
       return;
     }
-    if (!switchToGenerateTab()) { return; }
-    if (typeof root.ImageGenApp.setSeedMode === 'function') {
-      root.ImageGenApp.setSeedMode('random');
+    if (typeof root.ImageGenApp.isGenerationBusy === 'function' && root.ImageGenApp.isGenerationBusy()) {
+      setAppStatus('正在生成或等待重試，請稍候再生', 'warn');
+      return;
     }
+    if (!switchToGenerateTab()) { return; }
+    if (typeof root.ImageGenApp.setSeedMode === 'function') { root.ImageGenApp.setSeedMode('random'); }
     if (typeof root.ImageGenApp.setNextGenerationSourceRecord === 'function') {
       root.ImageGenApp.setNextGenerationSourceRecord(record.id);
     }
@@ -1177,6 +1158,16 @@
       return root.ImageHistoryStore.loadRecords();
     }, []);
     renderHistoryWall();
+    records.slice().sort(function (left, right) {
+      return left.createdAt.localeCompare(right.createdAt) || left.versionNumber - right.versionNumber;
+    }).forEach(function (record) {
+      var receipt = record.provenance;
+      if (!receipt || receipt.receipt_sha256 || pendingReceipts[record.id]) { return; }
+      record.providerProvenance = { model_id: receipt.model, steps: receipt.settings.steps,
+        cfg_scale: receipt.settings.cfg, model_revision: receipt.provider_provenance.model_revision };
+      queueReceipt(record, { inputs: receipt.inputs, sourceRecordIds: receipt.source_record_ids,
+        operation: receipt.settings.mode, buildVersion: receipt.build_version });
+    });
   }
 
   function clearHistoryWall() {
@@ -1224,39 +1215,70 @@
 
   function addGeneratedRecord(event) {
     if (!root.ImageHistoryStore || !event || !event.detail) { return; }
-    // Batch results dispatch several events in one turn. Serializing the
-    // async hash work keeps each event's parent lookup and localStorage write
-    // based on the latest history instead of racing and dropping records.
-    recordWriteChain = recordWriteChain.then(function () {
-      var sourceRecordId = toText(event.detail.sourceRecordId);
-      var parentRecord = sourceRecordId ? root.ImageHistoryStore.findRecordById(records, sourceRecordId) : null;
-      var recordToAdd = event.detail;
-      var addedRecords;
-      var attach;
-      if (sourceRecordId && parentRecord && typeof root.ImageHistoryStore.createVersionRecord === 'function') {
-        recordToAdd = root.ImageHistoryStore.createVersionRecord(records, parentRecord, event.detail);
+    var detail = copyRecord(event.detail);
+    var sourceRecordId = toText(detail.sourceRecordId);
+    var inputs = detail.provenanceInputs || [];
+    var sourceIds = sourceRecordId ? [sourceRecordId] : [];
+    records.forEach(function (record) {
+      if (record.provenance && inputs.some(function (input) { return input.original_sha256 === record.provenance.output_sha256; }) && sourceIds.indexOf(record.id) < 0) {
+        sourceIds.push(record.id);
       }
-      if (!toText(recordToAdd.id)) {
-        // Batch event payloads intentionally omit ids. Reserve the id before
-        // hashing so the receipt and persisted record refer to the same item.
-        var identity = root.ImageHistoryStore.normalizeRecord(recordToAdd);
-        recordToAdd = copyRecord(recordToAdd);
-        recordToAdd.id = identity.id;
-      }
-      attach = root.ProvenanceReceipt && typeof root.ProvenanceReceipt.attachRecord === 'function'
-        ? root.ProvenanceReceipt.attachRecord(recordToAdd, parentRecord)
-        : Promise.resolve(recordToAdd);
-      return Promise.resolve(attach).then(function (attachedRecord) {
-        addedRecords = root.ImageHistoryStore.addRecord(records, attachedRecord);
-        return root.ImageHistoryStore.saveRecords(addedRecords);
-      });
-    }).then(function (nextRecords) {
-      if (!nextRecords) { return; }
-      records = nextRecords;
-      renderHistoryWall();
-    }, function (error) {
-      setAppStatus('歷史記錄儲存失敗：' + (error && error.message ? error.message : '未知錯誤'), 'fail');
     });
+    sourceRecordId = sourceIds[0] || '';
+    var parentRecord = sourceRecordId ? root.ImageHistoryStore.findRecordById(records, sourceRecordId) : null;
+    var recordToAdd;
+    var options = { parent: parentRecord, inputs: inputs, sourceRecordIds: sourceIds,
+      operation: detail.operation === 'edit' ? 'edit' : (sourceRecordId ? 'regenerate' : 'generate') };
+    try {
+      recordToAdd = root.ImageHistoryStore.normalizeRecord(detail);
+      if (sourceRecordId && parentRecord && typeof root.ImageHistoryStore.createVersionRecord === 'function') {
+        recordToAdd = root.ImageHistoryStore.createVersionRecord(records, parentRecord, detail);
+      }
+      recordToAdd.providerProvenance = detail.providerProvenance;
+      // Preserve the successful artwork synchronously, before optional SDK/network work.
+      recordToAdd.provenance = root.ImageProvenance.pendingReceipt(recordToAdd, options);
+      records = root.ImageHistoryStore.saveRecords(root.ImageHistoryStore.addRecord(records, recordToAdd));
+      renderHistoryWall();
+    } catch (error) {
+      setAppStatus('歷史儲存失敗；請先下載圖片。', 'fail');
+      return;
+    }
+    return queueReceipt(recordToAdd, options);
+  }
+
+  function queueReceipt(recordToAdd, options) {
+    var originalImage = recordToAdd.image;
+    var originalContent = root.ImageProvenance.localOriginalImage(recordToAdd) || originalImage;
+    pendingReceipts[recordToAdd.id] = true;
+    // Finish in version order and reread storage after asynchronous inspection:
+    // another tab may have removed/replaced this record or changed its metadata.
+    receiptWrites = receiptWrites.then(function () {
+      records = root.ImageHistoryStore.loadRecords();
+      options.parent = recordToAdd.sourceRecordId ? root.ImageHistoryStore.findRecordById(records, recordToAdd.sourceRecordId) : null;
+      if (!root.ImageHistoryStore.findRecordById(records, recordToAdd.id)) { return; }
+      return root.ImageProvenance.resolveOutputImage(root.ImageProvenance.localOriginalImage(recordToAdd) || recordToAdd.image).catch(function () {
+        return recordToAdd.image; // Unreadable CORS/remote output stays explicitly unsupported.
+      }).then(function (image) {
+        recordToAdd.image = image;
+        return root.ImageProvenance.createReceipt(recordToAdd, options);
+      }).then(function (receipt) {
+        records = root.ImageHistoryStore.loadRecords();
+        var current = root.ImageHistoryStore.findRecordById(records, recordToAdd.id);
+        var currentContent = current && (root.ImageProvenance.localOriginalImage(current) || current.image);
+        if (!current || current.image !== originalImage || currentContent !== originalContent || (current.provenance && current.provenance.receipt_sha256)) {
+          renderHistoryWall();
+          return; // Preserve deletion, newer output, or another tab's completed receipt.
+        }
+        records = root.ImageHistoryStore.saveRecords(root.ImageHistoryStore.updateRecord(records, recordToAdd.id,
+          { image: recordToAdd.image, thumbnail: recordToAdd.image, provenance: receipt }));
+        renderHistoryWall();
+        refreshSelectedRecord(recordToAdd.id);
+        document.dispatchEvent(new CustomEvent('imagegen:receipt-saved', { detail: { id: recordToAdd.id } }));
+      });
+    }).catch(function () { setAppStatus('來源 receipt 或歷史儲存失敗；請先下載圖片。', 'fail'); }).then(function () {
+      delete pendingReceipts[recordToAdd.id];
+    });
+    return receiptWrites;
   }
 
   function reloadHistoryAfterRecordUpdate(event) {
@@ -1322,6 +1344,7 @@
     if (exportAllJson) {
       exportAllJson.addEventListener('click', exportAllHistoryJson);
     }
+    if (el('downloadHistoryReceipt')) { el('downloadHistoryReceipt').addEventListener('click', downloadReceipt); }
     if (regenerateDetail) {
       regenerateDetail.addEventListener('click', regenerateHistoryDetail);
     }
@@ -1390,7 +1413,6 @@
     copyHistoryShareText: copyHistoryShareText,
     exportHistoryJson: exportHistoryJson,
     exportAllHistoryJson: exportAllHistoryJson,
-    downloadJsonPayload: downloadJsonPayload,
     regenerateHistoryDetail: regenerateHistoryDetail,
     recordMatchesFilters: recordMatchesFilters,
     applyHistoryFilters: applyHistoryFilters,

@@ -16,27 +16,6 @@
     return String(value).trim();
   }
 
-  function sanitizeMetadataValue(value, kind, fallback) {
-    var helper = root.ProvenanceReceipt;
-    var result;
-    if (helper && typeof helper.sanitizeMetadataValue === 'function') {
-      result = helper.sanitizeMetadataValue(value, kind);
-      return result || (fallback || '');
-    }
-    result = toText(value);
-    if (!result || /[?#\\]/.test(result) || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(result)) {
-      return fallback || '';
-    }
-    if (/(?:api[_-]?key|token|secret|password|bearer|authorization|signature|signed)/i.test(result)) {
-      return fallback || '';
-    }
-    if (kind === 'provider' && !/^(?:demo|nvidia|workers-ai|pollinations|gemini|gemini-fallback|rule-based|edit|blocked|unknown)$/.test(result.toLowerCase())) {
-      return fallback || '';
-    }
-    if (kind === 'mode' && result !== 'normal' && result !== 'agent') { return fallback || ''; }
-    return result.slice(0, kind === 'id' ? 160 : 512);
-  }
-
   function normalizeSeed(value) {
     var text = toText(value);
     var seed;
@@ -233,80 +212,6 @@
     return null;
   }
 
-  // Keep provenance receipts strict when importing old/local JSON. The
-  // dedicated ProvenanceReceipt helper performs the full normalization in the
-  // browser; this fallback keeps history-store safe when tested or loaded on
-  // its own.
-  function normalizeProvenanceReceipt(value) {
-    var helper = root.ProvenanceReceipt;
-    var source = value && typeof value === 'object' ? value : null;
-    var operation;
-    var hashes;
-    var ids;
-    var receipt;
-    var i;
-    var item;
-    var claimedStatus;
-    var canonicalStatus;
-    if (helper && typeof helper.normalizeReceipt === 'function') {
-      return helper.normalizeReceipt(value);
-    }
-    if (!source || !sanitizeMetadataValue(source.record_id, 'id')) { return null; }
-    operation = toText(source.operation) === 'edit' ? 'edit' : 'generate';
-    hashes = [];
-    ids = [];
-    if (Array.isArray(source.input_image_hashes)) {
-      for (i = 0; i < source.input_image_hashes.length && hashes.length < 4; i += 1) {
-        item = toText(source.input_image_hashes[i]).toLowerCase();
-        if (/^[a-f0-9]{64}$/.test(item) && hashes.indexOf(item) === -1) { hashes.push(item); }
-      }
-    }
-    if (Array.isArray(source.source_record_ids)) {
-      for (i = 0; i < source.source_record_ids.length && ids.length < 4; i += 1) {
-        item = sanitizeMetadataValue(source.source_record_ids[i], 'id');
-        if (item && ids.indexOf(item) === -1) { ids.push(item); }
-      }
-    }
-    claimedStatus = toText(source.credential_status);
-    canonicalStatus = /^(?:verified|present_untrusted|invalid|absent|unknown_after_transform|unsupported)$/.test(claimedStatus)
-      ? claimedStatus
-      : (operation === 'edit' ? 'unknown_after_transform' : 'unsupported');
-    receipt = {
-      schema: 'ProvenanceReceipt',
-      receipt_schema_version: 1,
-      record_id: sanitizeMetadataValue(source.record_id, 'id'),
-      operation: operation,
-      source_record_ids: ids,
-      input_image_hashes: hashes,
-      provider: sanitizeMetadataValue(source.provider, 'provider'),
-      model: sanitizeMetadataValue(source.model, 'model'),
-      provider_model_revision: sanitizeMetadataValue(source.provider_model_revision, 'model'),
-      seed: normalizeSeed(source.seed),
-      size: sanitizeMetadataValue(source.size, 'identifier'),
-      steps: typeof source.steps === 'number' && isFinite(source.steps) ? source.steps : null,
-      cfg_scale: typeof source.cfg_scale === 'number' && isFinite(source.cfg_scale) ? source.cfg_scale : null,
-      mode: sanitizeMetadataValue(source.mode, 'mode', 'normal'),
-      prompt_sha256: /^[a-f0-9]{64}$/i.test(toText(source.prompt_sha256)) ? toText(source.prompt_sha256).toLowerCase() : '',
-      created_at: sanitizeMetadataValue(source.created_at, 'timestamp'),
-      output_sha256: /^[a-f0-9]{64}$/i.test(toText(source.output_sha256)) ? toText(source.output_sha256).toLowerCase() : '',
-      parent_receipt_hash: /^[a-f0-9]{64}$/i.test(toText(source.parent_receipt_hash)) ? toText(source.parent_receipt_hash).toLowerCase() : '',
-      version_group_id: sanitizeMetadataValue(source.version_group_id, 'id'),
-      version_number: normalizeVersionNumber(source.version_number),
-      app_build_version: sanitizeMetadataValue(source.app_build_version, 'build'),
-      // Keep the persisted canonical status stable so its receipt_hash can be
-      // checked after reload. Current-image C2PA verification is separate and
-      // is never inferred from this imported value.
-      credential_status: canonicalStatus,
-      transform: {
-        kind: toText(source.transform && source.transform.kind).slice(0, 96) || (operation === 'edit' ? 'ai_edit' : 'none'),
-        applied: !!(source.transform && source.transform.applied),
-        credential_effect: toText(source.transform && source.transform.credential_effect).slice(0, 64) || (operation === 'edit' ? 'unknown_after_transform' : 'unchanged')
-      },
-      receipt_hash: /^[a-f0-9]{64}$/i.test(toText(source.receipt_hash)) ? toText(source.receipt_hash).toLowerCase() : ''
-    };
-    return receipt;
-  }
-
   function normalizeRecord(raw, makeId) {
     var source = raw || {};
     var imageUrl = toText(source.imageUrl);
@@ -314,10 +219,8 @@
     var image = toText(source.image) || localImageData || imageUrl;
     var prompt = toText(source.userPrompt) || toText(source.prompt);
     var negativePrompt = toText(source.negativePrompt) || toText(source.avoid);
-    var id = sanitizeMetadataValue(source.id, 'id');
+    var id = toText(source.id);
     var idFactory = typeof makeId === 'function' ? makeId : defaultMakeId;
-    var provenanceReceipt;
-    var normalized;
 
     if (!image) {
       throw new Error('缺少圖片資料');
@@ -329,7 +232,7 @@
       id = toText(idFactory());
     }
 
-    normalized = {
+    var normalized = {
       id: id,
       schemaVersion: RECORD_SCHEMA_VERSION,
       userPrompt: prompt,
@@ -337,13 +240,11 @@
       image: image,
       thumbnail: toText(source.thumbnail) || image,
       prompt: prompt,
-      // Keep missing legacy provider prompts empty so regeneration can rebuild
-      // the provider-ready prompt from the preserved user prompt.
       providerPrompt: toText(source.providerPrompt),
       negativePrompt: negativePrompt,
       avoid: negativePrompt,
-      model: sanitizeMetadataValue(source.model, 'model', DEFAULT_MODEL),
-      size: sanitizeMetadataValue(source.size, 'identifier', DEFAULT_SIZE) || DEFAULT_SIZE,
+      model: toText(source.model) || DEFAULT_MODEL,
+      size: toText(source.size) || DEFAULT_SIZE,
       steps: typeof source.steps === 'number' && isFinite(source.steps) ? source.steps : null,
       cfgScale: typeof source.cfgScale === 'number' && isFinite(source.cfgScale) ? source.cfgScale : null,
       seed: normalizeSeed(source.seed),
@@ -351,7 +252,7 @@
       height: normalizeDimension(source.height),
       imageUrl: imageUrl || (image.indexOf('http://') === 0 || image.indexOf('https://') === 0 ? image : ''),
       localImageData: localImageData || (image.indexOf('data:image/') === 0 ? image : ''),
-      provider: sanitizeMetadataValue(source.provider, 'provider'),
+      provider: toText(source.provider),
       mode: toText(source.mode) === 'agent' ? 'agent' : 'normal',
       favorite: normalizeBoolean(source.favorite),
       tags: normalizeTags(source.tags),
@@ -364,15 +265,17 @@
       cloudDeleteUrl: toText(source.cloudDeleteUrl),
       cloudSavedAt: toText(source.cloudSavedAt),
       cloudPromptPublic: normalizeBoolean(source.cloudPromptPublic),
-      cloudStorage: sanitizeMetadataValue(source.cloudStorage, 'identifier'),
-      sourceRecordId: sanitizeMetadataValue(source.sourceRecordId, 'id'),
-      versionGroupId: sanitizeMetadataValue(source.versionGroupId, 'id') || id,
+      cloudStorage: toText(source.cloudStorage),
+      sourceRecordId: toText(source.sourceRecordId),
+      versionGroupId: toText(source.versionGroupId) || id,
       versionNumber: normalizeVersionNumber(source.versionNumber),
-      createdAt: sanitizeMetadataValue(source.createdAt, 'timestamp') || new Date().toISOString()
+      createdAt: toText(source.createdAt) || new Date().toISOString()
     };
-    provenanceReceipt = normalizeProvenanceReceipt(source.provenanceReceipt);
-    if (provenanceReceipt) {
-      normalized.provenanceReceipt = provenanceReceipt;
+    if (typeof source.batchIndex === 'number' && isFinite(source.batchIndex) && Math.floor(source.batchIndex) === source.batchIndex && source.batchIndex >= 0 && source.batchIndex < 4) {
+      normalized.batchIndex = source.batchIndex;
+    }
+    if (source.provenance && root.ImageProvenance) {
+      normalized.provenance = root.ImageProvenance.normalizeReceipt(source.provenance);
     }
     return normalized;
   }
@@ -539,6 +442,71 @@
     return updated.slice(0, MAX_RECORDS);
   }
 
+  // Single-artwork imports are a separate format from existing array and
+  // collection backups. Reject remote images, prototype keys and oversized
+  // data before accepting either a receipt-bearing or legacy single export.
+  function safeSingleArtwork(source) {
+    var allowed = ['id', 'schemaVersion', 'userPrompt', 'expandedPrompt', 'image', 'thumbnail',
+      'prompt', 'providerPrompt', 'negativePrompt', 'avoid', 'model', 'size', 'steps', 'cfgScale',
+      'seed', 'width', 'height', 'imageUrl', 'localImageData', 'provider', 'mode', 'favorite',
+      'tags', 'qaReport', 'recommended', 'agentRecommendation', 'autoRetry', 'nextSuggestions',
+      'cloudShareUrl', 'cloudDeleteUrl', 'cloudSavedAt', 'cloudPromptPublic', 'cloudStorage',
+      'sourceRecordId', 'versionGroupId', 'versionNumber', 'createdAt', 'provenance', 'batchIndex'];
+    var imageFields = ['image', 'thumbnail', 'imageUrl', 'localImageData'];
+    var metadataChars = 0;
+    var seen = [];
+    var keys;
+    var i;
+    function localImage(value) {
+      var match = /^data:image\/(?:png|jpeg|webp|gif);base64,([a-z0-9+/=\s]+)$/i.exec(value);
+      if (!match || match[1].length > 32 * 1024 * 1024) { return false; }
+      var encoded = match[1].replace(/\s/g, '');
+      return encoded.length > 0 && encoded.length % 4 !== 1 && /^[a-z0-9+/]+={0,2}$/i.test(encoded)
+        && (encoded.indexOf('=') < 0 || encoded.length % 4 === 0);
+    }
+    function safeValue(value, key, depth) {
+      if (depth > 16) { return false; }
+      if (typeof value === 'string') {
+        if (depth === 1 && imageFields.indexOf(key) >= 0) { return !value || localImage(value); }
+        metadataChars += value.length;
+        return metadataChars <= 1024 * 1024;
+      }
+      if (!value || typeof value !== 'object') { return true; }
+      var prototype = Object.getPrototypeOf(value);
+      if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) { return false; }
+      if (seen.indexOf(value) >= 0) { return false; }
+      seen.push(value);
+      var nested = Object.keys(value);
+      for (var j = 0; j < nested.length; j += 1) {
+        var name = nested[j];
+        metadataChars += name.length;
+        if (name === '__proto__' || name === 'prototype' || name === 'constructor'
+            || metadataChars > 1024 * 1024 || !safeValue(value[name], name, depth + 1)) { return false; }
+      }
+      seen.pop();
+      return true;
+    }
+    if (!source || typeof source !== 'object' || Array.isArray(source)
+        || !Object.prototype.hasOwnProperty.call(source, 'id') || typeof source.id !== 'string' || !source.id.trim()
+        || source.id.length > 1024 || ['__proto__', 'constructor', 'prototype'].indexOf(source.id) >= 0
+        || !Object.prototype.hasOwnProperty.call(source, 'image') || typeof source.image !== 'string' || !localImage(source.image)
+        || !(typeof source.prompt === 'string' && source.prompt.trim()) && !(typeof source.userPrompt === 'string' && source.userPrompt.trim())) { return false; }
+    if ((source.cloudDeleteUrl != null && source.cloudDeleteUrl !== '') || (source.cloudShareUrl != null && source.cloudShareUrl !== '')) { return false; }
+    if (source.schemaVersion != null && source.schemaVersion !== 1 && source.schemaVersion !== 2) { return false; }
+    if (source.provenance != null && (typeof source.provenance !== 'object' || source.provenance.receipt_schema_version !== 1)) { return false; }
+    if (source.batchIndex != null && !(typeof source.batchIndex === 'number' && isFinite(source.batchIndex)
+        && Math.floor(source.batchIndex) === source.batchIndex && source.batchIndex >= 0 && source.batchIndex < 4)) { return false; }
+    for (i = 0; i < imageFields.length; i += 1) {
+      if (source[imageFields[i]] != null && (typeof source[imageFields[i]] !== 'string'
+          || source[imageFields[i]] && !localImage(source[imageFields[i]]))) { return false; }
+    }
+    keys = Object.keys(source);
+    for (i = 0; i < keys.length; i += 1) {
+      if (allowed.indexOf(keys[i]) < 0) { return false; }
+    }
+    return safeValue(source, '', 0);
+  }
+
   function normalizeRecordCollection(value) {
     var source = value && typeof value === 'object' ? value : {};
     var rawRecords;
@@ -551,6 +519,8 @@
         return [];
       }
       rawRecords = Array.isArray(source.records) ? source.records : [];
+    } else if (safeSingleArtwork(source)) {
+      rawRecords = [source];
     } else if (Array.isArray(source.records)) {
       rawRecords = source.records;
     } else {

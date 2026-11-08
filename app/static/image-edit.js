@@ -76,9 +76,25 @@
 
   // 把 /edit 回應映射成 { image, error }：成功回圖，否則回後端 error 或通用 HTTP 訊息。
   function mapEditResponse(ok, status, data) {
-    if (ok && data && data.image) { return { image: data.image, error: null, data: data }; }
+    if (ok && data && data.image) { return { image: data.image, error: null }; }
     var msg = (data && data.error) ? data.error : ('改圖失敗（HTTP ' + status + '）');
-    return { image: null, error: msg, data: data || {} };
+    return { image: null, error: msg };
+  }
+
+  function prepareProvenanceInput(original, submitted) {
+    var api = root.ImageProvenance;
+    return Promise.all([api.sha256(original), api.sha256(submitted), api.inspectCredentials(original)]).then(function (hashes) {
+      return { original_sha256: hashes[0], submitted_sha256: hashes[1],
+        credential_status: hashes[2].status, transform: 'resize_reencode' };
+    });
+  }
+
+  function createHistoryRecord(data, prompt, inputs) {
+    return { id: root.crypto.randomUUID(), createdAt: new Date().toISOString(), image: data.image,
+      prompt: prompt, providerPrompt: prompt, provider: data.provider || 'workers-ai',
+      model: data.model || '@cf/black-forest-labs/flux-2-klein-4b', size: 'edit', seed: 0,
+      providerProvenance: data.providerProvenance,
+      width: data.width || 0, height: data.height || 0, mode: 'normal', operation: 'edit', provenanceInputs: inputs };
   }
 
   var EDIT_PROVIDER_UNAVAILABLE_MESSAGE = '此環境尚未啟用 Workers AI 改圖；仍可先整理參考圖與指令，啟用後再送出。';
@@ -110,6 +126,8 @@
     composeEditPrompt: composeEditPrompt,
     buildEditFormData: buildEditFormData,
     mapEditResponse: mapEditResponse,
+    prepareProvenanceInput: prepareProvenanceInput,
+    createHistoryRecord: createHistoryRecord,
     editAvailabilityFromHealth: editAvailabilityFromHealth
   };
 
@@ -148,10 +166,7 @@
     }
   };
 
-  // Keep the original File alongside the normalized provider Blob. The model
-  // receives the latter, while the receipt records both byte domains so an
-  // upload re-encode cannot be mistaken for the original file hash.
-  var selected = []; // { file, blob, url, name, role }
+  var selected = []; // { blob, url, name, role }
   var editMode = 'general';
   var editInFlight = false;
   var providerAvailable = null;
@@ -319,15 +334,19 @@
     }
     Promise.all(picked.map(function (file) {
       return resizeFileToBlob(file).then(
-        function (blob) { return { ok: true, blob: blob }; },
+        function (blob) {
+          return prepareProvenanceInput(file, blob).then(function (input) {
+            return { ok: true, blob: blob, provenanceInput: input };
+          });
+        },
         function () { return { ok: false }; }
-      );
+      ).catch(function () { return { ok: false }; });
     })).then(function (results) {
       var failed = 0, dropped = 0;
-      results.forEach(function (r, resultIndex) {
+      results.forEach(function (r) {
         if (!r.ok) { failed++; return; }
         if (selected.length < MAX_EDIT_IMAGES) {
-          selected.push({ file: picked[resultIndex] || r.blob, blob: r.blob, url: URL.createObjectURL(r.blob), name: 'image.png', role: editMode === 'product' ? 'product' : (editMode === 'character' ? 'character' : 'style') });
+          selected.push({ blob: r.blob, provenanceInput: r.provenanceInput, url: URL.createObjectURL(r.blob), name: 'image.png', role: editMode === 'product' ? 'product' : (editMode === 'character' ? 'character' : 'style') });
         } else {
           dropped++; // 超過上限：未建 URL，直接丟棄，無洩漏
         }
@@ -443,55 +462,8 @@
     setPreviewState('done', '完成');
   }
 
-  function makeHistoryRecordId() {
-    if (root.crypto && typeof root.crypto.randomUUID === 'function') {
-      return root.crypto.randomUUID();
-    }
-    return 'edit-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
-  }
-
-  function dispatchEditHistoryRecord(data, image, prompt, finalPrompt, inputHashes, originalInputHashes) {
-    var source = data || {};
-    var detail;
-    if (typeof document.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') { return; }
-    detail = {
-      id: makeHistoryRecordId(),
-      image: image,
-      thumbnail: image,
-      prompt: prompt,
-      providerPrompt: finalPrompt,
-      avoid: '',
-      model: typeof source.model === 'string' ? source.model : 'edit',
-      size: 'edit',
-      steps: null,
-      cfgScale: null,
-      seed: 0,
-      width: typeof source.width === 'number' ? source.width : 0,
-      height: typeof source.height === 'number' ? source.height : 0,
-      provider: typeof source.provider === 'string' ? source.provider : '',
-      mode: editMode,
-      operation: 'edit',
-      inputImageSha256: Array.isArray(inputHashes) ? inputHashes : [],
-      originalInputImageSha256: Array.isArray(originalInputHashes) ? originalInputHashes : [],
-      inputHashScope: 'provider_input',
-      transform: {
-        kind: 'browser_resize_reencode_then_ai_edit',
-        applied: true,
-        credential_effect: 'unknown_after_transform',
-        stages: ['browser_resize_reencode', 'ai_edit']
-      },
-      providerModelRevision: typeof source.providerModelRevision === 'string' ? source.providerModelRevision : '',
-      credentialStatus: typeof source.credentialStatus === 'string' ? source.credentialStatus : '',
-      appBuildVersion: typeof source.appBuildVersion === 'string' ? source.appBuildVersion : '',
-      sourceRecordId: ''
-    };
-    document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: detail }));
-  }
-
   goBtn.addEventListener('click', function () {
     var elapsedTimer;
-    var inputBlobs;
-    var originalInputFiles;
     if (providerAvailable === false) {
       setStatus(EDIT_PROVIDER_UNAVAILABLE_MESSAGE, 'fail');
       setPreviewState('error', '服務不可用');
@@ -536,9 +508,8 @@
       background: productBackground ? productBackground.value : '',
       lighting: productLighting ? productLighting.value : ''
     });
-    inputBlobs = selected.map(function (s) { return s.blob; });
-    originalInputFiles = selected.map(function (s) { return s.file || s.blob; });
-    var fd = buildEditFormData(finalPrompt, inputBlobs, token);
+    var fd = buildEditFormData(finalPrompt, selected.map(function (s) { return s.blob; }), token);
+    var receiptInputs = selected.map(function (item) { return item.provenanceInput; });
 
     fetch('/edit', { method: 'POST', body: fd })
       .then(function (resp) {
@@ -550,19 +521,10 @@
         var mapped = mapEditResponse(r.ok, r.status, r.data);
         if (mapped.image) {
           showResult(mapped.image);
+          document.dispatchEvent(new CustomEvent('imagegen:generated', {
+            detail: createHistoryRecord(r.data, finalPrompt, receiptInputs)
+          }));
           setStatus('完成 ✓ · 耗時 ' + elapsedTimer.stop() + ' 秒', 'done');
-          if (root.ProvenanceReceipt && typeof root.ProvenanceReceipt.hashBlobs === 'function') {
-            Promise.all([
-              root.ProvenanceReceipt.hashBlobs(inputBlobs),
-              root.ProvenanceReceipt.hashBlobs(originalInputFiles)
-            ]).then(function (hashes) {
-              dispatchEditHistoryRecord(mapped.data, mapped.image, prompt, finalPrompt, hashes[0], hashes[1]);
-            }, function () {
-              dispatchEditHistoryRecord(mapped.data, mapped.image, prompt, finalPrompt, [], []);
-            });
-          } else {
-            dispatchEditHistoryRecord(mapped.data, mapped.image, prompt, finalPrompt, [], []);
-          }
         } else {
           setStatus('改圖失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + mapped.error, 'fail');
           setPreviewState('error', '改圖失敗');

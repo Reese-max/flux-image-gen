@@ -1389,6 +1389,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .history-empty-cta { display: block; margin: 12px auto 0; }
 #historyFilters[hidden],
 #clearHistory[hidden],
+#exportAllHistoryJson[hidden],
 #deleteProject[hidden] { display: none; }
 
 /* ---------- footer ---------- */

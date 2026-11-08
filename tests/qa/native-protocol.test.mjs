@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {parseInitialPreviewRecord,parseSecretDeployment,immutableOrigin,initialPreviewArgs} from '../../cloudflare/qa/control.mjs';
+import {QA_NAME} from '../../cloudflare/qa/contract.mjs';
+import {createQaOriginRouter} from '../../cloudflare/qa/browser.mjs';
+const now=Date.now(),created=new Date(now-1000).toISOString(),name='pr45-12345-1';
+const id='abcdef12-1111-4222-8333-444444444444',origin='https://abcdef12-'+QA_NAME+'.isolated.workers.dev';
+const alias='https://'+name+'-'+QA_NAME+'.isolated.workers.dev';
+const record={type:'preview',version:1,preview_id:'opaque-preview-id',preview_name:name,preview_slug:name,preview_urls:[alias],deployment_id:id,deployment_urls:[origin],timestamp:new Date(now).toISOString()};
+const configFile='/private/qa/wrangler.json',session={type:'wrangler-session',version:1,wrangler_version:'4.135.0',command_line_args:initialPreviewArgs(configFile,name),log_file_path:'/private/not-published.log',timestamp:new Date(now).toISOString()};
+const pack=(item=record,header=session)=>JSON.stringify(header)+'\n'+JSON.stringify(item)+'\n';
+const parse=text=>parseInitialPreviewRecord(text,name,created,now,configFile);
+test('actual minimal4.135 JSONL shape binds fresh Preview, UUID first8, Worker/account and excludes mutable aliases',()=>{
+  const result=parse(pack());
+  assert.equal(result.initialOrigin,origin);assert.equal(result.initialDeploymentId,id);assert.deepEqual(result.aliasOrigins,[alias]);
+  assert.equal(immutableOrigin(origin,id),origin);
+  assert.doesNotThrow(()=>createQaOriginRouter({origin,deploymentId:id,key:'b'.repeat(64)}));
+  assert.throws(()=>createQaOriginRouter({origin,deploymentId:'00000000-1111-4222-8333-444444444444',key:'b'.repeat(64)}));
+  const changes=[{worker_name:'flux-image-gen'},{preview_name:'pr45-other'},{preview_id:''},{type:'deploy'},{version:2},{timestamp:new Date(now-600000).toISOString()},{timestamp:new Date(now+600000).toISOString()},{deployment_id:'00000000-1111-4222-8333-444444444444'},{deployment_urls:[alias]},{deployment_urls:[origin,origin]},{preview_urls:[origin]},{preview_urls:['https://'+name+'-'+QA_NAME+'.foreign.workers.dev']},{deployment_urls:[origin.replace('.workers.dev','.workers.dev.attacker.test')]},{deployment_urls:[origin+'?key=private']},{deployment_urls:[origin.replace('https://','https://user:pass@')]},{unexpected:'PRIVATE'}];
+  for(const patch of changes)assert.throws(()=>parse(pack({...record,...patch})));
+  for(const patch of [{type:'other'},{wrangler_version:'4.104.0'},{command_line_args:['preview','--worker-name','flux-image-gen']},{command_line_args:[...session.command_line_args,'--worker-name','other']},{timestamp:new Date(now-600000).toISOString()},{unknown:'PRIVATE'}])assert.throws(()=>parse(pack(record,{...session,...patch})));
+  for(const text of ['',JSON.stringify(record)+'\n',pack()+JSON.stringify(record),'raw progress\n'+pack(),pack({...record,body:'x'.repeat(17000)})])assert.throws(()=>parse(text));
+});
+test('real secret-put output requires new immutable UUID in same vetted Worker/account and exact named Preview',()=>{
+  const context={...parse(pack()),previewName:name};
+  const nextId='deadbeef-1111-4222-8333-444444444444',next='https://deadbeef-'+QA_NAME+'.isolated.workers.dev';
+  const reply=(deploymentId,url,previewName=name)=>'Success! Created Preview deployment '+deploymentId+' with secret QA_ACCESS_TOKEN.\nYour Preview "'+previewName+'" is now live at '+url;
+  assert.deepEqual(parseSecretDeployment(reply(nextId,next),context),{deploymentId:nextId,origin:next});
+  for(const text of [reply(id,origin),reply(nextId,next,'another-preview'),reply(nextId,next.replace('isolated.','foreign.')),reply(nextId,alias),reply(nextId,next.replace('deadbeef-','00000000-')),reply(nextId,next+'?key=private')])assert.throws(()=>parseSecretDeployment(text,context));
+});

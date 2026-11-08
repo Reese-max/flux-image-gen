@@ -44,18 +44,22 @@ VISION_QA_ENABLED = "false"
 # Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
 # infrastructure (5xx/timeout). Never used on content filter / rate limit.
 POLLINATIONS_FALLBACK_ENABLED = "true"
-# Set ENVIRONMENT="production" to enable fail-closed rate limiting and tighten
-# abuse controls. Without this flag the Worker keeps the legacy pass-through
-# behaviour (no-op when limiter or Turnstile keys are missing), which is safe
-# for local dev but NOT for a public deployment with server-funded API keys.
-ENVIRONMENT = "development"
-# Public Turnstile config. Set TURNSTILE_REQUIRED to "true" and
-# TURNSTILE_SITE_KEY for any public deployment that can reach provider APIs.
-# If TURNSTILE_REQUIRED is "true" but TURNSTILE_SECRET_KEY is missing the
-# Worker already returns 503 (fail closed), so missing-secret misconfiguration
-# cannot open the gate. Set ENVIRONMENT="production" as well so the rate
-# limiter binding absence / error also fails closed.
-TURNSTILE_REQUIRED = "false"
+# ENVIRONMENT="production" makes abuse controls fail closed: a missing or
+# broken GENERATE_RATE_LIMITER binding returns 503 whenever server-funded
+# provider keys are present, so quota can never be consumed ungated.
+# This tracked value deploys to public workers (wrangler deploy / versions
+# upload); do NOT set it back without an equivalent abuse-control policy —
+# check-deploy-readiness.mjs and `check_deployment_preflight.py --public`
+# both reject that configuration.
+# Local dev keeps the legacy pass-through ONLY via an explicit dev-mode flag:
+#   npx wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false
+ENVIRONMENT = "production"
+# Public Turnstile config. The production deployment requires
+# TURNSTILE_REQUIRED="true" plus a nonempty TURNSTILE_SITE_KEY; if
+# TURNSTILE_REQUIRED is "true" but TURNSTILE_SECRET_KEY or the site key is
+# missing the Worker returns 503 (fail closed), so misconfiguration cannot
+# open the gate.
+TURNSTILE_REQUIRED = "true"
 TURNSTILE_SITE_KEY = "0x4AAAAAAD2QELaSWsFTNJOV"
 # Cost/usage dashboard. Worker logs structured usage_event lines and exposes
 # aggregated, prompt-free counters at GET /api/usage.
@@ -66,9 +70,11 @@ USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST = "0"
 USAGE_ALERT_DAILY_GENERATIONS = "1000"
 
 # --- Edge rate limiting for /generate (per client IP) ---
-# The Worker enforces this binding before /generate, /generate/batch, /edit and
-# /gallery writes. If a local/dev env lacks the binding, the Worker treats it as
-# no-op so tests and previews still run.
+# The Worker enforces this binding before /generate, /generate/batch, /edit,
+# the Gemini-backed /prompt/* routes and /gallery writes. It is required for
+# the fail-closed production policy: ENVIRONMENT="production" + provider keys
+# + a missing/broken binding returns 503 before any provider call. Only an
+# explicit dev mode (--var ENVIRONMENT:development) restores the local no-op.
 [[ratelimits]]
 name = "GENERATE_RATE_LIMITER"
 namespace_id = "1001"

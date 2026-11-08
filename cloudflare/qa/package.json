@@ -1,0 +1,6 @@
+{
+  "private": true,
+  "type": "module",
+  "description": "QA-only native Preview CLI; production dependencies remain frozen.",
+  "devDependencies": { "wrangler": "4.135.0" }
+}

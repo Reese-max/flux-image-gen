@@ -42,21 +42,12 @@ def moderate_prompt(prompt: str) -> ModerationDecision:
 
 
 _INVISIBLE_CHARS = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2060\ufeff]")
-_SIMPLIFIED_TO_TRADITIONAL = str.maketrans(
-    {
-        "证": "證",
-        "护": "護",
-        "驾": "駕",
-        "驶": "駛",
-        "国": "國",
-    }
-)
+_SIMPLIFIED_TO_TRADITIONAL = str.maketrans({"证": "證", "护": "護", "驾": "駕", "驶": "駛", "国": "國"})
 
 
 def _normalize(value: str) -> str:
     text = unicodedata.normalize("NFKC", str(value or ""))
-    text = _INVISIBLE_CHARS.sub("", text)
-    text = text.translate(_SIMPLIFIED_TO_TRADITIONAL)
+    text = _INVISIBLE_CHARS.sub("", text).translate(_SIMPLIFIED_TO_TRADITIONAL)
     return re.sub(r"\s+", " ", text).strip().lower()
 
 
@@ -91,49 +82,27 @@ def _detect_high_risk_category(text: str) -> str:
         "torture",
     )
     fake_docs = (
-        "假身分證",
-        "假身份證",
-        "偽造身分證",
-        "偽造身份證",
-        "偽造護照",
-        "假護照",
-        "偽造駕照",
-        "假駕照",
-        "fake id",
-        "fake passport",
-        "counterfeit passport",
-    )
-    # Identity documents are high-risk even when the request avoids the words
-    # "fake" or "counterfeit". Official-looking fields (name/number/front/back)
-    # make the intent unambiguous, while the document terms alone remain a
-    # fail-closed safety boundary for this public image generator.
-    identity_documents = (
         "身分證",
         "身份證",
-        "國民身分證",
-        "國民身份證",
+        "身份证",
+        "身分文件",
+        "身份文件",
+        "身份证明",
         "護照",
+        "护照",
         "駕照",
+        "驾照",
         "駕駛執照",
+        "驾驶执照",
+        "驾驶证",
         "居留證",
+        "居留证",
         "居留卡",
         "健保卡",
         "駕駛證",
-        "identity card",
-        "identification card",
-        "id card",
-        "national id",
-        "official id",
-        "passport",
-        "driver's license",
-        "drivers license",
-        "driver license",
-        "driver's licence",
-        "drivers licence",
-        "driver licence",
-        "driving license",
-        "driving licence",
-        "residence permit",
+        "fake id",
+        "fake passport",
+        "counterfeit passport",
     )
     fraud = (
         "詐騙廣告",
@@ -167,7 +136,15 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    if _has_any(text, fake_docs) or _has_any(text, identity_documents):
+    # ponytail: deterministic document terms; use a classifier if paraphrase coverage is required.
+    if _has_any(text, fake_docs) or re.search(
+        r"\b(?:id(?:entity|entification)?[ -]+(?:cards?|documents?)|passports?|"
+        r"(?:national|official|government(?:[ -]+issued)?)[ -]+ids?|"
+        r"(?:driver(?:['’]?s)?|driving)[ -]+licen[cs]es?|residen(?:t|ce)[ -]+(?:permits?|cards?)|"
+        r"social[ -]+security[ -]+cards?)\b",
+        text,
+        flags=re.ASCII,
+    ):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"

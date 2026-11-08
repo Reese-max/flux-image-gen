@@ -62,6 +62,23 @@ def test_showcase_images_have_explicit_dimensions():
         assert 'width="' in tag and 'height="' in tag, f"缺少尺寸：{tag[:80]}"
 
 
+def test_webp_assets_decode_in_source_and_deploy_copy():
+    from PIL import Image
+
+    for directory in [STATIC_DIR, ROOT_DIR / "cloudflare" / "public" / "static"]:
+        for image_path in directory.rglob("*.webp"):
+            with Image.open(image_path) as image:
+                image.load()
+
+
+def test_worker_regeneration_docs_match_canonical_behavior():
+    descriptions = [
+        next(line for line in read_repo(name).splitlines() if line.startswith("- 一鍵再生："))
+        for name in ["README.md", "cloudflare/README.md"]
+    ]
+    assert descriptions[0] == descriptions[1]
+
+
 def test_use_case_size_presets_are_productized():
     html = read_static("index.html")
     app_js = read_static("app.js")
@@ -296,6 +313,17 @@ def test_example_gallery_applies_prompts_without_auto_generation():
     assert ".example-card" in styles
 
 
+def test_showcase_webp_assets_decode():
+    from PIL import Image
+
+    for static_dir in (STATIC_DIR, ROOT_DIR / "cloudflare" / "public" / "static"):
+        images = sorted((static_dir / "examples").rglob("*.webp"))
+        assert images
+        for path in images:
+            with Image.open(path) as image:
+                image.load()
+
+
 def test_showcase_images_are_wired_and_present():
     """範例 Gallery 縮圖與靈感鈕都改用站台自生的真實範例圖，且檔案必須存在（避免破圖）。"""
     html = read_static("index.html")
@@ -325,6 +353,20 @@ def test_showcase_images_are_wired_and_present():
     assert html.count("v1.4.0") == 2
     assert ".example-thumb img" in styles
     assert ".idea .idea-thumb" in styles
+
+
+def test_example_webp_assets_are_decodable():
+    from PIL import Image
+
+    broken = []
+    for folder in (STATIC_DIR / "examples", ROOT_DIR / "cloudflare/public/static/examples"):
+        for path in folder.rglob("*.webp"):
+            try:
+                with Image.open(path) as image:
+                    image.load()
+            except (OSError, ValueError):
+                broken.append(path.relative_to(ROOT_DIR).as_posix())
+    assert not broken, f"{len(broken)} unreadable WebP assets: {broken[:3]}"
 
 
 def test_share_template_links_can_prefill_generation_form_without_auto_generation():
@@ -401,7 +443,10 @@ def test_main_generation_accessibility_is_wired():
     assert "node.setAttribute('role', 'alert')" not in app_js
     assert "spinner.setAttribute('role', 'status')" in app_js
     assert "img.alt = '生成完成的圖片'" in app_js
-    assert "img.alt = '生成圖片變體第 ' + String(index + 1) + ' 張'" in app_js
+    # Runtime browser coverage checks the original index, fallback labels,
+    # aria-labels, and keyboard selection for partial batches.
+    assert "mainImage.alt = " in app_js
+    assert "img.alt = '生成圖片' + itemLabel" in app_js
     assert "event.key === 'Tab'" not in prompt_transform_js
     assert "空 prompt 錯誤可被螢幕閱讀器讀到" in keyboard_e2e
     assert "鍵盤 Tab 可抵達主要生成按鈕" in keyboard_e2e
@@ -538,7 +583,6 @@ def test_service_worker_static_cache_is_safe():
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
     assert "ai-image-generator-pwa-v25" in service_worker_js
-    assert "'/static/provenance.js'" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -565,7 +609,6 @@ def test_history_regenerate_restores_complete_settings_before_visible_generation
     body = regenerate.group(1)
     for setting in ["providerPrompt:", "width:", "height:"]:
         assert setting in body
-    assert "setSeedMode('random')" in body
     assert "switchToGenerateTab()" in body
     assert "if (!switchToGenerateTab()) { return; }" in body
     assert body.index("switchToGenerateTab()") < body.index("setNextGenerationSourceRecord")
@@ -582,7 +625,7 @@ def test_cloudflare_csp_allows_local_image_preview_blobs():
 def test_cloudflare_csp_allows_turnstile_script_and_frame():
     headers = read_repo("cloudflare/public/_headers")
 
-    assert "script-src 'self' https://challenges.cloudflare.com" in headers
+    assert "script-src 'self' 'wasm-unsafe-eval' https://challenges.cloudflare.com" in headers
     assert "frame-src https://challenges.cloudflare.com" in headers
 
 
@@ -631,7 +674,6 @@ def test_prompt_transform_ui_is_wired():
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html
     assert 'src="/static/prompt-transform.js"' in html
-    assert 'src="/static/provenance.js"' in html
     assert "fetch('/prompt/transform'" in transform_js
     assert "fetch('/prompt/complete'" in transform_js
     assert "plainPrompt" in transform_js
@@ -687,7 +729,6 @@ def test_iteration_ux_ui_is_wired():
     assert 'src="/static/history-wall.js"' in html
     assert 'src="/static/tutorial.js"' in html
     assert html.index('src="/static/generation-settings.js"') < html.index('src="/static/app.js"')
-    assert html.index('src="/static/provenance.js"') < html.index('src="/static/history-store.js"')
     assert html.index('src="/static/history-store.js"') < html.index('src="/static/history-wall.js"')
     assert html.index('src="/static/history-wall.js"') < html.index('src="/static/tutorial.js"')
     assert ".advanced-controls" in styles
@@ -708,7 +749,6 @@ def test_iteration_ux_ui_is_wired():
 
 
 def test_iteration_ux_scripts_integrate_with_app():
-    html = read_static("index.html")
     app_js = read_static("app.js")
     history_wall_js = read_static("history-wall.js")
 
@@ -728,15 +768,11 @@ def test_iteration_ux_scripts_integrate_with_app():
     assert "innerHTML" not in history_wall_js
     assert "safeStore" in history_wall_js
     assert "歷史記錄讀取失敗" in history_wall_js
-    assert "ProvenanceReceipt.verifyRecord" in history_wall_js
-    assert 'id="historyProvenanceStatus"' in html
     assert "validateHistoryImageUrl" in history_wall_js
     assert "generationInFlight" in app_js
     assert "shallowClone(generatedRecord)" in app_js
     assert "detail: shallowClone(generatedRecord)" in app_js
     assert "thumbnail: typeof data.thumbnail === 'string' ? data.thumbnail : image" in app_js
-    assert "exportAllHistoryJson" in history_wall_js
-    assert 'id="exportAllHistoryJson"' in read_static("index.html")
 
 
 def test_cloud_save_feature_is_removed():
@@ -820,9 +856,6 @@ def test_reference_image_modes_and_edit_stubs_are_wired():
     assert "角色一致模式需要至少一張標成「角色」的參考圖" in image_edit_js
     assert "產品照模式需要至少一張標成「產品」的參考圖" in image_edit_js
     assert "composeEditPrompt(prompt, selected" in image_edit_js
-    assert "dispatchEditHistoryRecord" in image_edit_js
-    assert "operation: 'edit'" in image_edit_js
-    assert "inputImageSha256" in image_edit_js
 
     assert ".edit-mode-grid" in styles
     assert ".edit-mode-card" in styles
@@ -1138,7 +1171,9 @@ def test_history_detail_share_and_versions_are_wired():
     assert 'exportHistoryJson' in history_wall_js
     assert "匯出的備份檔會包含完整中文描述、英文提示詞、畫面編號與設定" in history_wall_js
     assert "已取消匯出作品 JSON" in history_wall_js
-    assert "檔案可能包含完整描述與雲端刪除連結" in history_wall_js
+    assert "已排除雲端刪除連結與敏感網址" in history_wall_js
+    assert 'id="historyDetailProvenance"' in html
+    assert 'id="downloadHistoryReceipt"' in html
     assert 'sourceRecordId' in app_js
     assert '.history-detail' in styles
     assert '.history-cloud-actions' in styles
@@ -1268,8 +1303,6 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
     production_js_paths = sorted(path for path in STATIC_DIR.glob("*.js"))
     assert {path.name for path in production_js_paths} == {
         "app.js",
-        "c2pa-web.js",
-        "c2pa-worker.js",
         "canvas-viewport.js",
         "elapsed-timer.js",
         "failure-advice.js",
@@ -1278,22 +1311,18 @@ def test_app_shell_stays_es5_friendly_and_mobile_controls_are_single_column():
         "history-store.js",
         "history-wall.js",
         "image-edit.js",
+        "provenance.js",
+        "provenance-inspector.js",
             "prompt-enhancer.js",
             "prompt-pack.js",
             "prompt-transform.js",
-            "provenance.js",
             "service-worker.js",
             "tabs.js",
             "tutorial.js",
             "usage-dashboard.js",
         }
 
-    # The C2PA browser runtime is an official third-party bundle and is intentionally
-    # modern JavaScript.  Keep it in the required static set, but apply the app-shell
-    # ES5 compatibility gate only to the project-owned scripts.
     for path in production_js_paths:
-        if path.name in {"c2pa-web.js", "c2pa-worker.js"}:
-            continue
         source = path.read_text(encoding="utf-8")
         for forbidden in [
             "async function",

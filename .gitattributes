@@ -3,8 +3,13 @@
 *.json text eol=lf
 cloudflare/public/** text eol=lf
 app/static/** text eol=lf
-
-# WASM must remain an exact binary blob; the static text rules above must not
-# normalize its bytes when the C2PA runtime is committed or archived.
-app/static/*.wasm binary -eol
-cloudflare/public/static/*.wasm binary -eol
+*.webp binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.avif binary
+*.wasm binary
+tests/fixtures/provenance/*.pem -text -whitespace
+tests/fixtures/provenance/LICENSE.txt -text

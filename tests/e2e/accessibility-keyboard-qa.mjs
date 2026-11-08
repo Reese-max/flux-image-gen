@@ -227,6 +227,8 @@ async function main() {
     await page.goto(url + '/', { waitUntil: 'networkidle', timeout: 60000 });
     await closeTutorialIfOpen(page);
     await page.waitForSelector('#go:not([disabled])', { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector('#panel-generate').getAnimations()
+      .every((animation) => animation.playState === 'finished'), null, { timeout: 5000 });
 
     const initialFeatureScripts = await page.evaluate(() => performance.getEntriesByType('resource')
       .filter((entry) => entry.initiatorType === 'script')
