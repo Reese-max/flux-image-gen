@@ -35,6 +35,7 @@ function loadFrontend(staticDir, record) {
   const sandbox = {
     document, console, Promise, performance: { now: () => 1000 },
     Math: Object.assign(Object.create(Math), { random: () => 0.5 }),
+    crypto: require('node:crypto').webcrypto, Blob, TextEncoder, atob,
     navigator: { userAgent: 'test-agent' },
     location: { href: 'http://localhost/' },
     localStorage: {
@@ -57,7 +58,7 @@ function loadFrontend(staticDir, record) {
   };
   sandbox.window = sandbox;
   const context = vm.createContext(sandbox);
-  for (const name of ['generation-settings.js', 'history-store.js', 'app.js', 'history-wall.js']) {
+  for (const name of ['generation-settings.js', 'provenance.js', 'history-store.js', 'app.js', 'history-wall.js']) {
     const filename = path.join(staticDir, name);
     vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   }
@@ -103,5 +104,9 @@ for (const staticPath of ['app/static', 'cloudflare/public/static']) {
     assert.equal(generated.sourceRecordId, record.id);
     assert.equal(generated.prompt, record.userPrompt);
     assert.equal(generated.providerPrompt, record.providerPrompt);
+    const saved = sandbox.ImageHistoryStore.loadRecords();
+    assert.equal(saved.length, 2, 'the generated variant must be saved in history');
+    assert.equal(saved[0].sourceRecordId, record.id);
+    assert.equal(saved[0].versionGroupId, record.id);
   });
 }

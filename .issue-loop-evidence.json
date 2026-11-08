@@ -1,0 +1,12 @@
+{
+  "repo": "Reese-max/flux-image-gen",
+  "issue": 25,
+  "base_sha": "4633e275c6b6cc1de627dc68712d43483ace90e9",
+  "red_proof": "Before the fixes, Git Bash command node --test tests/frontend/history-regeneration.test.cjs tests/frontend/regeneration.test.cjs exited 1: 15 tests, 7 passed, 8 failed. Two failures showed that no generated variant was saved; six showed stale prompt compilation still started generation after the description, provider prompt, or size changed, for both source and deploy copies. After adding exact deterministic-seed assertions but before controlling the VM RNG, node --test tests/frontend/regeneration.test.cjs exited 1: 13 tests, 11 passed, 2 failed on uncontrolled seeds. The final targeted command passed 15 of 15.",
+  "test_command": "node scripts/verify.mjs",
+  "test_exit": 0,
+  "tests_passed": 629,
+  "tests_failed": 0,
+  "summary": "Prevented stale prompt-transform responses from submitting mixed history settings, preserved subsequent user edits, cleared cancelled source lineage, and strengthened the source/deploy regression harness and deterministic seed coverage. The offline verification covers 288 Python tests plus 65 subtests, 128 frontend tests, 213 Worker tests, browser QA, static sync and JavaScript syntax checks.",
+  "not_done": "needs-human: resolve the PR title's seed claim and decide whether a history replay should honor an existing multi-image selection. No push, PR modification, deployment or live-provider call; Preview acceptance remains unverified. No dedicated lint, typecheck or build scripts are declared."
+}
