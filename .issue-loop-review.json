@@ -1,0 +1,38 @@
+{
+  "pr": 25,
+  "head": "4633e275c6b6cc1de627dc68712d43483ace90e9",
+  "findings": [
+    {
+      "severity": "med",
+      "file": "app/static/app.js",
+      "line": 1558,
+      "issue": "Fixed: while a legacy history prompt is being compiled, changing the description, provider prompt, or generation settings allows the stale response to overwrite the current prompt and starts a generation with mixed inputs. This pre-existing race can reproduce issue #9's mismatch."
+    },
+    {
+      "severity": "med",
+      "file": "tests/frontend/history-regeneration.test.cjs",
+      "line": 59,
+      "issue": "Fixed: the new test does not load provenance.js, so the generated-record listener catches a history storage error and silently fails to save the variant even though the test passes. Load the actual component and check the persisted version and source."
+    },
+    {
+      "severity": "low",
+      "file": "tests/frontend/regeneration.test.cjs",
+      "line": 152,
+      "issue": "Fixed: the existing regeneration test relies on uncontrolled random draws being different from saved seeds, so a valid collision can make the suite fail. Control the VM's RNG and assert the expected draws."
+    },
+    {
+      "severity": "med",
+      "file": "app/static/history-wall.js",
+      "line": 940,
+      "issue": "needs-human: history regeneration inherits the composer's current batch count; choosing 2 to 4 sends /generate/batch despite the singular regeneration wording and can consume additional generation quota. Decide whether the existing batch selection should be honored; this behavior predates the PR."
+    },
+    {
+      "severity": "low",
+      "file": "tests/frontend/history-regeneration.test.cjs",
+      "line": 94,
+      "issue": "needs-human: the PR title says the original seed is preserved, while the reviewed implementation, test, and documentation specify a fresh seed. Confirm the intended contract and correct the PR title if appropriate."
+    }
+  ],
+  "fixed": false,
+  "summary": "Fixed stale prompt compilation and strengthened the history regeneration tests, including deterministic seeds and persisted version links. needs-human: the PR title claims seed preservation although the implementation chooses a fresh seed; confirm the intended title and whether regeneration should honor a multi-image batch selection. Preview and live-provider acceptance remain unverified."
+}

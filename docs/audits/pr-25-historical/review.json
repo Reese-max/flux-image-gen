@@ -1,0 +1,14 @@
+{
+  "pr": 25,
+  "head": "e0333b416216f52bb433794cbe85414be95dd6bd",
+  "findings": [
+    {
+      "severity": "low",
+      "file": "tests/frontend/history-regeneration.test.cjs",
+      "line": 93,
+      "issue": "The new regression test uses the VM's uncontrolled Math.random() but asserts that the generated seed differs from the saved seed. A valid random draw can equal 424242, causing both static-path tests to fail even when regeneration correctly requests a fresh random seed. Control randomness inside each VM and assert the resulting seed while retaining the existing checks."
+    }
+  ],
+  "fixed": true,
+  "summary": "Fixed one low-severity flaky regression test by controlling Math.random inside each frontend VM and asserting the exact generated seed while retaining every existing check. The regression went from 0 passing / 2 failing to 2 passing / 0 failing; Git-Bash node scripts/verify.mjs passed 249 Python tests (+26 subtests), 78 frontend tests, 200 Worker tests, browser QA, static sync and npm run check. Preview and live-provider acceptance remain unverified."
+}

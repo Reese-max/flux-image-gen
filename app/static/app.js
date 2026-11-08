@@ -1534,6 +1534,13 @@ function compileProviderPromptIfNeeded(settings){
   var source = plainPromptField ? plainPromptField.value.trim() : '';
   var style = promptStyle ? promptStyle.value : 'auto';
   var requestBody;
+  function inputState(){
+    return JSON.stringify([seedMode].concat(['plainPrompt', 'prompt', 'promptStyle', 'avoid', 'model', 'size', 'customWidth', 'customHeight', 'seed', 'devSteps', 'devCfgScale', 'batchCount', 'visionQa'].map(function(id){
+      var field = el(id);
+      return field ? (id === 'visionQa' ? field.checked : field.value) : null;
+    })));
+  }
+  var originalInputState = inputState();
 
   if(existingProviderPrompt || !source){
     return Promise.resolve(settings);
@@ -1555,6 +1562,7 @@ function compileProviderPromptIfNeeded(settings){
       if(!data.prompt){
         throw new Error('轉換結果缺少提示詞');
       }
+      if(inputState() !== originalInputState){ return null; }
       if(finalPromptField){
         finalPromptField.value = data.prompt;
         finalPromptField.setAttribute('data-auto-source', source);
@@ -1624,9 +1632,15 @@ function generate(options){
         setStatus('AI 正在整理提示詞… 已用 ' + seconds + ' 秒', 'busy');
       }
     });
-    return compileProviderPromptIfNeeded(settings).then(function(){
+    return compileProviderPromptIfNeeded(settings).then(function(compiledSettings){
       compileTimer.stop();
       generationInFlight = false;
+      if(!compiledSettings){
+        pendingSourceRecordId = '';
+        setGenerationState('idle');
+        setStatus('描述或設定已變更，請重新生成', 'warn');
+        return;
+      }
       return generate({ startedAt: flowStartedAt, triggerButton: triggerButton });
     }, function(error){
       var compileSeconds = compileTimer.stop();

@@ -17,7 +17,7 @@ function response(data) {
   return { ok: true, json: async () => data };
 }
 
-function setup(transform, record = cat) {
+function setup(transform, record = cat, staticPath = 'app/static') {
   const elements = {};
   const listeners = {};
   const storage = new Map();
@@ -57,6 +57,7 @@ function setup(transform, record = cat) {
   };
   const context = vm.createContext({
     document, navigator: {}, console, performance: { now: () => 1000 },
+    Math: Object.assign(Object.create(Math), { random: () => 0.5 }),
     crypto: require('node:crypto').webcrypto, Blob, TextEncoder, Uint8Array, ArrayBuffer, atob, btoa, URL, AbortController,
     setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {},
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
@@ -79,7 +80,7 @@ function setup(transform, record = cat) {
   });
   context.window = context;
   for (const name of ['generation-settings.js', 'provenance.js', 'history-store.js', 'app.js', 'history-wall.js']) {
-    const filename = path.resolve(__dirname, '../../app/static', name);
+    const filename = path.resolve(__dirname, '../..', staticPath, name);
     vm.runInContext(fs.readFileSync(filename, 'utf8'), context, { filename });
   }
   // Load the selected history record through the real generated-record listener.
@@ -103,6 +104,33 @@ test('history regeneration compiles a legacy record without a final provider pro
   assert.equal(requests[1].payload.userPrompt, cat.prompt);
   assert.equal(generated.at(-1).sourceRecordId, cat.id);
 });
+
+for (const staticPath of ['app/static', 'cloudflare/public/static']) {
+  for (const [field, value] of [['plainPrompt', girlPrompt], ['prompt', girlProviderPrompt], ['size', 'ig_story']]) {
+    test(`history regeneration cancels a stale prompt compilation after ${field} changes (${staticPath})`, async () => {
+      let finishTransform;
+      const transformed = new Promise((resolve) => { finishTransform = resolve; });
+      const legacy = { ...cat, providerPrompt: undefined };
+      const { app, wall, context, elements, requests, generated } = setup(() => transformed, legacy, staticPath);
+      wall.openHistoryDetail(context.ImageHistoryStore.loadRecords()[0]);
+      wall.regenerateHistoryDetail();
+
+      assert.equal(requests[0].url, '/prompt/transform');
+      elements[field].value = value;
+      finishTransform(response({ prompt: 'A tabby cat resting on a green lawn' }));
+      await settle();
+
+      assert.equal(requests.length, 1, 'changed inputs must not start a generation with stale settings');
+      assert.equal(elements[field].value, value, 'the changed input must be preserved');
+      assert.equal(generated.length, 1, 'no variant should be recorded');
+      assert.equal(app.isGenerationBusy(), false);
+      assert.match(elements.status.textContent, /描述或設定已變更/);
+      elements.prompt.value = girlProviderPrompt;
+      await app.generate();
+      assert.equal(generated.at(-1).sourceRecordId, '', 'the cancelled history source must not leak into the next request');
+    });
+  }
+}
 
 for (const entry of ['history', 'result']) {
   test(`${entry} regeneration clears its restored final prompt when the description is edited`, async () => {
@@ -150,6 +178,7 @@ test('history regeneration replays the selected final prompt, settings and versi
   assert.equal(payload.steps, cat.steps);
   assert.equal(payload.cfgScale, cat.cfgScale);
   assert.ok(payload.seed > 0 && payload.seed !== cat.seed && payload.seed !== 99);
+  assert.equal(payload.seed, 1073741824, 'the fixture should use a controlled random seed');
   assert.equal(generated.at(-1).sourceRecordId, cat.id);
   assert.equal(generated.at(-1).providerPrompt, payload.prompt);
   assert.equal(generated.at(-1).prompt, payload.userPrompt);
@@ -167,6 +196,7 @@ test('result regeneration restores its final prompt, custom dimensions and tunin
   app.setGenerationSettings({ ...cat, avoid: '', size: 'custom', width: 1152, height: 1536 });
   await app.generate();
   const original = app.getLastGeneration();
+  vm.runInContext('Math.random = () => 0.25', context);
   app.setGenerationSettings({ prompt: girlPrompt, providerPrompt: girlProviderPrompt, size: 'ig_story', width: 768, height: 1344, steps: 10, cfgScale: 3 });
   context.lockCompositionSeed(99);
   context.regenerate();
@@ -182,6 +212,8 @@ test('result regeneration restores its final prompt, custom dimensions and tunin
   assert.equal(payload.steps, original.steps);
   assert.equal(payload.cfgScale, original.cfgScale);
   assert.notEqual(payload.seed, 99);
+  assert.notEqual(payload.seed, original.seed);
+  assert.equal(payload.seed, 536870912, 'the fixture should use a controlled random seed');
 });
 
 for (const entry of ['history', 'result']) {
