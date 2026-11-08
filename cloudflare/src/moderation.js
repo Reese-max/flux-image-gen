@@ -3,8 +3,14 @@ import { HttpError } from "./http.js";
 export const PROMPT_BLOCK_MESSAGE =
   "這段描述屬於高風險內容，無法生成圖片。請改成安全、非侵害性且不涉及詐欺或偽造的描述。";
 
+const INVISIBLE_CHARS = /[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g;
+const SIMPLIFIED_TO_TRADITIONAL = { "证": "證", "护": "護", "驾": "駕", "驶": "駛", "国": "國" };
+
 function normalize(value) {
-  return String(value || "").split(/\s+/).filter(Boolean).join(" ").toLowerCase();
+  let text = String(value || "");
+  if (typeof text.normalize === "function") text = text.normalize("NFKC");
+  text = text.replace(INVISIBLE_CHARS, "").replace(/[证护驾驶国]/g, character => SIMPLIFIED_TO_TRADITIONAL[character]);
+  return text.split(/\s+/).filter(Boolean).join(" ").toLowerCase();
 }
 
 function hasAny(text, terms) {
@@ -20,7 +26,7 @@ export function detectHighRiskPromptCategory(prompt) {
   const gore = ["血腥", "肢解", "斬首", "酷刑", "處決", "虐殺", "gore", "decapitation", "dismember", "torture"];
   const fakeDocs = [
     "身分證", "身份證", "身份证", "身分文件", "身份文件", "身份证明", "護照", "护照",
-    "駕照", "驾照", "駕駛執照", "驾驶执照", "驾驶证", "居留證", "居留证",
+    "駕照", "驾照", "駕駛執照", "驾驶执照", "驾驶证", "駕駛證", "居留證", "居留证", "居留卡", "健保卡",
     "fake id", "fake passport", "counterfeit passport",
   ];
   const fraud = ["詐騙廣告", "釣魚網站", "偽造發票", "假付款", "投資詐騙", "盜刷", "phishing", "scam ad", "fake invoice"];

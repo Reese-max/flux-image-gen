@@ -1388,7 +1388,44 @@ function readBatchCount(){
   return value;
 }
 
-function renderBatchResults(stage, images, base){
+function resolveBatchIndexes(images, errors, requestedCount){
+  var used = {};
+  var explicit = [];
+  var unavailable = {};
+  var inferred = [];
+  var errorList = Array.isArray(errors) ? errors : [];
+  var i;
+  var value;
+  function valid(index){
+    return typeof index === 'number' && isFinite(index) && Math.floor(index) === index && index >= 0 && index < requestedCount;
+  }
+  for(i = 0; i < images.length; i += 1){
+    value = images[i] && images[i].index;
+    if(!valid(value) || used[value]){ explicit = []; break; }
+    used[value] = true;
+    explicit.push(value);
+  }
+  // Legacy responses omit all success indexes. Mixed or invalid indexes are
+  // ambiguous and must not be turned into authoritative history metadata.
+  if(explicit.length !== images.length && images.some(function(item){
+    return item && Object.prototype.hasOwnProperty.call(item, 'index');
+  })) { return images.map(function(){ return null; }); }
+  for(i = 0; i < errorList.length; i += 1){
+    value = errorList[i] && errorList[i].index;
+    if(!valid(value) || unavailable[value] || (explicit.length && used[value])){
+      return images.map(function(){ return null; });
+    }
+    unavailable[value] = true;
+  }
+  if(explicit.length === images.length){ return explicit; }
+  for(i = 0; i < requestedCount; i += 1){
+    if(!unavailable[i]){ inferred.push(i); }
+  }
+  return inferred.length === images.length ? inferred : images.map(function(){ return null; });
+}
+
+function renderBatchResults(stage, images, base, batchErrors, requestedCount){
+  var sourceIndexes = resolveBatchIndexes(images, batchErrors, requestedCount);
   var grid;
   var viewer;
   var mainFrame;
@@ -1408,7 +1445,7 @@ function renderBatchResults(stage, images, base){
     var j;
     lastGeneration = shallowClone(records[index]);
     mainImage.src = image;
-    mainImage.alt = '生成圖片變體第 ' + String(index + 1) + ' 張';
+    mainImage.alt = sourceIndexes[index] === null ? '生成圖片結果 ' + String(index + 1) : '生成圖片變體第 ' + String(sourceIndexes[index] + 1) + ' 張';
     mainImage.width = typeof item.width === 'number' ? item.width : fallback.width;
     mainImage.height = typeof item.height === 'number' ? item.height : fallback.height;
     mainSeed.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
@@ -1474,18 +1511,20 @@ function renderBatchResults(stage, images, base){
     var label = document.createElement('span');
     var fallback = getSizeDimensions(base.size);
     var record;
+    var sourceIndex = sourceIndexes[index];
+    var itemLabel = sourceIndex === null ? '第 ' + String(index + 1) + ' 個結果' : '第 ' + String(sourceIndex + 1) + ' 張';
 
     card.className = 'batch-card';
     card.setAttribute('role', 'listitem');
     thumb.type = 'button';
     thumb.className = 'batch-thumb';
-    thumb.setAttribute('aria-label', '檢視第 ' + String(index + 1) + ' 張生成圖片');
+    thumb.setAttribute('aria-label', '檢視' + itemLabel + '生成圖片');
     thumb.setAttribute('aria-pressed', 'false');
     img.src = image;
-    img.alt = '生成圖片變體第 ' + String(index + 1) + ' 張';
+    img.alt = '生成圖片' + itemLabel;
     img.loading = 'lazy';
     label.className = 'batch-thumb-label';
-    label.textContent = '第 ' + String(index + 1) + ' 張';
+    label.textContent = itemLabel;
     thumb.appendChild(img);
     thumb.appendChild(label);
     thumb.addEventListener('click', function(){
@@ -1515,6 +1554,7 @@ function renderBatchResults(stage, images, base){
       sourceRecordId: pendingSourceRecordId,
       mode: 'normal'
     };
+    if(sourceIndex !== null){ record.batchIndex = sourceIndex; }
     records.push(record);
     document.dispatchEvent(new CustomEvent('imagegen:generated', { detail: shallowClone(record) }));
   });
@@ -1738,7 +1778,7 @@ function generate(options){
           return;
         }
         batchSummary = '已生成 ' + images.length + ' 張' + (batchErrors.length ? '，' + batchErrors.length + ' 張失敗' : '');
-        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size, steps: devTuning.steps, cfgScale: devTuning.cfgScale });
+        renderBatchResults(stage, images, { prompt: prompt, providerPrompt: providerPrompt, avoid: settings.avoid, size: size, steps: devTuning.steps, cfgScale: devTuning.cfgScale }, batchErrors, batchCount);
         revealResultStage(true);
         setResultActionsVisible(false);
         pendingSourceRecordId = '';
@@ -1933,6 +1973,7 @@ window.ImageGenApp = {
   setPromptForReview: setPromptForReview,
   applyInspiration: applyInspiration,
   setGenerationSettings: setGenerationSettings,
+  setSeedMode: setSeedMode,
   applyExampleGalleryPrompt: applyExampleGalleryPrompt,
   getLastGeneration: getLastGeneration,
   setNextGenerationSourceRecord: setNextGenerationSourceRecord,

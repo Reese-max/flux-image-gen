@@ -787,6 +787,42 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
         finally:
             _reset_nvidia_circuit()
 
+    async def test_generate_batch_settled_mode_keeps_successes_after_one_provider_failure(self):
+        from unittest.mock import AsyncMock, patch
+
+        from app.image_service import (
+            GenerationResult,
+            NvidiaProvider,
+            ProviderError,
+            generate_batch,
+        )
+
+        settings = Settings(nvidia_api_key="dummy-key", image_provider="nvidia")
+        success = GenerationResult(
+            image="data:image/png;base64,AAAA",
+            provider="nvidia",
+            model="schnell",
+            width=1024,
+            height=1024,
+            seed=2,
+        )
+        failure = ProviderError("provider rejected one variation", status_code=422, code="content_filtered")
+        with patch.object(
+            NvidiaProvider,
+            "generate",
+            new=AsyncMock(side_effect=[failure, success, success]),
+        ):
+            outcomes = await generate_batch(
+                GenerationRequest(prompt="a cat", model="schnell", size="square"),
+                count=3,
+                settings=settings,
+                return_exceptions=True,
+            )
+
+        self.assertEqual(len(outcomes), 3)
+        self.assertIs(outcomes[0], failure)
+        self.assertEqual(sum(isinstance(item, GenerationResult) for item in outcomes), 2)
+
     async def test_generate_image_raises_when_pollinations_last_tier_fails(self):
         from unittest.mock import AsyncMock, patch
 

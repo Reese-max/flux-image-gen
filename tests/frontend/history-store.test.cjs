@@ -182,6 +182,25 @@ test('normalizeRecord supports GenerationRecord field aliases', () => {
   assert.equal(record.mode, 'agent');
 });
 
+test('normalizeRecord keeps a missing legacy provider prompt empty for regeneration', () => {
+  const Store = loadHistoryStore();
+  const legacyRecord = Store.normalizeRecord({
+    id: 'legacy-record',
+    image: 'data:image/png;base64,abc',
+    prompt: '一隻貓在草地上'
+  });
+  const modernRecord = Store.normalizeRecord({
+    id: 'modern-record',
+    image: 'data:image/png;base64,abc',
+    prompt: '一隻貓在草地上',
+    providerPrompt: 'a cat in a meadow'
+  });
+
+  assert.equal(legacyRecord.userPrompt, '一隻貓在草地上');
+  assert.equal(legacyRecord.providerPrompt, '');
+  assert.equal(modernRecord.providerPrompt, 'a cat in a meadow');
+});
+
 test('normalizeRecord preserves agent QA metadata and next suggestions', () => {
   const Store = loadHistoryStore();
   const record = Store.normalizeRecord({

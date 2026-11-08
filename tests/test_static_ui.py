@@ -443,7 +443,10 @@ def test_main_generation_accessibility_is_wired():
     assert "node.setAttribute('role', 'alert')" not in app_js
     assert "spinner.setAttribute('role', 'status')" in app_js
     assert "img.alt = '生成完成的圖片'" in app_js
-    assert "img.alt = '生成圖片變體第 ' + String(index + 1) + ' 張'" in app_js
+    # Runtime browser coverage checks the original index, fallback labels,
+    # aria-labels, and keyboard selection for partial batches.
+    assert "mainImage.alt = " in app_js
+    assert "img.alt = '生成圖片' + itemLabel" in app_js
     assert "event.key === 'Tab'" not in prompt_transform_js
     assert "空 prompt 錯誤可被螢幕閱讀器讀到" in keyboard_e2e
     assert "鍵盤 Tab 可抵達主要生成按鈕" in keyboard_e2e

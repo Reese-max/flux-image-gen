@@ -3502,3 +3502,87 @@ test('fail-closed batch and edit events record their real status and error code'
   assert.equal(usage.byRoute.edit.failures, 1);
 });
 
+
+test('POST /generate blocks official identity-document prompts before provider access', async () => {
+  const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+  const response = await worker.fetch(
+    jsonRequest('/generate', {
+      prompt: 'realistic official ID card template, front and back',
+      userPrompt: '做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件',
+      model: 'schnell',
+      size: 'square',
+    }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(data.code, 'prompt_blocked');
+  assert.equal(data.category, 'fake_documents');
+  assert.equal(data.error.includes('身分證'), false);
+  assert.equal(ai.calls.length, 0);
+});
+
+test('POST /generate blocks normalized identity-document variants before any provider call', async () => {
+  const variants = [
+    '做一張身份证正面',
+    'make a driving license with a name and number',
+    '做一張身\u200b分證正面',
+    '做一張驾驶证樣張',
+  ];
+  for (const prompt of variants) {
+    const ai = fakeAi({ image: 'iVBORw0KGgo=' });
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt, model: 'schnell', size: 'square' }),
+      fakeEnv({ AI: ai })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 422, prompt);
+    assert.equal(data.code, 'prompt_blocked', prompt);
+    assert.equal(data.category, 'fake_documents', prompt);
+    assert.equal(ai.calls.length, 0, prompt);
+  }
+  const safeAi = fakeAi({ image: 'iVBORw0KGgo=' });
+  const safe = await worker.fetch(
+    jsonRequest('/generate', { prompt: '一隻貓在草地上', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: safeAi })
+  );
+  assert.equal(safe.status, 200);
+  assert.equal(safeAi.calls.length, 1);
+});
+
+test('POST /generate/batch keeps NVIDIA transport within one in-flight slot', async () => {
+  const originalFetch = globalThis.fetch;
+  let inFlight = 0;
+  let maxInFlight = 0;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    inFlight += 1;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    if (inFlight > 1) {
+      inFlight -= 1;
+      return new Response(JSON.stringify({ error: 'synthetic capacity exceeded' }), { status: 429 });
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight -= 1;
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'dev', size: 'square', count: 4, seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'synthetic-capacity-test', POLLINATIONS_FALLBACK_ENABLED: 'false' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 4);
+    assert.equal(data.errors.length, 0);
+    assert.equal(maxInFlight, 1);
+    assert.equal(calls, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

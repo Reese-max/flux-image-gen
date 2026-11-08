@@ -185,6 +185,18 @@ test('both real deployment paths invoke readiness before resolving the commit', 
   assert.match(wslScript, /default\.toml.*\.bak-|\$\{WIN_CREDS\}\.bak-/);
 });
 
+test('pull request checks never upload a Preview and production stays gated', async () => {
+  const workflow = await readFile(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const ciWorkflow = await readFile(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const verifyScript = await readFile(new URL('../../scripts/verify.mjs', import.meta.url), 'utf8');
+  assert.match(workflow, /pull_request:/);
+  assert.doesNotMatch(workflow, /^  deploy-preview:/m);
+  assert.doesNotMatch(workflow, /command:\s*versions upload/);
+  assert.match(workflow, /deploy-production:\s+needs: check\s+if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/production'/);
+  assert.doesNotMatch(workflow, /git push|contents:\s*write/);
+  assert.match(ciWorkflow, /run: node scripts\/verify\.mjs/);
+  assert.match(verifyScript, /npm run sync:check/);
+});
 
 
 const LIMITER_BINDING = '[[ratelimits]]\nname = "GENERATE_RATE_LIMITER"\nnamespace_id = "1001"\nsimple = { limit = 12, period = 60 }';

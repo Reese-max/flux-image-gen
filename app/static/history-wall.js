@@ -753,6 +753,7 @@
     lines.push('尺寸：' + (toText(sourceRecord.size) || 'square'));
     lines.push('Seed：' + String(sourceRecord.seed || 0));
     lines.push('版本：v' + String(sourceRecord.versionNumber || 1));
+    lines.push('Content Credentials：尚未驗證，請在收到圖片後自行檢查');
     if (sourceRecord.provider) { lines.push('Provider：' + toText(sourceRecord.provider)); }
     cloudShareUrl = safeCloudUrl(sourceRecord.cloudShareUrl);
     if (cloudShareUrl) { lines.push('雲端分享：' + cloudShareUrl); }
@@ -921,6 +922,7 @@
       return;
     }
     if (!switchToGenerateTab()) { return; }
+    if (typeof root.ImageGenApp.setSeedMode === 'function') { root.ImageGenApp.setSeedMode('random'); }
     if (typeof root.ImageGenApp.setNextGenerationSourceRecord === 'function') {
       root.ImageGenApp.setNextGenerationSourceRecord(record.id);
     }

@@ -203,14 +203,19 @@
   function exportArtwork(record, options) {
     var result = {};
     ['id', 'schemaVersion', 'provider', 'model', 'size', 'seed', 'width', 'height', 'steps', 'cfgScale',
-      'sourceRecordId', 'versionGroupId', 'versionNumber', 'createdAt'].forEach(function (key) {
+      'sourceRecordId', 'versionGroupId', 'versionNumber', 'createdAt', 'batchIndex'].forEach(function (key) {
       var value = record[key];
+      if (key === 'batchIndex' && !(typeof value === 'number' && isFinite(value) && Math.floor(value) === value && value >= 0 && value < 4)) { return; }
       if (typeof value === 'number' || (key === 'createdAt' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(value)) || identifier(value)) { result[key] = value; }
     });
     var original = localOriginalImage(record);
     if (original) { result.image = original; }
     result.prompt = options && options.promptPublic === true ? redactText(record.prompt) : '[private]';
-    if (options && options.promptPublic === true) { result.providerPrompt = redactText(record.providerPrompt); }
+    if (options && options.promptPublic === true) {
+      result.providerPrompt = redactText(record.providerPrompt);
+      var negativePrompt = typeof record.negativePrompt === 'string' ? record.negativePrompt : record.avoid;
+      if (typeof negativePrompt === 'string' && negativePrompt) { result.negativePrompt = redactText(negativePrompt); }
+    }
     result.provenance = normalizeReceipt(record.provenance);
     return result;
   }

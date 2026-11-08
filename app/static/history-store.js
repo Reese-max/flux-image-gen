@@ -271,6 +271,9 @@
       versionNumber: normalizeVersionNumber(source.versionNumber),
       createdAt: toText(source.createdAt) || new Date().toISOString()
     };
+    if (typeof source.batchIndex === 'number' && isFinite(source.batchIndex) && Math.floor(source.batchIndex) === source.batchIndex && source.batchIndex >= 0 && source.batchIndex < 4) {
+      normalized.batchIndex = source.batchIndex;
+    }
     if (source.provenance && root.ImageProvenance) {
       normalized.provenance = root.ImageProvenance.normalizeReceipt(source.provenance);
     }
@@ -439,6 +442,71 @@
     return updated.slice(0, MAX_RECORDS);
   }
 
+  // Single-artwork imports are a separate format from existing array and
+  // collection backups. Reject remote images, prototype keys and oversized
+  // data before accepting either a receipt-bearing or legacy single export.
+  function safeSingleArtwork(source) {
+    var allowed = ['id', 'schemaVersion', 'userPrompt', 'expandedPrompt', 'image', 'thumbnail',
+      'prompt', 'providerPrompt', 'negativePrompt', 'avoid', 'model', 'size', 'steps', 'cfgScale',
+      'seed', 'width', 'height', 'imageUrl', 'localImageData', 'provider', 'mode', 'favorite',
+      'tags', 'qaReport', 'recommended', 'agentRecommendation', 'autoRetry', 'nextSuggestions',
+      'cloudShareUrl', 'cloudDeleteUrl', 'cloudSavedAt', 'cloudPromptPublic', 'cloudStorage',
+      'sourceRecordId', 'versionGroupId', 'versionNumber', 'createdAt', 'provenance', 'batchIndex'];
+    var imageFields = ['image', 'thumbnail', 'imageUrl', 'localImageData'];
+    var metadataChars = 0;
+    var seen = [];
+    var keys;
+    var i;
+    function localImage(value) {
+      var match = /^data:image\/(?:png|jpeg|webp|gif);base64,([a-z0-9+/=\s]+)$/i.exec(value);
+      if (!match || match[1].length > 32 * 1024 * 1024) { return false; }
+      var encoded = match[1].replace(/\s/g, '');
+      return encoded.length > 0 && encoded.length % 4 !== 1 && /^[a-z0-9+/]+={0,2}$/i.test(encoded)
+        && (encoded.indexOf('=') < 0 || encoded.length % 4 === 0);
+    }
+    function safeValue(value, key, depth) {
+      if (depth > 16) { return false; }
+      if (typeof value === 'string') {
+        if (depth === 1 && imageFields.indexOf(key) >= 0) { return !value || localImage(value); }
+        metadataChars += value.length;
+        return metadataChars <= 1024 * 1024;
+      }
+      if (!value || typeof value !== 'object') { return true; }
+      var prototype = Object.getPrototypeOf(value);
+      if (!Array.isArray(value) && prototype !== Object.prototype && prototype !== null) { return false; }
+      if (seen.indexOf(value) >= 0) { return false; }
+      seen.push(value);
+      var nested = Object.keys(value);
+      for (var j = 0; j < nested.length; j += 1) {
+        var name = nested[j];
+        metadataChars += name.length;
+        if (name === '__proto__' || name === 'prototype' || name === 'constructor'
+            || metadataChars > 1024 * 1024 || !safeValue(value[name], name, depth + 1)) { return false; }
+      }
+      seen.pop();
+      return true;
+    }
+    if (!source || typeof source !== 'object' || Array.isArray(source)
+        || !Object.prototype.hasOwnProperty.call(source, 'id') || typeof source.id !== 'string' || !source.id.trim()
+        || source.id.length > 1024 || ['__proto__', 'constructor', 'prototype'].indexOf(source.id) >= 0
+        || !Object.prototype.hasOwnProperty.call(source, 'image') || typeof source.image !== 'string' || !localImage(source.image)
+        || !(typeof source.prompt === 'string' && source.prompt.trim()) && !(typeof source.userPrompt === 'string' && source.userPrompt.trim())) { return false; }
+    if ((source.cloudDeleteUrl != null && source.cloudDeleteUrl !== '') || (source.cloudShareUrl != null && source.cloudShareUrl !== '')) { return false; }
+    if (source.schemaVersion != null && source.schemaVersion !== 1 && source.schemaVersion !== 2) { return false; }
+    if (source.provenance != null && (typeof source.provenance !== 'object' || source.provenance.receipt_schema_version !== 1)) { return false; }
+    if (source.batchIndex != null && !(typeof source.batchIndex === 'number' && isFinite(source.batchIndex)
+        && Math.floor(source.batchIndex) === source.batchIndex && source.batchIndex >= 0 && source.batchIndex < 4)) { return false; }
+    for (i = 0; i < imageFields.length; i += 1) {
+      if (source[imageFields[i]] != null && (typeof source[imageFields[i]] !== 'string'
+          || source[imageFields[i]] && !localImage(source[imageFields[i]]))) { return false; }
+    }
+    keys = Object.keys(source);
+    for (i = 0; i < keys.length; i += 1) {
+      if (allowed.indexOf(keys[i]) < 0) { return false; }
+    }
+    return safeValue(source, '', 0);
+  }
+
   function normalizeRecordCollection(value) {
     var source = value && typeof value === 'object' ? value : {};
     var rawRecords;
@@ -451,7 +519,7 @@
         return [];
       }
       rawRecords = Array.isArray(source.records) ? source.records : [];
-    } else if (source.image && source.provenance) {
+    } else if (safeSingleArtwork(source)) {
       rawRecords = [source];
     } else if (Array.isArray(source.records)) {
       rawRecords = source.records;

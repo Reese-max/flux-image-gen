@@ -33,6 +33,8 @@ const steps = [
   { name: 'Browser E2E history JSON downloads QA (source/deploy)', command: 'npm run qa:history-exports', cwd: cloudflareDir },
   { name: 'Browser E2E provenance fixtures and roundtrip', command: 'npm run qa:provenance', cwd: cloudflareDir },
   { name: 'Browser E2E workerd/R2 provenance roundtrip (source/deploy)', command: 'npm run qa:provenance:workerd', cwd: cloudflareDir },
+  { name: 'Browser service worker install/offline QA', command: 'node --test tests/e2e/service-worker-offline.test.mjs', cwd: rootDir },
+  { name: 'Browser partial batch position QA', command: 'node --test tests/e2e/batch-index-browser.test.mjs', cwd: rootDir },
   { name: 'Cloudflare static sync check', command: 'npm run sync:check', cwd: cloudflareDir },
   { name: 'Cloudflare JS syntax check', command: 'npm run check', cwd: cloudflareDir },
   { name: 'Cloudflare Worker tests', command: 'npm test', cwd: cloudflareDir },
