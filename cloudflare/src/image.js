@@ -379,6 +379,8 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     height,
     seed: effectiveSeed,
     imageQuality: inspectGeneratedImage(image, width, height),
+    providerProvenance: { model_id: width === 1024 && height === 1024 ? WORKERS_AI_FAST_MODEL : WORKERS_AI_SIZED_MODEL,
+      steps: width === 1024 && height === 1024 ? 4 : null, cfg_scale: null },
   };
 }
 
@@ -424,6 +426,7 @@ async function generateWithPollinations({ prompt, width, height, seed }) {
     height,
     seed: effectiveSeed,
     imageQuality: inspectGeneratedImage(image, width, height),
+    providerProvenance: { model_id: "flux", steps: null, cfg_scale: null },
   };
 }
 
@@ -530,7 +533,8 @@ async function generateWithNvidia(env, { prompt, model, width, height, seed, ste
     throw withProviderAttempts(error, providerAttempts);
   }
   return withProviderAttempts(
-    { image, provider, model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) },
+    { image, provider, model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height),
+      providerProvenance: { model_id: MODEL_ENDPOINTS[model], steps: body.steps ?? null, cfg_scale: body.cfg_scale ?? null } },
     providerAttempts
   );
 }
@@ -615,7 +619,8 @@ export async function generateOneImage(env, { prompt, model, size, width, height
   const key = getNvidiaApiKey(env);
   if (!key) {
     const image = makeDemoImageDataUrl();
-    return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height) };
+    return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height),
+      providerProvenance: { model_id: "demo", steps: null, cfg_scale: null } };
   }
   // Third-tier Pollinations fallback (keyless). Gated by env flag; when on, a
   // dark NVIDIA/Workers AI provider fails over here on infrastructure errors only.
@@ -720,5 +725,6 @@ export async function editImage(env, { prompt, images }) {
   const direct = data && typeof data.image === "string" ? data.image.trim() : "";
   const directMime = direct && isValidBase64(direct) ? detectImageMimeStrict(direct) : null;
   const image = directMime ? `data:${directMime};base64,` + direct : extractImage(data, "Workers AI");
-  return { image, provider: "workers-ai", model: WORKERS_AI_EDIT_MODEL, image_count: images.length };
+  return { image, provider: "workers-ai", model: WORKERS_AI_EDIT_MODEL, image_count: images.length,
+    providerProvenance: { model_id: WORKERS_AI_EDIT_MODEL, steps: null, cfg_scale: null } };
 }

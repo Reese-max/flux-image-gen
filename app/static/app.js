@@ -276,6 +276,9 @@ function parseRetryAfter(value){
 function retrySecondsRemaining(){
   return retryBlockedUntil > Date.now() ? Math.ceil((retryBlockedUntil - Date.now()) / 1000) : 0;
 }
+function isGenerationBusy(){
+  return generationInFlight || retrySecondsRemaining() > 0;
+}
 function clearRetryCountdown(){
   if(retryCountdownTimer){ clearInterval(retryCountdownTimer); }
   retryCountdownTimer = null;
@@ -1095,7 +1098,11 @@ function setGenerationSettings(settings){
   }
   if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
     el('prompt').value = source.providerPrompt || '';
-    el('prompt').removeAttribute('data-auto-source');
+    if(source.providerPrompt && source.prompt){
+      el('prompt').setAttribute('data-auto-source', String(source.prompt).trim());
+    }else{
+      el('prompt').removeAttribute('data-auto-source');
+    }
   }
   if(Object.prototype.hasOwnProperty.call(source, 'avoid') && el('avoid')){ el('avoid').value = source.avoid || ''; }
   if(Object.prototype.hasOwnProperty.call(source, 'model')){ el('model').value = source.model || 'schnell'; }
@@ -1238,6 +1245,10 @@ function copySettings(){
   });
 }
 function regenerate(){
+  if(isGenerationBusy()){
+    setStatus('正在生成或等待重試，請稍候再生', 'warn');
+    return;
+  }
   if(!lastGeneration){
     setStatus('尚無可再生的圖片', 'warn');
     return;
@@ -1245,14 +1256,23 @@ function regenerate(){
   setSeedMode('random');
   setGenerationSettings({
     prompt: lastGeneration.prompt,
+    providerPrompt: lastGeneration.providerPrompt,
     avoid: lastGeneration.avoid,
     model: lastGeneration.model,
     size: lastGeneration.size,
+    width: lastGeneration.width,
+    height: lastGeneration.height,
+    steps: lastGeneration.steps,
+    cfgScale: lastGeneration.cfgScale,
     seed: ''
   });
   generate();
 }
 function lockCompositionFromRecord(record){
+  if(isGenerationBusy()){
+    setStatus('正在生成或等待重試，請稍候套用構圖', 'warn');
+    return false;
+  }
   if(!record){
     setStatus('找不到可鎖定構圖的圖片', 'warn');
     showToast('找不到可鎖定構圖的圖片', 'warn');
@@ -1476,6 +1496,8 @@ function renderBatchResults(stage, images, base){
     grid.appendChild(card);
 
     record = {
+      id: createHistoryRecordId(),
+      createdAt: new Date().toISOString(),
       image: image,
       thumbnail: image,
       prompt: base.prompt,
@@ -1489,7 +1511,8 @@ function renderBatchResults(stage, images, base){
       width: typeof item.width === 'number' ? item.width : fallback.width,
       height: typeof item.height === 'number' ? item.height : fallback.height,
       provider: typeof item.provider === 'string' ? item.provider : '',
-      sourceRecordId: '',
+      providerProvenance: item.providerProvenance,
+      sourceRecordId: pendingSourceRecordId,
       mode: 'normal'
     };
     records.push(record);
@@ -1782,6 +1805,7 @@ function generate(options){
       fallbackDimensions = getSizeDimensions(size);
       generatedRecord = {
         id: createHistoryRecordId(),
+        createdAt: new Date().toISOString(),
         image: image,
         thumbnail: typeof data.thumbnail === 'string' ? data.thumbnail : image,
         prompt: prompt,
@@ -1795,6 +1819,7 @@ function generate(options){
         width: typeof data.width === 'number' ? data.width : fallbackDimensions.width,
         height: typeof data.height === 'number' ? data.height : fallbackDimensions.height,
         provider: typeof data.provider === 'string' ? data.provider : '',
+        providerProvenance: data.providerProvenance,
         sourceRecordId: pendingSourceRecordId,
         mode: 'normal'
       };
@@ -1903,6 +1928,7 @@ function getProviderHealth(){
 
 window.ImageGenApp = {
   generate: generate,
+  isGenerationBusy: isGenerationBusy,
   setPromptAndGenerate: setPromptAndGenerate,
   setPromptForReview: setPromptForReview,
   applyInspiration: applyInspiration,

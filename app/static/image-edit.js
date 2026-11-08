@@ -81,6 +81,22 @@
     return { image: null, error: msg };
   }
 
+  function prepareProvenanceInput(original, submitted) {
+    var api = root.ImageProvenance;
+    return Promise.all([api.sha256(original), api.sha256(submitted), api.inspectCredentials(original)]).then(function (hashes) {
+      return { original_sha256: hashes[0], submitted_sha256: hashes[1],
+        credential_status: hashes[2].status, transform: 'resize_reencode' };
+    });
+  }
+
+  function createHistoryRecord(data, prompt, inputs) {
+    return { id: root.crypto.randomUUID(), createdAt: new Date().toISOString(), image: data.image,
+      prompt: prompt, providerPrompt: prompt, provider: data.provider || 'workers-ai',
+      model: data.model || '@cf/black-forest-labs/flux-2-klein-4b', size: 'edit', seed: 0,
+      providerProvenance: data.providerProvenance,
+      width: data.width || 0, height: data.height || 0, mode: 'normal', operation: 'edit', provenanceInputs: inputs };
+  }
+
   var EDIT_PROVIDER_UNAVAILABLE_MESSAGE = '此環境尚未啟用 Workers AI 改圖；仍可先整理參考圖與指令，啟用後再送出。';
 
   // 只有健康檢查明確回報 workersAI=false 時才停用，避免網路錯誤或舊版後端造成誤判。
@@ -110,6 +126,8 @@
     composeEditPrompt: composeEditPrompt,
     buildEditFormData: buildEditFormData,
     mapEditResponse: mapEditResponse,
+    prepareProvenanceInput: prepareProvenanceInput,
+    createHistoryRecord: createHistoryRecord,
     editAvailabilityFromHealth: editAvailabilityFromHealth
   };
 
@@ -316,15 +334,19 @@
     }
     Promise.all(picked.map(function (file) {
       return resizeFileToBlob(file).then(
-        function (blob) { return { ok: true, blob: blob }; },
+        function (blob) {
+          return prepareProvenanceInput(file, blob).then(function (input) {
+            return { ok: true, blob: blob, provenanceInput: input };
+          });
+        },
         function () { return { ok: false }; }
-      );
+      ).catch(function () { return { ok: false }; });
     })).then(function (results) {
       var failed = 0, dropped = 0;
       results.forEach(function (r) {
         if (!r.ok) { failed++; return; }
         if (selected.length < MAX_EDIT_IMAGES) {
-          selected.push({ blob: r.blob, url: URL.createObjectURL(r.blob), name: 'image.png', role: editMode === 'product' ? 'product' : (editMode === 'character' ? 'character' : 'style') });
+          selected.push({ blob: r.blob, provenanceInput: r.provenanceInput, url: URL.createObjectURL(r.blob), name: 'image.png', role: editMode === 'product' ? 'product' : (editMode === 'character' ? 'character' : 'style') });
         } else {
           dropped++; // 超過上限：未建 URL，直接丟棄，無洩漏
         }
@@ -487,6 +509,7 @@
       lighting: productLighting ? productLighting.value : ''
     });
     var fd = buildEditFormData(finalPrompt, selected.map(function (s) { return s.blob; }), token);
+    var receiptInputs = selected.map(function (item) { return item.provenanceInput; });
 
     fetch('/edit', { method: 'POST', body: fd })
       .then(function (resp) {
@@ -498,6 +521,9 @@
         var mapped = mapEditResponse(r.ok, r.status, r.data);
         if (mapped.image) {
           showResult(mapped.image);
+          document.dispatchEvent(new CustomEvent('imagegen:generated', {
+            detail: createHistoryRecord(r.data, finalPrompt, receiptInputs)
+          }));
           setStatus('完成 ✓ · 耗時 ' + elapsedTimer.stop() + ' 秒', 'done');
         } else {
           setStatus('改圖失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + mapped.error, 'fail');

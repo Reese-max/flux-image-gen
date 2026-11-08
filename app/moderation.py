@@ -75,12 +75,21 @@ def _detect_high_risk_category(text: str) -> str:
         "torture",
     )
     fake_docs = (
-        "假身分證",
-        "偽造身分證",
-        "偽造護照",
-        "假護照",
-        "偽造駕照",
-        "假駕照",
+        "身分證",
+        "身份證",
+        "身份证",
+        "身分文件",
+        "身份文件",
+        "身份证明",
+        "護照",
+        "护照",
+        "駕照",
+        "驾照",
+        "駕駛執照",
+        "驾驶执照",
+        "驾驶证",
+        "居留證",
+        "居留证",
         "fake id",
         "fake passport",
         "counterfeit passport",
@@ -117,7 +126,15 @@ def _detect_high_risk_category(text: str) -> str:
         return "sexual"
     if _has_any(text, gore):
         return "graphic_violence"
-    if _has_any(text, fake_docs):
+    # ponytail: deterministic document terms; use a classifier if paraphrase coverage is required.
+    if _has_any(text, fake_docs) or re.search(
+        r"\b(?:id(?:entity|entification)?[ -]+(?:cards?|documents?)|passports?|"
+        r"(?:national|official|government(?:[ -]+issued)?)[ -]+ids?|"
+        r"(?:driver(?:['’]?s)?|driving)[ -]+licen[cs]es?|residen(?:t|ce)[ -]+(?:permits?|cards?)|"
+        r"social[ -]+security[ -]+cards?)\b",
+        text,
+        flags=re.ASCII,
+    ):
         return "fake_documents"
     if _has_any(text, fraud):
         return "fraud"

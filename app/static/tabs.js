@@ -27,6 +27,33 @@
   var scriptLoads = {};
   var featureLoads = {};
 
+  function setEditInputReady(ready, failed) {
+    var input = document.getElementById('editFiles');
+    var drop = document.getElementById('editDrop');
+    var hint = document.getElementById('editReadyHint');
+    if (input) { input.disabled = !ready; }
+    if (drop) {
+      drop.setAttribute('aria-disabled', ready ? 'false' : 'true');
+      drop.setAttribute('aria-busy', !ready && !failed ? 'true' : 'false');
+    }
+    if (hint) {
+      hint.hidden = ready;
+      hint.textContent = failed ? '選圖暫時無法使用，請重新整理。' : '正在準備選圖…';
+    }
+  }
+
+  // Native disabled file inputs block the label's picker. Also prevent a file
+  // drop from navigating away before the lazy feature registers its handlers.
+  var editDrop = document.getElementById('editDrop');
+  if (editDrop) {
+    ['dragover', 'drop'].forEach(function (name) {
+      editDrop.addEventListener(name, function (event) {
+        var input = document.getElementById('editFiles');
+        if (input && input.disabled) { event.preventDefault(); }
+      });
+    });
+  }
+
   function loadScript(src) {
     if (scriptLoads[src]) { return scriptLoads[src]; }
     scriptLoads[src] = new Promise(function (resolve, reject) {
@@ -47,11 +74,25 @@
     var chain;
     if (!sources.length) { return Promise.resolve(); }
     if (featureLoads[name]) { return featureLoads[name]; }
+    if (name === 'edit') { setEditInputReady(false, false); }
     chain = Promise.resolve();
     sources.forEach(function (src) {
       chain = chain.then(function () { return loadScript(src); });
     });
+    // Local reference preparation depends on installed handlers, independently
+    // of the provider-health request (which can remain pending while offline).
     featureLoads[name] = chain.then(function () {
+      if (name === 'edit') {
+        if (!window.ImageEdit) {
+          setEditInputReady(false, true);
+          throw new Error('選圖暫時無法使用，請重新整理。');
+        }
+        setEditInputReady(true, false);
+      }
+    }, function (error) {
+      if (name === 'edit') { setEditInputReady(false, true); }
+      throw error;
+    }).then(function () {
       var cachedHealth;
       if (name !== 'edit' || !window.ImageEdit) { return; }
       if (!window.ImageGenApp || typeof window.ImageGenApp.refreshProvider !== 'function') {
