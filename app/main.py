@@ -192,11 +192,14 @@ def api_health() -> dict[str, object]:
     settings = get_settings()
     configured_provider = settings.image_provider.strip().lower()
     has_nvidia_key = bool(settings.nvidia_api_key.strip())
+    has_minimax_key = bool(settings.minimax_api_key.strip())
     has_workers_ai_key = bool(settings.cf_account_id.strip() and settings.cf_api_token.strip())
     providers = {
         "nvidia": has_nvidia_key,
         "workersAI": has_workers_ai_key,
     }
+    if has_minimax_key:
+        providers["minimax"] = True
     provider_status = "demo"
     mode = "demo"
     message = "Demo 模式，不會真實出圖"
@@ -211,24 +214,37 @@ def api_health() -> dict[str, object]:
         else:
             provider_status = "offline"
             message = "圖片服務尚未連接"
-    elif configured_provider == "auto":
-        if has_nvidia_key or has_workers_ai_key:
-            provider_status = "ready" if has_nvidia_key else "degraded"
+    elif configured_provider == "minimax":
+        if has_minimax_key:
+            provider_status = "ready"
             mode = "live"
-            message = "真實出圖可用" if has_nvidia_key else "部分服務可用"
+            message = "真實出圖可用"
+        else:
+            provider_status = "offline"
+            message = "圖片服務尚未連接"
+    elif configured_provider == "auto":
+        if has_nvidia_key or has_minimax_key or has_workers_ai_key:
+            provider_status = "ready" if (has_nvidia_key or has_minimax_key) else "degraded"
+            mode = "live"
+            message = "真實出圖可用" if (has_nvidia_key or has_minimax_key) else "部分服務可用"
         else:
             provider_status = "demo"
     else:
         provider_status = "error"
-        message = "服務設定錯誤：IMAGE_PROVIDER 只能是 auto、demo 或 nvidia"
+        message = "服務設定錯誤：IMAGE_PROVIDER 只能是 auto、demo、minimax 或 nvidia"
 
     return {
         "status": "ok",
-        "provider": "nvidia" if has_nvidia_key else ("workers-ai" if has_workers_ai_key else "demo"),
+        "provider": (
+            "nvidia" if has_nvidia_key
+            else "minimax" if has_minimax_key
+            else "workers-ai" if has_workers_ai_key
+            else "demo"
+        ),
         "providerStatus": provider_status,
         "mode": mode,
         "providers": providers,
-        "hasApiKey": has_nvidia_key or has_workers_ai_key,
+        "hasApiKey": has_nvidia_key or has_minimax_key or has_workers_ai_key,
         "storageAvailable": False,
         "visionQa": settings.vision_qa_enabled,
         "turnstile": {

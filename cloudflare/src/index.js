@@ -19,6 +19,7 @@ import { assertPromptAllowedForGeneration } from "./moderation.js";
 import {
   editImage,
   generateOneImage,
+  getMinimaxApiKey,
   getNvidiaApiKey,
   randomImageSeed,
   validateBatchCount,
@@ -41,11 +42,14 @@ function elapsedMs(started) {
 }
 
 function generationUsageTarget(env, model) {
-  if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
+  if (model === "schnell" && !getNvidiaApiKey(env) && !getMinimaxApiKey(env) && env && env.AI && typeof env.AI.run === "function") {
     return { provider: "workers-ai", model };
   }
   if (getNvidiaApiKey(env)) {
     return { provider: "nvidia", model: model === "schnell" ? "dev" : model };
+  }
+  if (getMinimaxApiKey(env)) {
+    return { provider: "minimax", model };
   }
   return { provider: "demo", model };
 }
@@ -119,6 +123,7 @@ function constantTimeStringEqual(a, b) {
 
 function buildHealthResponse(env) {
   const hasNvidia = Boolean(getNvidiaApiKey(env));
+  const hasMinimax = Boolean(getMinimaxApiKey(env));
   const hasWorkersAI = Boolean(env.AI);
   const storageAvailable = Boolean(env.IMAGE_BUCKET && typeof env.IMAGE_BUCKET.put === "function");
   const versionId = env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.id
@@ -134,26 +139,28 @@ function buildHealthResponse(env) {
   let mode = "demo";
   let message = "Demo 模式，不會真實出圖";
 
-  if (hasNvidia || hasWorkersAI) {
-    providerStatus = hasNvidia && hasWorkersAI ? "ready" : "degraded";
+  if (hasNvidia || hasMinimax || hasWorkersAI) {
+    providerStatus = (hasNvidia || hasMinimax) && hasWorkersAI ? "ready" : "degraded";
     mode = "live";
     message = providerStatus === "ready" ? "真實出圖可用" : "部分服務可用";
   }
 
   return {
     status: "ok",
-    provider: hasNvidia ? "nvidia" : (hasWorkersAI ? "workers-ai" : "demo"),
+    provider: hasNvidia ? "nvidia" : (hasMinimax ? "minimax" : (hasWorkersAI ? "workers-ai" : "demo")),
     providerStatus,
     mode,
     providers: {
       nvidia: hasNvidia,
+      ...(hasMinimax ? { minimax: true } : {}),
       workersAI: hasWorkersAI,
     },
     providerList: [
       ...(hasNvidia ? ["nvidia"] : []),
+      ...(hasMinimax ? ["minimax"] : []),
       ...(hasWorkersAI ? ["workers-ai"] : []),
     ],
-    hasApiKey: hasNvidia || hasWorkersAI,
+    hasApiKey: hasNvidia || hasMinimax || hasWorkersAI,
     storageAvailable,
     visionQa: String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true",
     turnstile: turnstileConfig(env),

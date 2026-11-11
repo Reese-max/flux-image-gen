@@ -491,6 +491,139 @@ class WorkersAiProvider:
         )
 
 
+# MiniMax image-01 provider: POSTs prompt+dims and returns base64 JPEG bytes in
+# ``data.image_base64[0]``. Success requires HTTP 200 AND ``base_resp.status_code == 0``.
+MINIMAX_API_URL = "https://api.minimax.io/v1/image_generation"
+MINIMAX_TIMEOUT_SECONDS = 60.0
+MINIMAX_MIN_DIMENSION = 512
+MINIMAX_MAX_DIMENSION = 2048
+
+
+def minimax_dimensions(width: int, height: int) -> tuple[int, int]:
+    """Map an app-requested size into MiniMax's contract: each side must be in
+    512..2048 and divisible by 8. Scale up so the short side reaches 512, cap the
+    long side at 2048, round to a multiple of 8 (half-up, matching the Worker
+    twin's Math.round), then clamp into the allowed range."""
+    factor = max(1.0, MINIMAX_MIN_DIMENSION / min(width, height))
+    if max(width, height) * factor > MINIMAX_MAX_DIMENSION:
+        factor = MINIMAX_MAX_DIMENSION / max(width, height)
+
+    def _map_side(value: int) -> int:
+        mapped = int(value * factor / 8 + 0.5) * 8
+        return max(MINIMAX_MIN_DIMENSION, min(MINIMAX_MAX_DIMENSION, mapped))
+
+    return _map_side(width), _map_side(height)
+
+
+class MiniMaxProvider:
+    """MiniMax image-01 generation provider. Sits between NVIDIA and Workers AI
+    in the chain (NVIDIA -> MiniMax -> Workers AI -> Pollinations) and serves
+    both speed tiers. Rate limits and content filters propagate unchanged;
+    infra failures (5xx/timeout/network/auth) may fall back."""
+
+    provider_name = "minimax"
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    async def generate(self, request: GenerationRequest) -> GenerationResult:
+        if not self.settings.minimax_api_key.strip():
+            raise ProviderError("缺少 MINIMAX_API_KEY", status_code=503, code="missing_api_key")
+
+        prompt = validate_prompt(request.prompt)
+        model = validate_model(request.model)
+        width, height = map_size(request.size, request.width, request.height)
+        seed = resolve_seed(request.seed, model, self.settings)
+        mm_width, mm_height = minimax_dimensions(width, height)
+
+        payload: dict[str, Any] = {
+            "model": "image-01",
+            "prompt": prompt,
+            "width": mm_width,
+            "height": mm_height,
+            "response_format": "base64",
+            "n": 1,
+        }
+        if seed:
+            payload["seed"] = seed
+        headers = {
+            "Authorization": f"Bearer {self.settings.minimax_api_key.strip()}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=MINIMAX_TIMEOUT_SECONDS) as client:
+            try:
+                response = await client.post(MINIMAX_API_URL, headers=headers, json=payload)
+            except httpx.TimeoutException as exc:
+                raise ProviderError("MiniMax 產圖逾時，請稍後再試", status_code=502, code="minimax_error") from exc
+            except httpx.HTTPError as exc:
+                raise ProviderError("MiniMax 連線失敗，請稍後再試", status_code=502, code="minimax_error") from exc
+
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+        base_code: int | None = None
+        if isinstance(data, dict):
+            base_resp = data.get("base_resp")
+            if isinstance(base_resp, dict) and isinstance(base_resp.get("status_code"), int):
+                base_code = base_resp["status_code"]
+
+        if response.status_code == 429 or base_code == 1002:
+            retry_after = _parse_retry_after(response.headers.get("retry-after"))
+            raise ProviderError("叫用太頻繁，請稍後再試", status_code=429, code="rate_limited", retry_after=retry_after)
+        if base_code in (1026, 1027):
+            raise ProviderError(
+                "此描述觸發 MiniMax 內容安全過濾，無法生成圖片，請換個描述再試",
+                status_code=422,
+                code="content_filtered",
+            )
+        if base_code in (1004, 2049):
+            raise ProviderError("MiniMax 認證失敗，請檢查金鑰設定", status_code=502, code="provider_auth_failed")
+        if response.status_code >= 400 or (base_code is not None and base_code != 0):
+            raise ProviderError("MiniMax 生圖失敗，請稍後再試", status_code=502, code="minimax_error")
+        if data is None:
+            raise ProviderError("MiniMax 回應不是有效 JSON", status_code=502, code="bad_provider_response")
+
+        image_list = data.get("image_base64") if isinstance(data, dict) else None
+        b64 = image_list[0].strip() if isinstance(image_list, list) and image_list and isinstance(image_list[0], str) else ""
+        mime = _detect_base64_image_mime(b64)
+        if mime not in ("image/jpeg", "image/png", "image/webp"):
+            raise ProviderError("MiniMax 回應的圖片資料格式不正確", status_code=502, code="bad_provider_response")
+        image = f"data:{mime};base64,{b64}"
+        return GenerationResult(
+            image=image,
+            provider=self.provider_name,
+            model=model,
+            width=mm_width,
+            height=mm_height,
+            seed=seed,
+            image_quality=inspect_generated_image(image, mm_width, mm_height),
+            provider_provenance={"model_id": "image-01", "steps": None, "cfg_scale": None},
+        )
+
+
+def _detect_base64_image_mime(b64: str) -> str | None:
+    """Sniff the image signature of a base64 payload; returns None when it is not
+    decodable or not a known image type."""
+    if not b64:
+        return None
+    try:
+        head = base64.b64decode(b64[:24], validate=False)
+    except Exception:
+        return None
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith(b"\x89PNG"):
+        return "image/png"
+    if head.startswith(b"GIF8"):
+        return "image/gif"
+    if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 POLLINATIONS_BASE_URL = "https://image.pollinations.ai/prompt"
 
 
@@ -564,10 +697,14 @@ def choose_provider(settings: Settings | None = None):
         return DemoProvider(settings)
     if provider == "nvidia":
         return NvidiaProvider(settings)
+    if provider == "minimax":
+        return MiniMaxProvider(settings)
     if provider != "auto":
-        raise ValueError("IMAGE_PROVIDER 只能是 auto、demo 或 nvidia")
+        raise ValueError("IMAGE_PROVIDER 只能是 auto、demo、minimax 或 nvidia")
     if settings.nvidia_api_key.strip():
         return NvidiaProvider(settings)
+    if settings.minimax_api_key.strip():
+        return MiniMaxProvider(settings)
     return DemoProvider(settings)
 
 
@@ -585,7 +722,7 @@ def _resolve_provider_and_request(
     if (
         request.model == "schnell"
         and _workers_ai_configured(settings)
-        and not isinstance(provider, NvidiaProvider)
+        and not isinstance(provider, (NvidiaProvider, MiniMaxProvider))
     ):
         return WorkersAiProvider(settings), request
     return provider, request
@@ -616,15 +753,31 @@ def _reset_nvidia_circuit() -> None:
     _nvidia_circuit_open_until = 0.0
 
 
-def _has_fallback(settings: Settings) -> bool:
+def _minimax_configured(settings: Settings) -> bool:
+    return bool(settings.minimax_api_key.strip())
+
+
+def _has_fallback(settings: Settings, provider: Any = None) -> bool:
+    # When MiniMax is the primary provider it is not its own fallback.
+    if not isinstance(provider, MiniMaxProvider) and _minimax_configured(settings):
+        return True
     return _workers_ai_configured(settings) or settings.pollinations_fallback_enabled
 
 
-async def _run_fallback_chain(request: GenerationRequest, settings: Settings) -> GenerationResult:
-    """Workers AI -> Pollinations tail, shared by the circuit-open skip path and the
-    NVIDIA-infra-failure path. A Workers AI content filter (422) / rate limit (429)
-    does NOT fall through to Pollinations (which has no moderation)."""
+async def _run_fallback_chain(
+    request: GenerationRequest, settings: Settings, *, minimax_failed: bool = False
+) -> GenerationResult:
+    """MiniMax -> Workers AI -> Pollinations tail, shared by the circuit-open skip
+    path and the infra-failure path. Content filters (422) / rate limits (429) do
+    NOT fall through (Pollinations has no moderation). ``minimax_failed`` skips
+    the MiniMax hop when MiniMax itself was the provider that just failed."""
     pollinations_enabled = settings.pollinations_fallback_enabled
+    if _minimax_configured(settings) and not minimax_failed:
+        try:
+            return await MiniMaxProvider(settings).generate(request)
+        except ProviderError as mm_error:
+            if (mm_error.status_code or 0) < 500:
+                raise
     if _workers_ai_configured(settings):
         try:
             return await WorkersAiProvider(settings).generate(request)
@@ -649,17 +802,18 @@ async def _generate_one_with_fallback(
     A circuit breaker skips NVIDIA outright during a cooldown after an infra
     failure, so requests don't each eat the ~60s dark-provider timeout — but only
     when a fallback is actually available."""
-    if isinstance(provider, NvidiaProvider) and _has_fallback(settings) and _nvidia_circuit_open():
+    if isinstance(provider, NvidiaProvider) and _has_fallback(settings, provider) and _nvidia_circuit_open():
         return await _run_fallback_chain(request, settings)
     try:
         return await provider.generate(request)
     except ProviderError as error:
-        if not (isinstance(provider, NvidiaProvider) and (error.status_code or 0) >= 500):
+        if not (isinstance(provider, (NvidiaProvider, MiniMaxProvider)) and (error.status_code or 0) >= 500):
             raise
-        if not _has_fallback(settings):
+        if not _has_fallback(settings, provider):
             raise
-        _trip_nvidia_circuit()
-        return await _run_fallback_chain(request, settings)
+        if isinstance(provider, NvidiaProvider):
+            _trip_nvidia_circuit()
+        return await _run_fallback_chain(request, settings, minimax_failed=isinstance(provider, MiniMaxProvider))
 
 
 async def generate_image(request: GenerationRequest, settings: Settings | None = None) -> GenerationResult:

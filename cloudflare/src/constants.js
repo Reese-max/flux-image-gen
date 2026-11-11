@@ -164,6 +164,12 @@ export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
 // old 2 × 60s retry path turns a transient model stall into a two-minute wait.
 export const WORKERS_AI_FETCH_TIMEOUT_MS = 45_000;
 
+// MiniMax image-01 provider: sits between NVIDIA and Workers AI in the chain
+// (NVIDIA -> MiniMax -> Workers AI -> Pollinations). Requires MINIMAX_API_KEY;
+// serves both speed tiers. Dims must be in 512..2048 and divisible by 8.
+export const MINIMAX_API_URL = "https://api.minimax.io/v1/image_generation";
+export const MINIMAX_FETCH_TIMEOUT_MS = 60_000;
+
 // Third-tier fallback: keyless Pollinations flux endpoint. Reached only when both
 // NVIDIA and Workers AI fail on infrastructure (5xx/timeout), never on a content
 // filter or rate limit. Returns raw image bytes (~4s observed).

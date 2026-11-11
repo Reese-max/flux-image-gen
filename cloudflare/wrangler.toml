@@ -28,6 +28,7 @@ binding = "ASSETS"
 [vars]
 # Public, non-secret config. Secret keys are set separately:
 #   npx wrangler secret put NVIDIA_API_KEY
+#   npx wrangler secret put MINIMAX_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY
 #   npx wrangler secret put TURNSTILE_SECRET_KEY
 #   npx wrangler secret put GALLERY_TOKEN_SECRET
