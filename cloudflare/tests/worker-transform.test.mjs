@@ -1215,6 +1215,114 @@ test('POST /generate falls back to Pollinations when NVIDIA and Workers AI both 
   }
 });
 
+test('POST /generate keyless schnell falls back to Pollinations when Workers AI fails on infrastructure', async () => {
+  const originalFetch = globalThis.fetch;
+  // No NVIDIA key: the schnell tier calls Workers AI directly. An infra error
+  // must take the same Pollinations tail as the keyed fallback chain.
+  const ai = fakeAi(new Error('model overloaded'));
+  let pollinationsCalls = 0;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response('no keyed provider should be called', { status: 500 });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'pollinations');
+    assert.equal(data.model, 'flux');
+    assert.ok(data.image.startsWith('data:image/jpeg;base64,'));
+    assert.equal(ai.calls.length, 1);
+    assert.equal(pollinationsCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate keyless schnell rejects a non-image Workers AI payload with 502', async () => {
+  // Long valid-base64 junk: passes the length heuristic but fails the strict
+  // mime sniff, so it must not be wrapped into data:image/png and called success.
+  const ai = fakeAi({ image: 'QUFB'.repeat(30) });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(data.code, 'bad_provider_response');
+});
+
+test('POST /generate keyless schnell surfaces a Workers AI 429 as rate_limited', async () => {
+  const err = Object.assign(new Error('rate limit exceeded'), { status: 429, retry_after: 30 });
+  const ai = fakeAi(err);
+  let pollinationsCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async function () {
+    pollinationsCalls += 1;
+    return new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 429);
+    assert.equal(data.code, 'rate_limited');
+    assert.equal(data.retry_after, 30);
+    // Rate limiting is request-level; Pollinations is never tried.
+    assert.equal(pollinationsCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate keyed chain still falls back to Pollinations on a Workers AI 429', async () => {
+  const originalFetch = globalThis.fetch;
+  // The keyed chain's behaviour is unchanged: a Workers AI failure still wraps
+  // to a 5xx workers_ai_error, so the Pollinations tail takes over.
+  const ai = fakeAi(Object.assign(new Error('rate limited'), { status: 429 }));
+  let pollinationsCalls = 0;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'pollinations');
+    assert.equal(pollinationsCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 // Minimal Map-backed Workers Cache API stub so the circuit breaker can persist
 // its "NVIDIA down" marker across two requests in the test runtime (Node has no
 // global `caches`). Keys by request URL, mirroring caches.default.match/put.
@@ -3308,6 +3416,17 @@ test('POST /edit rejects a non-image provider response instead of wrapping it as
   const response = await worker.fetch(
     editRequest('edit', 1),
     aiEnv(async () => ({ image: 'error' })) // short non-base64 token, not a real image
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, 'bad_provider_response');
+});
+
+test('POST /edit rejects a base64 non-image provider payload with 502', async () => {
+  // Long valid-base64 junk passes the length heuristic but fails the strict
+  // mime sniff; it must not be wrapped into data:image/png and called success.
+  const response = await worker.fetch(
+    editRequest('edit', 1),
+    aiEnv(async () => ({ image: 'QUFB'.repeat(30) }))
   );
   assert.equal(response.status, 502);
   assert.equal((await response.json()).code, 'bad_provider_response');
