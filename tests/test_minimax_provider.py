@@ -24,9 +24,10 @@ PNG_B64 = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 120).decode("ascii")
 
 def _minimax_ok(**overrides):
     payload = {
+        "id": "img-test",
         "base_resp": {"status_code": 0, "status_msg": "success"},
-        "data": {},
-        "image_base64": [JPEG_B64],
+        "data": {"image_base64": [JPEG_B64]},
+        "metadata": {},
     }
     payload.update(overrides)
     return httpx.Response(200, json=payload)
@@ -148,8 +149,10 @@ class MiniMaxProviderTests(unittest.IsolatedAsyncioTestCase):
             (500, None, 502, "minimax_error"),
             (503, {"base_resp": {"status_code": 0}}, 502, "minimax_error"),
             (200, "not-json", 502, "bad_provider_response"),
-            (200, {"base_resp": {"status_code": 0}, "image_base64": ["aGVsbG8gd29ybGQ="]}, 502, "bad_provider_response"),
+            (200, {"base_resp": {"status_code": 0}, "data": {"image_base64": ["aGVsbG8gd29ybGQ="]}}, 502, "bad_provider_response"),
             (200, {"base_resp": {"status_code": 0}}, 502, "bad_provider_response"),
+            (200, {"base_resp": {"status_code": 0}, "data": {}}, 502, "bad_provider_response"),
+            (200, {"base_resp": {"status_code": 0}, "image_base64": [JPEG_B64]}, 502, "bad_provider_response"),
         ]
         for http_status, body, expected_status, expected_code in cases:
             with self.subTest(http_status=http_status, body=body):
@@ -203,6 +206,7 @@ class MiniMaxProviderTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"result": {"image": PNG_B64}, "success": True})
 
         settings = Settings(
+            nvidia_api_key="",
             minimax_api_key=FAKE_KEY,
             cf_account_id="cf-acct",
             cf_api_token="cf-token",
@@ -220,7 +224,7 @@ class MiniMaxProviderTests(unittest.IsolatedAsyncioTestCase):
                     calls.append(url)
                     return httpx.Response(200, json={"base_resp": {"status_code": code}})
 
-                settings = Settings(minimax_api_key=FAKE_KEY, cf_account_id="a", cf_api_token="t")
+                settings = Settings(nvidia_api_key="", minimax_api_key=FAKE_KEY, cf_account_id="a", cf_api_token="t")
                 with patch("app.image_service.httpx.AsyncClient", _client(responder)):
                     with self.assertRaises(ProviderError):
                         await generate_image(GenerationRequest(prompt="x", model="schnell", size="square"), settings)

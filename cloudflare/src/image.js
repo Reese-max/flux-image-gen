@@ -529,7 +529,8 @@ async function generateWithMinimax(env, { prompt, model, width, height, seed }) 
     throw new HttpError("MiniMax 回應不是有效 JSON", 502, "bad_provider_response");
   }
 
-  const list = Array.isArray(data.image_base64) ? data.image_base64 : [];
+  const dataNode = data && typeof data.data === "object" && data.data !== null ? data.data : {};
+  const list = Array.isArray(dataNode.image_base64) ? dataNode.image_base64 : [];
   const b64 = typeof list[0] === "string" ? list[0].trim() : "";
   const detected = b64 && isValidBase64(b64) ? detectImageMimeStrict(b64) : null;
   const mime = detected === "image/jpeg" || detected === "image/png" || detected === "image/webp" ? detected : null;

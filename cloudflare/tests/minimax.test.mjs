@@ -8,7 +8,12 @@ const MINIMAX_URL = 'https://api.minimax.io/v1/image_generation';
 const JPEG_B64 = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, ...new Array(120).fill(0)]).toString('base64');
 const PNG_B64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(120).fill(0)]).toString('base64');
 
-const minimaxOk = () => new Response(JSON.stringify({ base_resp: { status_code: 0 }, image_base64: [JPEG_B64] }));
+const minimaxOk = () => new Response(JSON.stringify({
+  id: 'img-test',
+  base_resp: { status_code: 0, status_msg: 'success' },
+  data: { image_base64: [JPEG_B64] },
+  metadata: {},
+}));
 
 function stubFetch(responder) {
   const original = globalThis.fetch;
@@ -74,8 +79,10 @@ test('minimax error mapping: rate limit, content filter, auth, infra, bad payloa
     [500, null, 502, 'minimax_error'],
     [503, { base_resp: { status_code: 0 } }, 502, 'minimax_error'],
     [200, 'not-json', 502, 'bad_provider_response'],
-    [200, { base_resp: { status_code: 0 }, image_base64: ['aGVsbG8gd29ybGQ='] }, 502, 'bad_provider_response'],
+    [200, { base_resp: { status_code: 0 }, data: { image_base64: ['aGVsbG8gd29ybGQ='] } }, 502, 'bad_provider_response'],
     [200, { base_resp: { status_code: 0 } }, 502, 'bad_provider_response'],
+    [200, { base_resp: { status_code: 0 }, data: {} }, 502, 'bad_provider_response'],
+    [200, { base_resp: { status_code: 0 }, image_base64: [JPEG_B64] }, 502, 'bad_provider_response'],
   ];
   for (const [status, jsonBody, expectedStatus, expectedCode] of cases) {
     const restore = stubFetch(async () => (typeof jsonBody === 'string'

@@ -586,7 +586,8 @@ class MiniMaxProvider:
         if data is None:
             raise ProviderError("MiniMax 回應不是有效 JSON", status_code=502, code="bad_provider_response")
 
-        image_list = data.get("image_base64") if isinstance(data, dict) else None
+        data_node = data.get("data") if isinstance(data, dict) else None
+        image_list = data_node.get("image_base64") if isinstance(data_node, dict) else None
         b64 = image_list[0].strip() if isinstance(image_list, list) and image_list and isinstance(image_list[0], str) else ""
         mime = _detect_base64_image_mime(b64)
         if mime not in ("image/jpeg", "image/png", "image/webp"):
