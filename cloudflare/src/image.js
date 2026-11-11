@@ -229,10 +229,21 @@ export function inspectGeneratedImage(image, expectedWidth, expectedHeight) {
 function extractImage(data, providerLabel = "NVIDIA") {
   const candidate = findImageCandidate(data);
   if (!candidate) throw new HttpError(`${providerLabel} 回應中找不到圖片資料`, 502, "bad_provider_response");
-  if (candidate.startsWith("data:image/") || candidate.startsWith("http://") || candidate.startsWith("https://")) {
+  if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
     return candidate;
   }
-  return `data:${detectMimeFromBase64(candidate)};base64,` + candidate;
+  if (candidate.startsWith("data:image/")) {
+    const match = candidate.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/s);
+    if (!match || !detectImageMimeStrict(match[1])) {
+      throw new HttpError(`${providerLabel} 回應的圖片資料不是有效的圖片`, 502, "bad_provider_response");
+    }
+    return candidate;
+  }
+  const mime = detectImageMimeStrict(candidate);
+  if (!mime) {
+    throw new HttpError(`${providerLabel} 回應的圖片資料不是有效的圖片`, 502, "bad_provider_response");
+  }
+  return `data:${mime};base64,` + candidate;
 }
 
 // Workers AI has no artifacts/finishReason on the error path; a flagged prompt
