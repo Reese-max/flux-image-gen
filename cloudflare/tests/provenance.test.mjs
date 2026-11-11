@@ -3,6 +3,7 @@ import test from 'node:test';
 import { webcrypto } from 'node:crypto';
 import worker from '../src/index.js';
 import { issueGalleryToken, sanitizeGalleryMeta } from '../src/gallery.js';
+import * as workerProvenance from '../src/provenance.js';
 import '../../app/static/provenance.js';
 
 globalThis.crypto ||= webcrypto;
@@ -61,6 +62,15 @@ test('gallery rejects altered receipt/output hashes before writing R2; existing 
 test('provenance receipts drop non-object input entries instead of throwing', () => {
   const receipt = api.normalizeReceipt({ receipt_schema_version: 1, record_id: 'record-1',
     inputs: [null, 'junk', 42, { original_sha256: 'a'.repeat(64), submitted_sha256: 'b'.repeat(64) }] });
+  assert.equal(receipt.inputs.length, 1);
+  assert.equal(receipt.inputs[0].original_sha256, 'a'.repeat(64));
+  assert.equal(receipt.inputs[0].submitted_sha256, 'b'.repeat(64));
+});
+
+test('worker provenance twin drops non-object inputs but keeps digest validation', () => {
+  const receipt = workerProvenance.normalizeReceipt({ receipt_schema_version: 1, record_id: 'record-1',
+    inputs: [null, 'junk', 42, ['nested'], { original_sha256: 'a'.repeat(64) },
+      { original_sha256: 'a'.repeat(64), submitted_sha256: 'b'.repeat(64) }] });
   assert.equal(receipt.inputs.length, 1);
   assert.equal(receipt.inputs[0].original_sha256, 'a'.repeat(64));
   assert.equal(receipt.inputs[0].submitted_sha256, 'b'.repeat(64));

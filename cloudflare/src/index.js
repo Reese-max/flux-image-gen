@@ -32,9 +32,7 @@ import {
 import { checkGalleryTokenSignature, decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
-import "../../app/static/provenance.js";
-
-const provenance = globalThis.ImageProvenance;
+import * as provenance from "./provenance.js";
 
 function elapsedMs(started) {
   return Math.max(0, Math.round(Date.now() - started));

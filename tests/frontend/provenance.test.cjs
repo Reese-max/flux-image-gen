@@ -222,7 +222,8 @@ test('receipt normalization drops non-object input entries instead of throwing',
   const receipt = api.normalizeReceipt({
     receipt_schema_version: 1,
     record_id: 'record-1',
-    inputs: [null, 'junk', 42, { original_sha256: hash('original'), submitted_sha256: hash('submitted'), credential_status: 'absent' }]
+    inputs: [null, 'junk', 42, ['array'], { original_sha256: hash('original') },
+      { original_sha256: hash('original'), submitted_sha256: hash('submitted'), credential_status: 'absent' }]
   });
 
   assert.equal(receipt.inputs.length, 1);

@@ -2,7 +2,7 @@
 // save authorization, and owner delete tokens.
 import { GALLERY_EXT, GALLERY_TOKEN_TTL_MS, MAX_GALLERY_IMAGE_BYTES } from "./constants.js";
 import { HttpError } from "./http.js";
-import "../../app/static/provenance.js";
+import { redactText } from "./provenance.js";
 
 export function decodeImageDataUrl(dataUrl) {
   const match = /^data:([^;]+);base64,(.+)$/s.exec(String(dataUrl || ""));
@@ -35,7 +35,7 @@ export function sanitizeGalleryMeta(meta) {
     out.metadataStorage = "r2-json";
     for (const field of ["title", "model", "size", "seed", "mode", "style", "styleLabel", "useCase", "useCaseLabel"]) {
       if (meta[field] !== undefined && meta[field] !== null) {
-        out[field] = globalThis.ImageProvenance.redactText(meta[field]).slice(0, 500);
+        out[field] = redactText(meta[field]).slice(0, 500);
       }
     }
     for (const field of ["width", "height"]) {
@@ -43,7 +43,7 @@ export function sanitizeGalleryMeta(meta) {
       if (Number.isInteger(n) && n >= 256 && n <= 1920) out[field] = n;
     }
     if (promptPublic && meta.prompt !== undefined && meta.prompt !== null) {
-      out.prompt = globalThis.ImageProvenance.redactText(meta.prompt).slice(0, 500);
+      out.prompt = redactText(meta.prompt).slice(0, 500);
     }
   }
   return out;
