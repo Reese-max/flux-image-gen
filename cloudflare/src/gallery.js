@@ -38,6 +38,10 @@ export function sanitizeGalleryMeta(meta) {
         out[field] = globalThis.ImageProvenance.redactText(meta[field]).slice(0, 500);
       }
     }
+    for (const field of ["width", "height"]) {
+      const n = Number(meta[field]);
+      if (Number.isInteger(n) && n >= 256 && n <= 1920) out[field] = n;
+    }
     if (promptPublic && meta.prompt !== undefined && meta.prompt !== null) {
       out.prompt = globalThis.ImageProvenance.redactText(meta.prompt).slice(0, 500);
     }
@@ -111,6 +115,7 @@ export async function verifyGalleryToken(env, token, imageBytes) {
   if (now - tsNum > GALLERY_TOKEN_TTL_MS || tsNum > now + 60000) return false;
   const expected = await hmacHex(secret, `${ts}.${nonce}.${imageHash}`);
   if (!constantTimeEqual(sig, expected)) return false;
+  if (imageBytes === undefined) return true;
   try {
     return constantTimeEqual(await sha256BytesHex(imageBytes), imageHash);
   } catch {

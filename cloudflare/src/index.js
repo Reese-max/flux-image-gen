@@ -293,7 +293,7 @@ async function handleGenerate(request, env) {
       await recordVisionQaEvent(env, request, qaStarted, visionQa);
       if (visionQa) result.visionQa = visionQa;
     }
-    const galleryToken = await issueGalleryToken(env);
+    const galleryToken = await issueGalleryToken(env, result.image);
     return json(galleryToken ? { ...result, galleryToken } : result);
   } catch (e) {
     if (e instanceof HttpError) {
@@ -420,6 +420,8 @@ async function handleGenerateBatch(request, env) {
     for (let index = 0; index < settled.length; index++) {
       const item = settled[index];
       if (item.status === "fulfilled") {
+        const itemGalleryToken = await issueGalleryToken(env, item.value.image);
+        if (itemGalleryToken) item.value.galleryToken = itemGalleryToken;
         images.push(item.value);
         await recordUsageEvent(env, request, {
           route: "generate_batch",
@@ -466,9 +468,8 @@ async function handleGenerateBatch(request, env) {
         if (visionQa) image.visionQa = visionQa;
       }
     }
-    const galleryToken = await issueGalleryToken(env);
     const response = { images, errors, partial: errors.length > 0 };
-    return json(galleryToken ? { ...response, galleryToken } : response);
+    return json(response);
   } catch (e) {
     if (e instanceof HttpError) {
       return httpErrorJson(e);
@@ -628,7 +629,8 @@ async function handleGallerySave(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) return limited;
 
-  if (!(await verifyGalleryToken(env, request.headers.get("x-gallery-token")))) {
+  const galleryToken = request.headers.get("x-gallery-token");
+  if (!(await verifyGalleryToken(env, galleryToken))) {
     return json({ error: "儲存授權無效或已過期，請重新生成圖片再儲存", code: "unauthorized" }, 401);
   }
 
@@ -648,6 +650,10 @@ async function handleGallerySave(request, env) {
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
     throw e;
+  }
+
+  if (!(await verifyGalleryToken(env, galleryToken, decoded.bytes))) {
+    return json({ error: "儲存授權無效或已過期，請重新生成圖片再儲存", code: "unauthorized" }, 401);
   }
 
   const id = `${crypto.randomUUID()}.${GALLERY_EXT[decoded.contentType]}`;
@@ -672,17 +678,26 @@ async function handleGallerySave(request, env) {
       receiptSha256: meta.provenance ? meta.provenance.receipt_sha256 : "",
     },
   });
-  await bucket.put(`${GALLERY_META_PREFIX}${id}.json`, JSON.stringify({
-    id,
-    imageKey: `${GALLERY_PREFIX}${id}`,
-    visibility: meta.visibility,
-    promptPublic: meta.promptPublic === "true",
-    metadata: meta,
-    deleteTokenHash,
-    createdAt: new Date().toISOString(),
-  }), {
-    httpMetadata: { contentType: "application/json; charset=utf-8" },
-  });
+  try {
+    await bucket.put(`${GALLERY_META_PREFIX}${id}.json`, JSON.stringify({
+      id,
+      imageKey: `${GALLERY_PREFIX}${id}`,
+      visibility: meta.visibility,
+      promptPublic: meta.promptPublic === "true",
+      metadata: meta,
+      deleteTokenHash,
+      createdAt: new Date().toISOString(),
+    }), {
+      httpMetadata: { contentType: "application/json; charset=utf-8" },
+    });
+  } catch {
+    try {
+      await bucket.delete(`${GALLERY_PREFIX}${id}`);
+    } catch {
+      // best effort: still report the failed save even if cleanup fails
+    }
+    return json({ error: "圖庫中繼資料寫入失敗，請稍後再試", code: "gallery_save_failed" }, 502);
+  }
   return json({
     id,
     url: `/gallery/${id}`,

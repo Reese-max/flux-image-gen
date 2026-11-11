@@ -27,17 +27,27 @@ function adminGet(path, token = 'admin-secret') {
   });
 }
 
-function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', secret).update(timestamp).digest('hex');
+function galleryTokenForImage(image, secret = TEST_GALLERY_SECRET, timestamp = Date.now().toString()) {
+  const match = /^data:[^;]+;base64,(.+)$/s.exec(String(image || ''));
+  const imageBytes = match ? Buffer.from(match[1], 'base64') : Buffer.alloc(0);
+  const imageHash = createHash('sha256').update(imageBytes).digest('hex');
+  const nonce = 'test-nonce';
+  const signature = createHmac('sha256', secret).update(`${timestamp}.${nonce}.${imageHash}`).digest('hex');
+  return `${timestamp}.${nonce}.${imageHash}.${signature}`;
+}
+
+function galleryRequestWithToken(body, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Gallery-Token'] = token;
   return new Request('https://example.test/gallery', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Gallery-Token': `${timestamp}.${signature}`,
-    },
+    headers,
     body: JSON.stringify(body),
   });
+}
+
+function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
+  return galleryRequestWithToken(body, galleryTokenForImage(body && body.image, secret));
 }
 
 // "test" is an explicit pass-through mode, so the rate limiter stays a no-op
@@ -2386,12 +2396,153 @@ test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', as
     new Request('https://example.test/gallery', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Gallery-Token': genData.galleryToken },
-      body: JSON.stringify({ image: TINY_PNG_DATA_URL }),
+      body: JSON.stringify({ image: genData.image }),
     }),
     env
   );
   assert.equal(withToken.status, 201);
   assert.equal([...bucket.store.keys()].filter((key) => key.startsWith('gallery')).length, 2);
+});
+
+test('POST /gallery rejects tokens not bound to the posted image bytes', async () => {
+  const bucket = fakeBucket();
+  const env = galleryEnv(bucket);
+  const otherImage = `data:image/png;base64,${Buffer.from('some other png bytes').toString('base64')}`;
+
+  // A validly-signed token for a different image must not authorize this save.
+  const mismatched = await worker.fetch(
+    galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, galleryTokenForImage(otherImage)),
+    env
+  );
+  assert.equal(mismatched.status, 401);
+  assert.equal((await mismatched.json()).code, 'unauthorized');
+
+  // The token /generate returns is bound to the generated image, not any other.
+  const gen = await worker.fetch(jsonRequest('/generate', { prompt: 'a cat' }), env);
+  const genData = await gen.json();
+  const wrongImage = await worker.fetch(
+    galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, genData.galleryToken),
+    env
+  );
+  assert.equal(wrongImage.status, 401);
+  assert.equal((await wrongImage.json()).code, 'unauthorized');
+  assert.equal([...bucket.store.keys()].filter((key) => key.startsWith('gallery')).length, 0);
+});
+
+test('POST /gallery rejects legacy timestamp-only and expired image-bound tokens', async () => {
+  const bucket = fakeBucket();
+  const env = galleryEnv(bucket);
+
+  const legacyTs = Date.now().toString();
+  const legacySig = createHmac('sha256', TEST_GALLERY_SECRET).update(legacyTs).digest('hex');
+  const legacy = await worker.fetch(
+    galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, `${legacyTs}.${legacySig}`),
+    env
+  );
+  assert.equal(legacy.status, 401);
+  assert.equal((await legacy.json()).code, 'unauthorized');
+
+  const expiredTs = (Date.now() - 3 * 60 * 60 * 1000).toString();
+  const expired = await worker.fetch(
+    galleryRequestWithToken(
+      { image: TINY_PNG_DATA_URL },
+      galleryTokenForImage(TINY_PNG_DATA_URL, TEST_GALLERY_SECRET, expiredTs)
+    ),
+    env
+  );
+  assert.equal(expired.status, 401);
+  assert.equal((await expired.json()).code, 'unauthorized');
+  assert.equal(bucket.store.size, 0);
+});
+
+test('POST /generate/batch issues an image-bound galleryToken on each image item', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  try {
+    const bucket = fakeBucket();
+    const env = galleryEnv(bucket, { NVIDIA_API_KEY: 'test-key' });
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      env
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    assert.equal(Object.hasOwn(data, 'galleryToken'), false);
+    for (const item of data.images) {
+      assert.equal(typeof item.galleryToken, 'string');
+      const saved = await worker.fetch(
+        galleryRequestWithToken({ image: item.image }, item.galleryToken),
+        env
+      );
+      assert.equal(saved.status, 201);
+      const wrong = await worker.fetch(
+        galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, item.galleryToken),
+        env
+      );
+      assert.equal(wrong.status, 401);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /gallery deletes the stored image and returns 502 when the metadata write fails', async () => {
+  const bucket = fakeBucket();
+  const realPut = bucket.put;
+  bucket.put = async (key, value, options) => {
+    if (key.startsWith('gallery-meta/')) throw new Error('r2 metadata write failed');
+    return realPut(key, value, options);
+  };
+
+  const response = await worker.fetch(
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat' } }),
+    galleryEnv(bucket)
+  );
+  const data = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(data.code, 'gallery_save_failed');
+  assert.equal(bucket.store.size, 0, 'the orphaned image object must be deleted');
+});
+
+test('GET /share/:id keeps custom width/height in the regenerate link', async () => {
+  const bucket = fakeBucket();
+  const saveResponse = await worker.fetch(
+    signedGalleryRequest({
+      image: TINY_PNG_DATA_URL,
+      meta: { prompt: 'custom sized cat', promptPublic: true, model: 'schnell', size: 'custom', width: 640, height: 768 },
+    }),
+    galleryEnv(bucket)
+  );
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 201);
+  const stored = JSON.parse(bucket.store.get(`gallery-meta/${saved.id}.json`).value);
+  assert.equal(stored.metadata.width, 640);
+  assert.equal(stored.metadata.height, 768);
+
+  const share = await worker.fetch(
+    new Request(`https://example.test/share/${saved.id}`, { method: 'GET' }),
+    galleryEnv(bucket)
+  );
+  const html = await share.text();
+  assert.equal(share.status, 200);
+  assert.match(html, /size=custom/);
+  assert.match(html, /width=640/);
+  assert.match(html, /height=768/);
+});
+
+test('sanitizeGalleryMeta drops width/height outside the custom range', async () => {
+  const { sanitizeGalleryMeta } = await import('../src/gallery.js');
+  const out = sanitizeGalleryMeta({ size: 'custom', width: 100, height: 4000, model: 'schnell' });
+  assert.equal(Object.hasOwn(out, 'width'), false);
+  assert.equal(Object.hasOwn(out, 'height'), false);
+  const ok = sanitizeGalleryMeta({ size: 'custom', width: 256, height: 1920 });
+  assert.equal(ok.width, 256);
+  assert.equal(ok.height, 1920);
 });
 
 test('POST /gallery accepts a realistic-size image larger than the generic 64KB JSON cap', async () => {

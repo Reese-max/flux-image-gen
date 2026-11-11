@@ -16,7 +16,7 @@ function bucket() {
 async function setup() {
   const storage = bucket();
   const env = { ENVIRONMENT: 'development', IMAGE_BUCKET: storage, GALLERY_TOKEN_SECRET: 'local-fixture-signing-only' };
-  const token = await issueGalleryToken(env);
+  const token = await issueGalleryToken(env, image);
   const record = { id: 'local-id', image, prompt: 'never publish this prompt', provider: 'workers-ai', model: 'schnell',
     size: 'square', seed: 42, createdAt: '2026-10-17T00:00:00.000Z' };
   record.provenance = await api.createReceipt(record, { inspect: async () => ({ status: 'verified' }) });
