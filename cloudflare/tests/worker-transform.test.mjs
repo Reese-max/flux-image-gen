@@ -5,6 +5,7 @@ import test from 'node:test';
 import { transformSync } from 'esbuild';
 import { inspectGeneratedImage } from '../src/image.js';
 import { detectHighRiskPromptCategory } from '../src/moderation.js';
+import { MAX_EDIT_BODY_BYTES } from '../src/constants.js';
 import worker, { resetUsageMetrics, transformPlainPrompt } from '../src/index.js';
 
 const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
@@ -3130,6 +3131,67 @@ test('POST /edit rejects zero images with 400', async () => {
   const response = await worker.fetch(editRequest('edit', 0), aiEnv(() => ({ image: 'x' })));
   assert.equal(response.status, 400);
 });
+
+test('POST /edit rejects a declared Content-Length above the 50 MiB cap with 413 before reading', async () => {
+  let called = false;
+  const request = new Request('https://example.test/edit', {
+    method: 'POST',
+    headers: {
+      'content-type': 'multipart/form-data; boundary=----x',
+      'content-length': String(MAX_EDIT_BODY_BYTES + 1),
+    },
+    body: 'not the real body',
+  });
+  const response = await worker.fetch(
+    request,
+    aiEnv(async () => { called = true; return { image: 'x' }; })
+  );
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, 'payload_too_large');
+  assert.equal(called, false);
+});
+
+test('POST /edit stops streaming an unbounded body once it passes the cap', async () => {
+  let pulled = 0;
+  const chunk = new Uint8Array(1024 * 1024);
+  const body = new ReadableStream({
+    pull(controller) {
+      pulled += 1;
+      if (pulled > 100) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+  const request = new Request('https://example.test/edit', {
+    method: 'POST',
+    headers: { 'content-type': 'multipart/form-data; boundary=----x' },
+    body,
+    duplex: 'half',
+  });
+  assert.equal(request.headers.get('content-length'), null);
+
+  const response = await worker.fetch(request, aiEnv(() => ({ image: 'x' })));
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, 'payload_too_large');
+  // Reading cancels near the cap instead of draining all 100 MiB.
+  assert.ok(pulled < 80, `read ${pulled} chunks`);
+});
+
+test('JSON routes reject non-object bodies with 400 bad_request', async () => {
+  const bodies = [null, [], 42, 'hello', true];
+  const paths = ['/prompt/transform', '/prompt/complete', '/prompt/enhance', '/generate', '/generate/batch'];
+  for (const path of paths) {
+    for (const body of bodies) {
+      const response = await worker.fetch(jsonRequest(path, body), fakeEnv());
+      const data = await response.json();
+      assert.equal(response.status, 400, `${path} body=${JSON.stringify(body)}`);
+      assert.equal(data.code, 'bad_request', `${path} body=${JSON.stringify(body)}`);
+    }
+  }
+});
+
 
 test('GET /api/health reports whether Vision QA is enabled', async () => {
   const off = await (await worker.fetch(new Request('http://worker.test/api/health'), fakeEnv({}))).json();

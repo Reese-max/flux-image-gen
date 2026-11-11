@@ -1,13 +1,14 @@
 // Cloudflare Worker entry: serves the static SPA and routes the JSON API.
 // Request handlers live here; pure helpers are split into sibling modules
 // (constants / http / prompt / image / gallery). Mirrors the Python backend.
-import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
+import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_EDIT_BODY_BYTES, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
 import {
   HttpError,
   checkRateLimit,
   httpErrorJson,
   json,
   makeRequestId,
+  readBoundedBytes,
   readJsonPayload,
   sanitizeClientErrorReport,
   turnstileConfig,
@@ -488,10 +489,43 @@ async function handleEdit(request, env) {
     return limited;
   }
 
+  // Reject oversized uploads before parsing multipart. A declared
+  // Content-Length lets us refuse without touching the body at all; when the
+  // header is missing (chunked upload) readBoundedBytes stops as soon as the
+  // byte counter passes the cap.
+  const rawContentLength = request.headers.get("content-length");
+  if (rawContentLength != null && rawContentLength !== "") {
+    const declaredLength = Number(rawContentLength);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_EDIT_BODY_BYTES) {
+      await recordUsageEvent(env, request, {
+        route: "edit",
+        outcome: "error",
+        statusCode: 413,
+        errorCode: "payload_too_large",
+        durationMs: elapsedMs(started),
+      });
+      return json({ error: "上傳內容太大", code: "payload_too_large" }, 413);
+    }
+  }
+
   let form;
   try {
-    form = await request.formData();
-  } catch {
+    const body = await readBoundedBytes(request, MAX_EDIT_BODY_BYTES);
+    const headers = new Headers();
+    const contentType = request.headers.get("content-type");
+    if (contentType) headers.set("content-type", contentType);
+    form = await new Response(body, { headers }).formData();
+  } catch (e) {
+    if (e instanceof HttpError) {
+      await recordUsageEvent(env, request, {
+        route: "edit",
+        outcome: "error",
+        statusCode: e.status,
+        errorCode: e.code,
+        durationMs: elapsedMs(started),
+      });
+      return httpErrorJson(e);
+    }
     await recordUsageEvent(env, request, {
       route: "edit",
       outcome: "error",

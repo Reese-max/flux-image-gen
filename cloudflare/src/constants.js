@@ -182,6 +182,9 @@ export const WORKERS_AI_EDIT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 export const MAX_EDIT_IMAGES = 4;
 // 單張上傳上限（前端已縮到 <512，這是防濫用的硬上限）。
 export const MAX_EDIT_IMAGE_BYTES = 12 * 1024 * 1024;
+// /edit 的 multipart 總量上限：所有圖片上限再加上 2 MiB 的表單／prompt
+// 餘裕（50 MiB），避免在解析 formData 前把整個 body 讀進記憶體。
+export const MAX_EDIT_BODY_BYTES = MAX_EDIT_IMAGES * MAX_EDIT_IMAGE_BYTES + 2 * 1024 * 1024;
 export const MAX_BATCH_COUNT = 4;
 
 // --- Cloud gallery (R2) ---
