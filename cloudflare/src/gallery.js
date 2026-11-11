@@ -130,16 +130,6 @@ export async function verifyGalleryToken(env, token, imageBytes) {
   }
 }
 
-export async function isGalleryTokenUsed(bucket, token) {
-  if (!bucket || !token || typeof bucket.get !== "function") return false;
-  return !!(await bucket.get(`gallery-token-use/${await sha256Hex(token)}`));
-}
-
-export async function markGalleryTokenUsed(bucket, token) {
-  if (!bucket || !token || typeof bucket.put !== "function") return;
-  await bucket.put(`gallery-token-use/${await sha256Hex(token)}`, "1");
-}
-
 // --- Gallery owner deletion ---
 // The delete token is returned only to the saving browser. R2 metadata stores a
 // SHA-256 hash, not the raw token, so share pages and metadata leaks cannot delete
