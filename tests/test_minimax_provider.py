@@ -153,6 +153,8 @@ class MiniMaxProviderTests(unittest.IsolatedAsyncioTestCase):
             (200, {"base_resp": {"status_code": 0}}, 502, "bad_provider_response"),
             (200, {"base_resp": {"status_code": 0}, "data": {}}, 502, "bad_provider_response"),
             (200, {"base_resp": {"status_code": 0}, "image_base64": [JPEG_B64]}, 502, "bad_provider_response"),
+            # A valid JPEG head followed by corrupt base64 must not pass as an image.
+            (200, {"base_resp": {"status_code": 0}, "data": {"image_base64": [JPEG_B64[:24] + "!!!not-base64***"]}}, 502, "bad_provider_response"),
         ]
         for http_status, body, expected_status, expected_code in cases:
             with self.subTest(http_status=http_status, body=body):

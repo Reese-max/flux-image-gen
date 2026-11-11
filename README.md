@@ -114,7 +114,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8001 --reload --env-file 
 
 ### MiniMax image-01 provider
 
-設定 `MINIMAX_API_KEY` 後，MiniMax `image-01` 會排在 provider chain 的 NVIDIA 之後、Workers AI 之前（NVIDIA → MiniMax → Workers AI → Pollinations）。沒有 `NVIDIA_API_KEY` 時 MiniMax 同時服務 `schnell` 與 `dev` 兩個速度層；Demo 只在没有設定任何真實 provider 時使用。MiniMax 尺寸需求為 512–2048 且為 8 的倍數，後端會自動把請求尺寸等比映射（回傳 `width`/`height` 為實際送出的尺寸）。錯誤映射：`rate_limited`（429）與 `content_filtered`（422）原樣回傳不 fallback；認證失敗（`provider_auth_failed`）與其他基礎設施錯誤（`minimax_error`）才會往下一個 provider fallback。
+設定 `MINIMAX_API_KEY` 後，MiniMax `image-01` 會排在 provider chain 的 NVIDIA 之後、Workers AI 之前（NVIDIA → MiniMax → Workers AI → Pollinations）。沒有 `NVIDIA_API_KEY` 時 MiniMax 同時服務 `schnell` 與 `dev` 兩個速度層；Demo 只在沒有設定任何真實 provider 時使用。MiniMax 尺寸需求為 512–2048 且為 8 的倍數，後端會自動把請求尺寸等比映射（回傳 `width`/`height` 為實際送出的尺寸）。錯誤映射：`rate_limited`（429）與 `content_filtered`（422）原樣回傳不 fallback；認證失敗（`provider_auth_failed`）與其他基礎設施錯誤（`minimax_error`）才會往下一個 provider fallback。
 
 FastAPI 在本機 `.env` 設 `MINIMAX_API_KEY=`；Cloudflare Worker 正式環境需要手動設定 secret（本步驟需人工執行）：
 

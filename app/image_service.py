@@ -611,7 +611,8 @@ def _detect_base64_image_mime(b64: str) -> str | None:
     if not b64:
         return None
     try:
-        head = base64.b64decode(b64[:24], validate=False)
+        # Validate the whole payload (like the Worker's isValidBase64), not just the head.
+        head = base64.b64decode(b64, validate=True)[:16]
     except Exception:
         return None
     if head.startswith(b"\xff\xd8\xff"):
