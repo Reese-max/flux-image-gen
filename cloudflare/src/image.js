@@ -368,7 +368,6 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     data = await Promise.race([run, timeout]);
   } catch (e) {
     console.error("Workers AI 生圖失敗（attempt 1/1）", e);
-    if (e instanceof HttpError) throw e;
     if (isWorkersAiContentFilterError(e)) {
       throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
     }
@@ -754,7 +753,6 @@ export async function editImage(env, { prompt, images }) {
     data = await Promise.race([run, timeout]);
   } catch (e) {
     console.error("Workers AI 改圖失敗（attempt 1/1）", e);
-    if (e instanceof HttpError) throw e;
     if (isWorkersAiContentFilterError(e)) {
       throw new HttpError("此描述或圖片觸發 Workers AI 內容安全過濾，請換個描述或圖片再試", 422, "content_filtered");
     }

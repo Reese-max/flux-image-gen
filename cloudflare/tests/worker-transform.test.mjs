@@ -6,6 +6,7 @@ import { transformSync } from 'esbuild';
 import { inspectGeneratedImage } from '../src/image.js';
 import { detectHighRiskPromptCategory } from '../src/moderation.js';
 import { MAX_EDIT_BODY_BYTES } from '../src/constants.js';
+import { HttpError } from '../src/http.js';
 import worker, { resetUsageMetrics, transformPlainPrompt } from '../src/index.js';
 
 const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
@@ -3881,3 +3882,40 @@ test('fail-closed batch and edit events record their real status and error code'
   assert.equal(usage.byRoute.edit.failures, 1);
 });
 
+test('keyed chain still wraps a Workers AI HttpError and falls back to Pollinations', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi(new HttpError('rate limited', 429, 'rate_limited'));
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).provider, 'pollinations');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('edit still wraps a Workers AI HttpError as workers_ai_error', async () => {
+  const response = await worker.fetch(
+    editRequest('make it blue', 1),
+    aiEnv(async () => {
+      throw new HttpError('provider rejected request', 400, 'bad_request');
+    })
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, 'workers_ai_error');
+});
