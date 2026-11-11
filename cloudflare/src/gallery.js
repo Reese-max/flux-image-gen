@@ -66,6 +66,11 @@ async function sha256Hex(message) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function sha256BytesHex(bytes) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function constantTimeEqual(a, b) {
   const left = String(a || "");
   const right = String(b || "");
@@ -75,29 +80,52 @@ function constantTimeEqual(a, b) {
   return diff === 0;
 }
 
-export async function issueGalleryToken(env) {
+export async function issueGalleryToken(env, imageDataUrl) {
   const secret = env && env.GALLERY_TOKEN_SECRET;
-  if (!secret) return undefined;
+  if (!secret || typeof imageDataUrl !== "string") return undefined;
+  let decoded;
+  try {
+    decoded = decodeImageDataUrl(imageDataUrl);
+  } catch {
+    return undefined;
+  }
+  const imageHash = await sha256BytesHex(decoded.bytes);
   const ts = Date.now().toString();
-  return `${ts}.${await hmacHex(secret, ts)}`;
+  const nonce = crypto.randomUUID();
+  const message = `${ts}.${nonce}.${imageHash}`;
+  return `${message}.${await hmacHex(secret, message)}`;
 }
 
-export async function verifyGalleryToken(env, token) {
+export async function verifyGalleryToken(env, token, imageBytes) {
   const secret = env && env.GALLERY_TOKEN_SECRET;
   if (!secret) return false;
-  if (typeof token !== "string" || token.indexOf(".") === -1) return false;
-  const dot = token.indexOf(".");
-  const ts = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
+  if (typeof token !== "string") return false;
+  const parts = token.split(".");
+  if (parts.length !== 4) return false;
+  const [ts, nonce, imageHash, sig] = parts;
+  if (!nonce) return false;
+  if (!/^[a-f0-9]{64}$/.test(imageHash)) return false;
   const tsNum = Number(ts);
   if (!Number.isFinite(tsNum)) return false;
   const now = Date.now();
   if (now - tsNum > GALLERY_TOKEN_TTL_MS || tsNum > now + 60000) return false;
-  const expected = await hmacHex(secret, ts);
-  if (sig.length !== expected.length) return false;
-  let diff = 0;
-  for (let i = 0; i < sig.length; i++) diff |= sig.charCodeAt(i) ^ expected.charCodeAt(i);
-  return diff === 0;
+  const expected = await hmacHex(secret, `${ts}.${nonce}.${imageHash}`);
+  if (!constantTimeEqual(sig, expected)) return false;
+  try {
+    return constantTimeEqual(await sha256BytesHex(imageBytes), imageHash);
+  } catch {
+    return false;
+  }
+}
+
+export async function isGalleryTokenUsed(bucket, token) {
+  if (!bucket || !token || typeof bucket.get !== "function") return false;
+  return !!(await bucket.get(`gallery-token-use/${await sha256Hex(token)}`));
+}
+
+export async function markGalleryTokenUsed(bucket, token) {
+  if (!bucket || !token || typeof bucket.put !== "function") return;
+  await bucket.put(`gallery-token-use/${await sha256Hex(token)}`, "1");
 }
 
 // --- Gallery owner deletion ---
