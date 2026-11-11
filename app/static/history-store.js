@@ -544,8 +544,8 @@
         store.setItem(STORAGE_KEY, JSON.stringify(exportRecordCollection(nextRecords)));
         return nextRecords;
       } catch (error) {
-        if (!nextRecords.length) {
-          return [];
+        if (nextRecords.length <= 1) {
+          throw error;
         }
         nextRecords.pop();
       }
@@ -586,7 +586,7 @@
   }
 
   function deleteRecords(records, ids) {
-    var lookup = {};
+    var lookup = Object.create(null);
     var nextRecords = [];
 
     if (!Array.isArray(records) || !Array.isArray(ids)) {
@@ -618,11 +618,7 @@
     var store = getStorage(storage);
 
     if (store && typeof store.removeItem === 'function') {
-      try {
-        store.removeItem(STORAGE_KEY);
-      } catch (error) {
-        return [];
-      }
+      store.removeItem(STORAGE_KEY);
     }
 
     return [];

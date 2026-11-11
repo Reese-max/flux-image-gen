@@ -58,6 +58,14 @@ test('gallery rejects altered receipt/output hashes before writing R2; existing 
   assert.equal(unauthorized.status, 401);
 });
 
+test('provenance receipts drop non-object input entries instead of throwing', () => {
+  const receipt = api.normalizeReceipt({ receipt_schema_version: 1, record_id: 'record-1',
+    inputs: [null, 'junk', 42, { original_sha256: 'a'.repeat(64), submitted_sha256: 'b'.repeat(64) }] });
+  assert.equal(receipt.inputs.length, 1);
+  assert.equal(receipt.inputs[0].original_sha256, 'a'.repeat(64));
+  assert.equal(receipt.inputs[0].submitted_sha256, 'b'.repeat(64));
+});
+
 test('public gallery metadata strips capability URL queries and credential-like text', async () => {
   const { sanitizeGalleryMeta } = await import('../src/gallery.js');
   const meta = sanitizeGalleryMeta({ promptPublic: true, prompt: 'cat api_key=do-not-copy',

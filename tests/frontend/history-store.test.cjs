@@ -478,6 +478,44 @@ test('saveRecords drops oldest records on quota failure and does not throw', () 
   assert.deepEqual(records.map((record) => record.id), ['record-1', 'record-2', 'record-3', 'record-4']);
 });
 
+test('saveRecords evicts oldest first and never writes an empty list over existing history', () => {
+  const store = loadHistoryStore();
+  const storage = {
+    setItem(key, value) {
+      if (JSON.parse(value).records.length > 1) {
+        throw new Error('quota exceeded');
+      }
+    }
+  };
+
+  const result = store.saveRecords([makeRawRecord(1), makeRawRecord(2), makeRawRecord(3)], storage);
+
+  assert.deepEqual(plain(result.map((record) => record.id)), ['record-1']);
+});
+
+test('saveRecords throws and leaves stored history unchanged when the newest record alone cannot fit', () => {
+  const store = loadHistoryStore();
+  let stored = 'previous-history-payload';
+  const attempts = [];
+  const storage = {
+    getItem() {
+      return stored;
+    },
+    setItem(key, value) {
+      attempts.push(JSON.parse(value).records.length);
+      throw new Error('quota exceeded');
+    },
+    removeItem() {}
+  };
+
+  assert.throws(() => {
+    store.saveRecords([makeRawRecord(1), makeRawRecord(2), makeRawRecord(3)], storage);
+  }, /quota exceeded/);
+
+  assert.deepEqual(attempts, [3, 2, 1]);
+  assert.equal(stored, 'previous-history-payload');
+});
+
 test('deleteRecords removes a selected batch and keeps the rest', () => {
   const store = loadHistoryStore();
   const records = [makeRawRecord(1), makeRawRecord(2), makeRawRecord(3), makeRawRecord(4)];
@@ -498,12 +536,39 @@ test('deleteRecord removes target and preserves others', () => {
   assert.deepEqual(plain(records), snapshot);
 });
 
+test('deleteRecords ignores object prototype names unless the id is actually listed', () => {
+  const store = loadHistoryStore();
+  const records = [
+    Object.assign(makeRawRecord(1), { id: 'constructor' }),
+    Object.assign(makeRawRecord(2), { id: 'toString' }),
+    Object.assign(makeRawRecord(3), { id: 'hasOwnProperty' }),
+    makeRawRecord(4)
+  ];
+
+  const kept = store.deleteRecords(records, ['record-4']);
+  assert.deepEqual(plain(kept.map((record) => record.id)), ['constructor', 'toString', 'hasOwnProperty']);
+
+  const removed = store.deleteRecords(records, ['constructor']);
+  assert.deepEqual(plain(removed.map((record) => record.id)), ['toString', 'hasOwnProperty', 'record-4']);
+});
+
 test('clearRecords calls removeItem and returns []', () => {
   const store = loadHistoryStore();
   const storage = createFakeStorage(null);
 
   assert.deepEqual(plain(store.clearRecords(storage)), []);
   assert.deepEqual(storage.calls.removeItem, [store.STORAGE_KEY]);
+});
+
+test('clearRecords throws when storage removal fails so the UI reports failure', () => {
+  const store = loadHistoryStore();
+  const storage = {
+    removeItem() {
+      throw new Error('storage denied');
+    }
+  };
+
+  assert.throws(() => store.clearRecords(storage), /storage denied/);
 });
 
 test('source avoids ES6-only finite helpers for ES5 compatibility', () => {

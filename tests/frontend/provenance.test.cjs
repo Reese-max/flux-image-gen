@@ -217,6 +217,19 @@ test('receipt uses effective provider model/settings, keeping unknown defaults e
   assert.equal(item.model, 'schnell', 'the UI alias remains usable for regeneration');
 });
 
+test('receipt normalization drops non-object input entries instead of throwing', () => {
+  const { api } = load();
+  const receipt = api.normalizeReceipt({
+    receipt_schema_version: 1,
+    record_id: 'record-1',
+    inputs: [null, 'junk', 42, { original_sha256: hash('original'), submitted_sha256: hash('submitted'), credential_status: 'absent' }]
+  });
+
+  assert.equal(receipt.inputs.length, 1);
+  assert.equal(receipt.inputs[0].original_sha256, hash('original'));
+  assert.equal(receipt.inputs[0].submitted_sha256, hash('submitted'));
+});
+
 test('quoted credential headers and JSON-style fields are fully redacted from every export path', () => {
   const { api, store } = load();
   for (const text of ["Authorization: \"Bearer SYNTHETIC_QUOTED_PRIVATE\"", "Authorization='Basic SYNTHETIC_QUOTED_PRIVATE'", "{\"Authorization\": \"Bearer SYNTHETIC_QUOTED_PRIVATE\"}", "{'Authorization': 'Basic SYNTHETIC_QUOTED_PRIVATE'}", "Authorization: Bearer \"SYNTHETIC_QUOTED_PRIVATE with spaces\"", "api_key=\"SYNTHETIC_QUOTED_PRIVATE with spaces\"", "Authorization: \"Bearer SYNTHETIC_QUOTED_PRIVATE"]) {
