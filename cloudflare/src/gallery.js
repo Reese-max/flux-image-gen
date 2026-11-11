@@ -100,7 +100,10 @@ export async function issueGalleryToken(env, imageDataUrl) {
   return `${message}.${await hmacHex(secret, message)}`;
 }
 
-export async function verifyGalleryToken(env, token, imageBytes) {
+// Cheap pre-body check: token shape, expiry, and HMAC signature only. POST
+// /gallery runs this before decoding the image so a bad token rejects early;
+// the image binding itself is enforced by verifyGalleryToken after decoding.
+export async function checkGalleryTokenSignature(env, token) {
   const secret = env && env.GALLERY_TOKEN_SECRET;
   if (!secret) return false;
   if (typeof token !== "string") return false;
@@ -114,10 +117,14 @@ export async function verifyGalleryToken(env, token, imageBytes) {
   const now = Date.now();
   if (now - tsNum > GALLERY_TOKEN_TTL_MS || tsNum > now + 60000) return false;
   const expected = await hmacHex(secret, `${ts}.${nonce}.${imageHash}`);
-  if (!constantTimeEqual(sig, expected)) return false;
-  if (imageBytes === undefined) return true;
+  return constantTimeEqual(sig, expected);
+}
+
+export async function verifyGalleryToken(env, token, imageBytes) {
+  if (!(await checkGalleryTokenSignature(env, token))) return false;
+  if (!imageBytes) return false;
   try {
-    return constantTimeEqual(await sha256BytesHex(imageBytes), imageHash);
+    return constantTimeEqual(await sha256BytesHex(imageBytes), String(token).split(".")[2]);
   } catch {
     return false;
   }

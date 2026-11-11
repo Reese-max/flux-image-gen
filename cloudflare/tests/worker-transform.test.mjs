@@ -2509,6 +2509,53 @@ test('POST /gallery deletes the stored image and returns 502 when the metadata w
   assert.equal(bucket.store.size, 0, 'the orphaned image object must be deleted');
 });
 
+test('POST /gallery returns gallery_cleanup_failed and logs the orphan key when image cleanup also fails', async () => {
+  const bucket = fakeBucket();
+  const realPut = bucket.put;
+  bucket.put = async (key, value, options) => {
+    if (key.startsWith('gallery-meta/')) throw new Error('r2 metadata write failed');
+    return realPut(key, value, options);
+  };
+  bucket.delete = async () => { throw new Error('r2 delete failed'); };
+
+  const errors = [];
+  const realError = console.error;
+  console.error = (...args) => { errors.push(args.map(String).join(' ')); };
+  try {
+    const response = await worker.fetch(
+      signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat' } }),
+      galleryEnv(bucket)
+    );
+    const data = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(data.code, 'gallery_cleanup_failed');
+    const orphans = [...bucket.store.keys()].filter((key) => key.startsWith('gallery/'));
+    assert.equal(orphans.length, 1, 'the image object remains when cleanup fails');
+    assert.equal(bucket.store.has('gallery-meta/' + orphans[0].slice('gallery/'.length) + '.json'), false);
+    assert.ok(
+      errors.some((line) => line.includes(orphans[0])),
+      'the orphaned image key must be logged via console.error'
+    );
+  } finally {
+    console.error = realError;
+  }
+});
+
+test('verifyGalleryToken always enforces the image binding', async () => {
+  const { checkGalleryTokenSignature, issueGalleryToken, verifyGalleryToken } = await import('../src/gallery.js');
+  const env = galleryEnv(fakeBucket());
+  const token = await issueGalleryToken(env, TINY_PNG_DATA_URL);
+  const imageBytes = Buffer.from(TINY_PNG_DATA_URL.split(',')[1], 'base64');
+
+  assert.equal(typeof token, 'string');
+  assert.equal(await checkGalleryTokenSignature(env, token), true);
+  assert.equal(await verifyGalleryToken(env, token), false, 'omitted imageBytes must not bypass the binding');
+  assert.equal(await verifyGalleryToken(env, token, undefined), false);
+  assert.equal(await verifyGalleryToken(env, token, imageBytes), true);
+  const otherBytes = Buffer.from('some other png bytes');
+  assert.equal(await verifyGalleryToken(env, token, otherBytes), false);
+});
+
 test('GET /share/:id keeps custom width/height in the regenerate link', async () => {
   const bucket = fakeBucket();
   const saveResponse = await worker.fetch(

@@ -29,7 +29,7 @@ import {
   validateSeed,
   validateSteps,
 } from "./image.js";
-import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
+import { checkGalleryTokenSignature, decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
 import "../../app/static/provenance.js";
@@ -630,7 +630,7 @@ async function handleGallerySave(request, env) {
   if (limited) return limited;
 
   const galleryToken = request.headers.get("x-gallery-token");
-  if (!(await verifyGalleryToken(env, galleryToken))) {
+  if (!(await checkGalleryTokenSignature(env, galleryToken))) {
     return json({ error: "儲存授權無效或已過期，請重新生成圖片再儲存", code: "unauthorized" }, 401);
   }
 
@@ -693,8 +693,9 @@ async function handleGallerySave(request, env) {
   } catch {
     try {
       await bucket.delete(`${GALLERY_PREFIX}${id}`);
-    } catch {
-      // best effort: still report the failed save even if cleanup fails
+    } catch (cleanupError) {
+      console.error(`[gallery] metadata write failed and image cleanup failed; orphaned object: ${GALLERY_PREFIX}${id}`, cleanupError);
+      return json({ error: "圖庫中繼資料寫入失敗，且殘留圖片清理未完成，請通知站方處理", code: "gallery_cleanup_failed" }, 502);
     }
     return json({ error: "圖庫中繼資料寫入失敗，請稍後再試", code: "gallery_save_failed" }, 502);
   }
