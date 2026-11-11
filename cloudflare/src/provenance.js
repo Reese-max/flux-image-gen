@@ -60,7 +60,7 @@ function credential(value) {
 export function normalizeInputs(inputs) {
   // 先丟掉非物件項目（null、數字、字串），正規化後再丟掉缺有效摘要的物件；
   // 兩道過濾缺一不可，且必須與前端 twin 同序。
-  return (Array.isArray(inputs) ? inputs : []).filter((input) => input && typeof input === "object").slice(0, 4).map((input) => {
+  return (Array.isArray(inputs) ? inputs : []).filter((input) => input && typeof input === "object" && !Array.isArray(input)).slice(0, 4).map((input) => {
     const transformed = input.transform === "resize_reencode";
     return {
       original_sha256: digest(input.original_sha256), submitted_sha256: digest(input.submitted_sha256),

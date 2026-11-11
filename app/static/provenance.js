@@ -121,7 +121,7 @@
   }
   function normalizeInputs(inputs) {
     return (Array.isArray(inputs) ? inputs : []).filter(function (input) {
-      return input && typeof input === 'object';
+      return input && typeof input === 'object' && !Array.isArray(input);
     }).slice(0, 4).map(function (input) {
       var transformed = input.transform === 'resize_reencode';
       return {
