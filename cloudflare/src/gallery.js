@@ -84,7 +84,13 @@ function constantTimeEqual(a, b) {
   return diff === 0;
 }
 
+// GALLERY_ENABLED = "false" turns off saving to the R2 gallery; existing share pages stay readable.
+export function galleryEnabled(env) {
+  return String((env && env.GALLERY_ENABLED) ?? "true").trim().toLowerCase() !== "false";
+}
+
 export async function issueGalleryToken(env, imageDataUrl) {
+  if (!galleryEnabled(env)) return undefined;
   const secret = env && env.GALLERY_TOKEN_SECRET;
   if (!secret || typeof imageDataUrl !== "string") return undefined;
   let decoded;

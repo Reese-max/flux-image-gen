@@ -30,7 +30,7 @@ import {
   validateSeed,
   validateSteps,
 } from "./image.js";
-import { checkGalleryTokenSignature, decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
+import { checkGalleryTokenSignature, decodeImageDataUrl, galleryEnabled, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
 import "../../app/static/provenance.js";
@@ -162,6 +162,7 @@ function buildHealthResponse(env) {
     ],
     hasApiKey: hasNvidia || hasMinimax || hasWorkersAI,
     storageAvailable,
+    galleryEnabled: galleryEnabled(env),
     visionQa: String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true",
     turnstile: turnstileConfig(env),
     message,
@@ -1375,6 +1376,7 @@ export default {
       return handleEdit(request, env);
     }
     if (url.pathname === "/gallery" && request.method === "POST") {
+      if (!galleryEnabled(env)) return json({ error: "雲端相簿已停用", code: "gallery_disabled" }, 404);
       return handleGallerySave(request, env);
     }
     if (url.pathname.startsWith("/gallery/") && url.pathname.endsWith("/delete") && request.method === "GET") {
