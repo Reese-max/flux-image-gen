@@ -23,6 +23,9 @@ test('with the gallery off, /generate issues no save token and POST /gallery is 
   assert.equal(typeof (await issueGalleryToken(env(), PNG)), 'string');
   const gen = await (await worker.fetch(post('/generate', { prompt: 'a red apple', model: 'dev', size: 'square', seed: 1 }), env({ GALLERY_ENABLED: 'false' }))).json();
   assert.equal(gen.galleryToken, undefined);
+  const batch = await (await worker.fetch(post('/generate/batch', { prompt: 'a red apple', model: 'dev', size: 'square', count: 2 }), env({ GALLERY_ENABLED: 'false' }))).json();
+  assert.equal(batch.images.length, 2);
+  assert.ok(batch.images.every((item) => item.galleryToken === undefined));
   const res = await worker.fetch(post('/gallery', { image: PNG, meta: {} }), env({ GALLERY_ENABLED: 'false' }));
   assert.equal(res.status, 404);
   assert.equal((await res.json()).code, 'gallery_disabled');

@@ -96,7 +96,8 @@ function wranglerInvocation(argv) {
   throw new Error('Usage: check-deploy-readiness.mjs [--wrangler-npx-version X.Y.Z]');
 }
 
-// Secrets that only the R2 gallery (POST /gallery save tokens, admin listing) uses.
+// Secrets not required while the gallery is off. GALLERY_TOKEN_SECRET signs gallery save tokens; GALLERY_ADMIN_TOKEN
+// also gates the owner's /api/usage dashboard, which answers 503 admin_usage_disabled until that secret is set.
 export const GALLERY_SECRETS = Object.freeze(['GALLERY_TOKEN_SECRET', 'GALLERY_ADMIN_TOKEN']);
 
 // GALLERY_ENABLED = "false" in [vars] turns the gallery off, so its secrets are not required.
