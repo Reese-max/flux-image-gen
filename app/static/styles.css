@@ -368,6 +368,7 @@ body.is-workspace-resizing {
 }
 .canvas-empty-mark { font-size: 22px; }
 .canvas-empty p { margin: 0; font-size: 14px; color: var(--text); } /* 畫布底色上 --muted 只有 4.38:1 */
+.canvas-empty strong { color: var(--text); } /* 16px 粗體不算大字，同樣需要 4.5:1 */
 .canvas-empty-hints { display: none; }
 .pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 0 rgba(111, 143, 101, 0.5); }
 .pill.online { color: var(--sage-ink); background: var(--sage-soft); border-color: var(--sage-line); }
@@ -1434,7 +1435,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 
 /* ---------- footer ---------- */
 .footer { text-align: center; font-size: 14px; color: var(--muted); line-height: 1.7; padding-top: 8px; }
-.footer-meta { margin-top: 6px; font-family: var(--mono); opacity: 0.85; }
+.footer-meta { margin-top: 6px; font-family: var(--mono); } /* 不用 opacity：會把裡面的連結與文字對比壓到 3.6–3.7:1；顏色本身已是低調的 --muted／--accent-2 */
 .footer-links {
   display: inline-flex;
   gap: 8px;
