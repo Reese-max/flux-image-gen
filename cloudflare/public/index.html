@@ -46,7 +46,7 @@
   </div>
 
   <main class="shell">
-    <div id="oldbrowser" class="oldbrowser" role="alert">⚠️ 偵測到你的瀏覽器較舊，部分功能可能無法運作。建議改用最新版 Chrome、Edge、Firefox 或 Safari。</div>
+    <div id="oldbrowser" class="oldbrowser" role="alert" aria-hidden="true" hidden>⚠️ 偵測到你的瀏覽器較舊，部分功能可能無法運作。建議改用最新版 Chrome、Edge、Firefox 或 Safari。</div>
 
     <header class="topbar">
       <div class="brand">
@@ -63,7 +63,7 @@
       </div>
     </header>
 
-    <div id="demo-notice" class="demo-notice" role="status" aria-live="polite" hidden>
+    <div id="demo-notice" class="demo-notice" role="status" aria-live="polite" aria-hidden="true" hidden>
       <span class="demo-ico" aria-hidden="true">⚠️</span>
       <span>目前是<b>展示模式</b>，畫面上的產出為示意圖，尚未接上真實生成服務。</span>
     </div>
@@ -178,7 +178,8 @@
             <span class="field-label">畫面變化</span>
             <div class="seed-mode" role="group" aria-label="構圖模式">
               <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
-              <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false">🔒 鎖定這張構圖</button>
+              <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false" aria-describedby="seedModeHint">🔒 鎖定這張構圖</button>
+              <div id="seedLockTooltip" class="seed-lock-tooltip" role="tooltip" aria-hidden="true" hidden>先生成一張圖，才能鎖定它的構圖</div>
             </div>
             <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
             <input id="seed" type="hidden">
@@ -294,7 +295,7 @@
 
         <div class="canvas-statusbar" id="canvasStatusbar" aria-label="目前畫布設定">
           <span class="canvas-state"><i aria-hidden="true"></i><b id="canvasStateMeta">待命</b></span>
-          <span id="canvasModelMeta">快速草稿</span>
+          <span id="canvasModelMeta">平衡</span>
           <span id="canvasSizeMeta">1024 × 1024</span>
           <span id="canvasSeedMeta">Seed 自動</span>
           <span class="canvas-status-spacer"></span>
@@ -443,11 +444,12 @@
 
           <section class="edit-control-section">
             <div class="edit-section-label"><span>02</span><strong>加入參考圖片</strong></div>
-            <label id="editDrop" class="edit-drop" for="editFiles">
-              <input id="editFiles" type="file" accept="image/*" multiple hidden>
+            <label id="editDrop" class="edit-drop" for="editFiles" aria-disabled="true" aria-busy="true">
+              <input id="editFiles" type="file" accept="image/*" multiple hidden disabled>
               <span class="edit-drop-icon" aria-hidden="true">＋</span>
               <strong>拖曳圖片到這裡</strong>
               <span class="edit-drop-text">或點一下選擇檔案 · 自動縮至模型可用尺寸</span>
+              <span id="editReadyHint" role="status">正在準備選圖…</span>
             </label>
             <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
           </section>
@@ -514,7 +516,10 @@
           <div class="ideas-title">◷ 歷史記錄牆<span class="hint">（存在這台瀏覽器）</span></div>
           <p class="custom-ideas-copy">保留最近生成的圖片，可重新下載、複製提示詞或再生。</p>
         </div>
-        <button id="clearHistory" class="btn mini secondary" type="button" hidden disabled>清空歷史</button>
+        <div class="history-actions">
+          <button id="exportAllHistoryJson" class="btn mini secondary" type="button" hidden disabled>匯出全部備份</button>
+          <button id="clearHistory" class="btn mini secondary" type="button" hidden disabled>清空歷史</button>
+        </div>
       </div>
       <div id="historyFilters" class="history-filters" role="group" aria-label="歷史篩選" hidden>
         <input id="historySearch" class="text-input" type="search" aria-label="搜尋歷史作品" placeholder="搜尋描述或標籤">
@@ -682,6 +687,11 @@
             <h3>版本</h3>
             <div id="historyVersionList" class="version-list"></div>
           </section>
+          <section>
+            <h3>來源與驗證</h3>
+            <p id="historyDetailProvenance" role="status" aria-live="polite"></p>
+            <p>本機 receipt 未簽章，可核對 bytes 與版本來源，不保證作者、畫面內容為真或模型可完全重現。Content Credentials 缺失不代表真人製作；重編碼或改圖可能剝除憑證。簽發者信任與撤銷狀態須另外確認。</p>
+          </section>
           <section id="historyCloudSection" hidden>
             <h3>雲端保存</h3>
             <p id="historyCloudMeta"></p>
@@ -697,12 +707,13 @@
         </label>
         <button id="saveHistoryTags" class="btn secondary" type="button">儲存標籤</button>
         <label class="tutorial-check" for="hidePromptInShare">
-          <input id="hidePromptInShare" type="checkbox">
+          <input id="hidePromptInShare" type="checkbox" checked>
           <span>分享時隱藏提示詞</span>
         </label>
-        <p class="custom-ideas-copy">匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定，且可能包含雲端分享或刪除連結；公開前請先檢查。</p>
+        <p class="custom-ideas-copy">作品 JSON 預設隱藏提示詞。取消勾選後，匯出的備份檔會包含你的中文描述、英文提示詞、畫面編號與設定；不包含刪除連結或敏感網址。</p>
         <div class="modal-actions">
           <button id="downloadHistoryDetail" class="btn secondary" type="button">下載圖片</button>
+          <button id="downloadHistoryReceipt" class="btn secondary" type="button">下載 receipt.json</button>
           <button id="copyHistoryPrompt" class="btn secondary" type="button">複製提示詞</button>
           <button id="copyHistoryShareText" class="btn secondary" type="button">複製分享文案</button>
           <button id="exportHistoryJson" class="btn secondary" type="button">匯出作品 JSON</button>
@@ -806,9 +817,10 @@
       </div>
     </div>
 
-    <div id="pwaUpdateNotice" class="pwa-update-notice" role="status" aria-live="polite" aria-atomic="true" hidden>
+    <div id="pwaUpdateNotice" class="pwa-update-notice" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true" hidden>
       <span>新版本已準備好。</span>
       <button id="reloadPwa" class="btn mini secondary" type="button">重新整理</button>
+      <button id="dismissPwaUpdate" class="pwa-update-dismiss" type="button" aria-label="稍後更新">稍後</button>
     </div>
 
     <div id="mobileGenerateBar" class="mobile-generate-bar" role="region" aria-label="手機固定生成列" hidden>
@@ -816,6 +828,8 @@
       <button id="mobileGenerate" class="btn primary" type="button" aria-describedby="mobileGenerateSummary status">🎨 生成圖片</button>
     </div>
   </main>
+
+  <div id="appToast" class="app-toast" role="alert" aria-live="assertive" aria-hidden="true" hidden></div>
 
   <script src="/static/tabs.js"></script>
   <script src="/static/generation-settings.js"></script>
@@ -825,6 +839,8 @@
   <script src="/static/app.js"></script>
   <script src="/static/canvas-viewport.js"></script>
   <script src="/static/prompt-transform.js"></script>
+  <script src="/static/provenance.js"></script>
+  <script src="/static/provenance-inspector.js"></script>
   <script src="/static/history-store.js"></script>
   <script src="/static/history-wall.js"></script>
   <script src="/static/tutorial.js"></script>

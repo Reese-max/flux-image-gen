@@ -20,17 +20,19 @@
 FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 
 - 歷史記錄牆：使用 `localStorage` 保存最近生成結果，支援重新下載、複製提示詞與從歷史卡片再生。
-- 一鍵再生：按「再生一張」會沿用上一張圖的提示詞、模型與尺寸，並把 Seed 重設為 `0` 以產生新變體。
+- 一鍵再生：歷史詳情與結果區的「再生一張」會沿用該作品的中文描述、最終 Provider prompt、模型、尺寸與畫質設定，並抽取新的 Seed 產生變體；排除描述不會重複附加。舊記錄若缺少最終 prompt，會先重新整理；修改中文描述會清除回填的 prompt，手動修改的英文提示詞則予以保留。提示詞整理、生成或重試倒數期間會暫停再生，保留目前請求與歷史選取，完成後可再點一次。
 - 複製設定：可一鍵複製目前圖片的提示詞、模型、尺寸與 Seed，方便分享或重現。
 - Seed 控制：`0` 或空白代表隨機；輸入固定正整數可重現同一組設定，或在原設定上微調。
 - 排除描述輔助：前端會把「不要出現什麼」合併進 prompt（例如 `avoid ...`），不會送出 NVIDIA 目前未支援的 `negative_prompt` 欄位。
-- 後端限流：FastAPI 會依 IP 對 `/generate`、`/generate/batch`、`/edit` 與可能消耗 Gemini 配額的 `/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 做硬性 rate limit；Cloudflare 版使用 `wrangler.toml` 的 `GENERATE_RATE_LIMITER` binding。達上限時回 `429 rate_limited` 與 `retry_after`，不會呼叫模型。
-- Turnstile 防機器人：公開站可設定 `TURNSTILE_REQUIRED=true`、`TURNSTILE_SITE_KEY`，並把 `TURNSTILE_SECRET_KEY` 放在後端/Worker secret。前端只拿 site key，後端在呼叫模型前驗證 token；驗證失敗不會出圖。
-- Prompt moderation：`/generate`、`/generate/batch`、`/edit` 在呼叫模型前先擋高風險描述（色情、未成年敏感、血腥暴力、仿冒證件、詐欺、隱私侵犯、政治誤導與商標濫用）。拒絕訊息不回顯敏感全文。
+- 後端限流：FastAPI 會依 IP 對 `/generate`、`/generate/batch`、`/edit` 與可能消耗 Gemini 配額的 `/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 做硬性 rate limit；Cloudflare 版使用 `wrangler.toml` 的 `GENERATE_RATE_LIMITER` binding。達上限時回 `429 rate_limited` 與 `retry_after`，不會呼叫模型。追蹤的 `wrangler.toml` 預設 `ENVIRONMENT="production"`：limiter binding 缺失、出錯或回傳無法判定的結果時，除非 `ENVIRONMENT` 明確為 `development`／`test`，否則一律回 503 fail-closed，不因 provider key 是否存在而放行；本機 dev 需明確 `wrangler dev --var ENVIRONMENT:development --var TURNSTILE_REQUIRED:false` 才會讓生圖路由通過 Turnstile 檢查。所有公開部署 gate 都要求 `ENVIRONMENT="production"`、limiter binding、`TURNSTILE_REQUIRED="true"` 與非空白 site key：兩層缺一不可，因 `/prompt/*` 不驗證 Turnstile 而單靠 per-IP rate limit 可被輪替 IP 繞過。
+- Turnstile 防機器人：公開站可設定 `TURNSTILE_REQUIRED=true`、`TURNSTILE_SITE_KEY`，並把 `TURNSTILE_SECRET_KEY` 放在後端/Worker secret。Worker 對生圖／改圖路由驗證 token；驗證失敗或 secret/site key 缺失時拒絕請求（fail closed）。Turnstile 不涵蓋 Gemini `/prompt/*`，因此不能取代公開部署所需的 production rate limiter。
+- Prompt moderation：`/generate`、`/generate/batch`、`/edit` 在呼叫模型前先擋高風險描述（色情、未成年敏感、血腥暴力、證件／身份文件、詐欺、隱私侵犯、政治誤導與商標濫用），同時檢查原始描述與最終 prompt。`/prompt/transform`、`/prompt/complete`、`/prompt/enhance` 也會審核輸入、效果描述與模型輸出，拒絕後不進入離線 fallback。
+- 證件採預設拒絕：中英文身分證、護照、駕照與居留證等，即使稱為「官方」、「樣張」或虛構道具，也會回 `422`、`code: prompt_blocked`、`category: fake_documents`。拒絕說明不回顯敏感全文。此為確定性詞彙規則，未保證涵蓋所有語言或迂迴描述。
 - 成本 Dashboard：網站「用量」分頁與 `GET /api/usage` 可查今日生成次數、失敗次數、估計成本、每模型／provider／匿名 IP 用量、錯誤率與平均生成時間。FastAPI 另寫入 `logs/usage-YYYY-MM-DD.jsonl`；Worker 輸出 `usage_event` 結構化 log。用量資料不保存 prompt、圖片內容或金鑰。
 
 ## v1.4 作品管理與分享
 
+- 來源與驗證：新生成、批次與改圖作品保存 versioned、未簽章的 provenance receipt，包含圖片 SHA-256、實際 provider/model/settings 與父版本；詳情可重新驗證、另存 receipt JSON。C2PA 在瀏覽器使用本機 SDK 驗證，原圖下載保留 bytes，改圖記錄原始／提交圖片雜湊與重編碼狀態。作品 JSON 預設隱藏 prompt 並排除敏感連結；能力與限制、驗收對照見 [provenance 契約](docs/provenance.md)。
 - 作品詳情面板：查看圖片、白話描述、最終 prompt、排除描述、model、size、seed、provider、生成時間。
 - Prompt 版本比較：從歷史作品再生時會形成版本鏈，可切換比較不同 prompt / seed / model。
 - 分享卡片／分享頁：可複製分享文案、複製設定 JSON、匯出作品 JSON、下載圖片；雲端分享頁會顯示圖片、模式、風格、用途、尺寸、prompt 公開狀態與「再生成」入口，可選擇分享時隱藏 prompt；上傳成功後會產生一次性刪除連結，使用者打開連結確認後可自助刪除 R2 圖片與 metadata。

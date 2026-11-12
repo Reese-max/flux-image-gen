@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.image_service import GenerationResult
@@ -272,6 +273,74 @@ class AppRouteTests(unittest.TestCase):
         self.assertEqual(body["category"], "fake_documents")
         self.assertNotIn("假身分證", body["error"])
         mocked_generate.assert_not_called()
+
+    def test_identity_documents_are_blocked_across_image_routes(self):
+        from app.image_service import EditResult
+
+        original = "做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件"
+        for path in ("/generate", "/generate/batch", "/edit"):
+            for field in ("prompt", "userPrompt") if path != "/edit" else ("prompt",):
+                with self.subTest(path=path, field=field), \
+                        patch("app.main.generate_image", new_callable=AsyncMock) as generate, \
+                        patch("app.main.generate_batch", new_callable=AsyncMock) as batch, \
+                        patch("app.main.edit_image", new_callable=AsyncMock) as edit:
+                    generate.return_value = self._generation_result()
+                    batch.return_value = [self._generation_result()]
+                    edit.return_value = EditResult(
+                        image="data:image/png;base64,ZWRpdA==", provider="workers-ai", model="edit", image_count=1,
+                    )
+                    if path == "/edit":
+                        response = self.client.post(path, data={"prompt": original}, files=[
+                            ("images", ("test.png", self._tiny_png(), "image/png")),
+                        ])
+                    else:
+                        payload = {"prompt": "a landscape", "count": 2, field: original}
+                        response = self.client.post(path, json=payload)
+                    self.assertEqual(response.status_code, 422)
+                    self.assertEqual(response.json()["code"], "prompt_blocked")
+                    self.assertEqual(response.json()["category"], "fake_documents")
+                    self.assertNotIn(original, response.text)
+                    generate.assert_not_called()
+                    batch.assert_not_called()
+                    edit.assert_not_called()
+
+    def test_identity_documents_are_blocked_before_prompt_processing(self):
+        original = "做一張台灣官方身分證正面樣張，包含姓名與身分證號碼欄位，可用來當真證件"
+        cases = (
+            ("/prompt/transform", {"source": original}, "transform_plain_prompt"),
+            ("/prompt/complete", {"source": original}, "complete_plain_prompt"),
+            ("/prompt/enhance", {"prompt": original, "effect": "更寫實"}, "enhance_prompt"),
+            ("/prompt/enhance", {"prompt": "a landscape", "effect": original}, "enhance_prompt"),
+        )
+        for path, payload, function in cases:
+            with self.subTest(path=path, payload=payload), patch("app.main." + function) as provider:
+                provider.return_value = SimpleNamespace(
+                    prompt="a landscape", source=original, provider="test", warnings=(), effect="更寫實",
+                )
+                response = self.client.post(path, json=payload)
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["code"], "prompt_blocked")
+                self.assertEqual(response.json()["category"], "fake_documents")
+                self.assertNotIn(original, response.text)
+                provider.assert_not_called()
+
+    def test_identity_documents_from_prompt_providers_are_blocked(self):
+        document = "realistic official ID card template"
+        cases = (
+            ("/prompt/transform", {"source": "a portrait"}, "transform_plain_prompt"),
+            ("/prompt/complete", {"source": "a portrait"}, "complete_plain_prompt"),
+            ("/prompt/enhance", {"prompt": "a portrait", "effect": "更寫實"}, "enhance_prompt"),
+        )
+        for path, payload, function in cases:
+            with self.subTest(path=path), patch("app.main." + function) as provider:
+                provider.return_value = SimpleNamespace(
+                    prompt=document, source="a portrait", provider="test", warnings=(), effect="更寫實",
+                )
+                response = self.client.post(path, json=payload)
+                self.assertEqual(response.status_code, 422)
+                self.assertEqual(response.json()["code"], "prompt_blocked")
+                self.assertEqual(response.json()["category"], "fake_documents")
+                self.assertNotIn(document, response.text)
 
     def test_generate_timeout_returns_friendly_504(self):
         with patch("app.main.generate_image", new_callable=AsyncMock) as mocked_generate:

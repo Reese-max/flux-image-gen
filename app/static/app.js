@@ -1,10 +1,27 @@
 (function(){
-  var ok = ('fetch' in window) && ('Promise' in window) && (typeof window.fetch === 'function');
+  var ok = ('fetch' in window) && (typeof window.fetch === 'function') &&
+    ('Promise' in window) &&
+    ('Blob' in window) &&
+    Boolean(window.URL) && (typeof window.URL.createObjectURL === 'function') &&
+    ('CustomEvent' in window) &&
+    Boolean(document.querySelector) &&
+    ('JSON' in window) &&
+    ('Uint8Array' in window);
+  var banner = document.getElementById('oldbrowser');
   if(!ok){
-    var banner = document.getElementById('oldbrowser');
     var button = document.getElementById('go');
-    if(banner){ banner.style.display = 'block'; }
+    if(banner){
+      banner.hidden = false;
+      banner.removeAttribute('aria-hidden');
+      banner.style.display = 'block';
+    }
     if(button){ button.disabled = true; button.textContent = '不支援'; }
+  }else if(banner){
+    if(typeof banner.remove === 'function'){
+      banner.remove();
+    }else if(banner.parentNode){
+      banner.parentNode.removeChild(banner);
+    }
   }
 })();
 
@@ -51,6 +68,10 @@ var generationState = 'idle';
 var turnstileState = { required: false, siteKey: '', widgetId: null, scriptLoading: false };
 var retryBlockedUntil = 0;
 var retryCountdownTimer = null;
+var toastTimer = null;
+var toastHideTimer = null;
+var seedLockFeedbackTimer = null;
+var seedShakeTimer = null;
 
 var PROVIDER_STATUS_COPY = {
   checking: '正在檢查服務狀態',
@@ -255,6 +276,9 @@ function parseRetryAfter(value){
 function retrySecondsRemaining(){
   return retryBlockedUntil > Date.now() ? Math.ceil((retryBlockedUntil - Date.now()) / 1000) : 0;
 }
+function isGenerationBusy(){
+  return generationInFlight || retrySecondsRemaining() > 0;
+}
 function clearRetryCountdown(){
   if(retryCountdownTimer){ clearInterval(retryCountdownTimer); }
   retryCountdownTimer = null;
@@ -351,6 +375,71 @@ function extensionFromImageData(image){
   if(image.indexOf('data:image/gif') === 0){ return '.gif'; }
   return '.png';
 }
+function dataUrlToBlob(dataUrl){
+  if(typeof dataUrl !== 'string' || dataUrl.indexOf('data:') !== 0){ return null; }
+  var commaIdx = dataUrl.indexOf(',');
+  if(commaIdx === -1){ return null; }
+  var meta = dataUrl.slice(0, commaIdx);
+  var raw = dataUrl.slice(commaIdx + 1);
+  var mimeMatch = meta.match(/data:([^;]+)/);
+  var mime = (mimeMatch && mimeMatch[1]) || 'image/png';
+  var isBase64 = meta.indexOf(';base64') !== -1;
+  try{
+    var binary = isBase64 ? atob(raw) : decodeURIComponent(raw);
+    var len = binary.length;
+    var bytes = new Uint8Array(len);
+    for(var i = 0; i < len; i += 1){
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return new Blob([bytes], { type: mime });
+  }catch(_){
+    return null;
+  }
+}
+function createDownloadUrl(imageSrc, targetAnchor){
+  if(!imageSrc){ return ''; }
+  if(imageSrc.indexOf('data:') === 0 && window.Blob && window.URL && typeof window.URL.createObjectURL === 'function'){
+    var blob = dataUrlToBlob(imageSrc);
+    if(blob){
+      var blobUrl = URL.createObjectURL(blob);
+      if(targetAnchor){
+        if(targetAnchor._blobUrl){
+          try{ URL.revokeObjectURL(targetAnchor._blobUrl); }catch(_){}
+        }
+        targetAnchor._blobUrl = blobUrl;
+      }
+      return blobUrl;
+    }
+  }
+  return imageSrc;
+}
+function triggerDownload(urlOrDataUrl, filename){
+  var ext = extensionFromImageData(urlOrDataUrl);
+  var name = filename || ('image' + ext);
+  if(name.indexOf('.') === -1){ name += ext; }
+  var blob = dataUrlToBlob(urlOrDataUrl);
+  if(blob && window.URL && typeof window.URL.createObjectURL === 'function'){
+    var blobUrl = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function(){
+      if(link.parentNode){ link.parentNode.removeChild(link); }
+      try{ URL.revokeObjectURL(blobUrl); }catch(_){}
+    }, 30000);
+    return;
+  }
+  var fallbackLink = document.createElement('a');
+  fallbackLink.href = urlOrDataUrl;
+  fallbackLink.download = name;
+  document.body.appendChild(fallbackLink);
+  fallbackLink.click();
+  setTimeout(function(){
+    if(fallbackLink.parentNode){ fallbackLink.parentNode.removeChild(fallbackLink); }
+  }, 2000);
+}
 function validateImageUrl(image){
   if(typeof image !== 'string'){
     throw new Error('後端回傳的圖片網址格式不正確');
@@ -367,6 +456,80 @@ function setStatus(text, cls){
   status.className = 'status' + (cls ? ' ' + cls : '');
   status.setAttribute('role', cls === 'fail' ? 'alert' : 'status');
   status.setAttribute('aria-live', cls === 'fail' ? 'assertive' : 'polite');
+}
+function showToast(message, type){
+  var toast = el('appToast');
+  if(!toast || !message){ return; }
+  if(toastTimer){ clearTimeout(toastTimer); toastTimer = null; }
+  if(toastHideTimer){ clearTimeout(toastHideTimer); toastHideTimer = null; }
+  toast.textContent = message;
+  toast.className = 'app-toast' + (type ? ' is-' + type : '');
+  toast.hidden = false;
+  toast.setAttribute('aria-hidden', 'false');
+  void toast.offsetWidth;
+  toast.classList.add('is-visible');
+  toastTimer = setTimeout(function(){
+    toast.classList.remove('is-visible');
+    toast.setAttribute('aria-hidden', 'true');
+    toastHideTimer = setTimeout(function(){
+      if(toast && !toast.classList.contains('is-visible')){
+        toast.hidden = true;
+      }
+      toastHideTimer = null;
+    }, 250);
+    toastTimer = null;
+  }, 3500);
+}
+function showSeedLockFeedback(message){
+  var msg = message || '先生成一張圖，才能鎖定它的構圖';
+  var lockBtn = el('seedLock');
+  var tooltip = el('seedLockTooltip');
+  var hint = el('seedModeHint');
+
+  setStatus(msg, 'warn');
+  showToast(msg, 'warn');
+
+  if(lockBtn){
+    lockBtn.classList.remove('is-shake');
+    void lockBtn.offsetWidth;
+    lockBtn.classList.add('is-shake');
+    if(seedShakeTimer){ clearTimeout(seedShakeTimer); }
+    seedShakeTimer = setTimeout(function(){
+      if(lockBtn){ lockBtn.classList.remove('is-shake'); }
+      seedShakeTimer = null;
+    }, 400);
+  }
+
+  if(hint){
+    hint.textContent = '⚠️ ' + msg;
+    hint.classList.add('is-warn');
+  }
+
+  if(tooltip){
+    tooltip.textContent = msg;
+    tooltip.hidden = false;
+    tooltip.setAttribute('aria-hidden', 'false');
+    void tooltip.offsetWidth;
+    tooltip.classList.add('is-visible');
+  }
+
+  if(seedLockFeedbackTimer){ clearTimeout(seedLockFeedbackTimer); }
+  seedLockFeedbackTimer = setTimeout(function(){
+    if(tooltip){
+      tooltip.classList.remove('is-visible');
+      tooltip.setAttribute('aria-hidden', 'true');
+      setTimeout(function(){
+        if(tooltip && !tooltip.classList.contains('is-visible')){
+          tooltip.hidden = true;
+        }
+      }, 200);
+    }
+    if(hint){
+      hint.classList.remove('is-warn');
+      updateSeedModeUi();
+    }
+    seedLockFeedbackTimer = null;
+  }, 3200);
 }
 function setFieldInvalid(field, message){
   if(!field){ return; }
@@ -455,11 +618,17 @@ function applyUseCaseSize(){
 }
 function enableDownload(on){
   var dl = el('dl');
+  if(!dl){ return; }
   if(on){
     dl.hidden = false;
     dl.classList.remove('is-disabled');
     dl.setAttribute('aria-disabled', 'false');
   }else{
+    if(dl._blobUrl){
+      try{ URL.revokeObjectURL(dl._blobUrl); }catch(_){}
+      dl._blobUrl = null;
+    }
+    delete dl.dataset.rawImageData;
     dl.hidden = true;
     dl.classList.add('is-disabled');
     dl.setAttribute('aria-disabled', 'true');
@@ -497,15 +666,53 @@ function registerServiceWorker(){
     window.location.reload();
   });
 }
+var PWA_DISMISSED_KEY = 'fluxi_pwa_update_dismissed';
+
 function showPwaUpdateNotice(registration){
   var notice = el('pwaUpdateNotice');
   pendingPwaRegistration = registration || null;
-  if(notice){ notice.hidden = false; }
+  try{
+    if(window.sessionStorage && window.sessionStorage.getItem(PWA_DISMISSED_KEY) === 'true'){
+      return;
+    }
+  }catch(e){}
+  if(notice){
+    notice.hidden = false;
+    notice.removeAttribute('aria-hidden');
+  }
+}
+function dismissPwaUpdateNotice(){
+  var notice = el('pwaUpdateNotice');
+  if(notice){
+    notice.hidden = true;
+    notice.setAttribute('aria-hidden', 'true');
+  }
+  try{
+    if(window.sessionStorage){
+      window.sessionStorage.setItem(PWA_DISMISSED_KEY, 'true');
+    }
+  }catch(e){}
 }
 function reloadPwaVersion(){
+  var notice = el('pwaUpdateNotice');
+  if(notice){
+    notice.hidden = true;
+    notice.setAttribute('aria-hidden', 'true');
+  }
+  try{
+    if(window.sessionStorage){
+      window.sessionStorage.removeItem(PWA_DISMISSED_KEY);
+    }
+  }catch(e){}
   if(pendingPwaRegistration && pendingPwaRegistration.waiting){
     pwaUpdateRequested = true;
     pendingPwaRegistration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    setTimeout(function(){
+      if(!pwaRefreshing){
+        pwaRefreshing = true;
+        window.location.reload();
+      }
+    }, 500);
     return;
   }
   window.location.reload();
@@ -601,13 +808,22 @@ var QUALITY_PRESETS = {
   fine: { steps: '45', cfg: '4', hint: '步數拉高，細節更足，但較慢、較耗額度。' }
 };
 function currentQualityPreset(){
+  var modelEl = el('model');
   var stepsEl = el('devSteps');
   var cfgEl = el('devCfgScale');
   var s = stepsEl ? stepsEl.value.trim() : '';
   var c = cfgEl ? cfgEl.value.trim() : '';
   var names = Object.keys(QUALITY_PRESETS);
   for(var i = 0; i < names.length; i++){
-    if(s === QUALITY_PRESETS[names[i]].steps && c === QUALITY_PRESETS[names[i]].cfg){ return names[i]; }
+    if(s === QUALITY_PRESETS[names[i]].steps && c === QUALITY_PRESETS[names[i]].cfg){
+      if(names[i] === 'balanced' && modelEl && modelEl.value === 'schnell'){
+        return 'draft';
+      }
+      return names[i];
+    }
+  }
+  if(s === '' && c === '' && modelEl && modelEl.value === 'schnell'){
+    return 'draft';
   }
   return null;
 }
@@ -623,13 +839,20 @@ function updateQualityPresetUi(){
     hint.textContent = active ? QUALITY_PRESETS[active].hint
       : '自訂數值：steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。';
   }
+  if(typeof window.updateCanvasSettings === 'function'){
+    window.updateCanvasSettings();
+  }
 }
 function applyQualityPreset(name){
   var preset = QUALITY_PRESETS[name];
   if(!preset){ return; }
   if(el('devSteps')){ el('devSteps').value = preset.steps; }
   if(el('devCfgScale')){ el('devCfgScale').value = preset.cfg; }
+  if(el('model')){ el('model').value = 'dev'; }
   updateQualityPresetUi();
+  if(el('devSteps')){
+    try{ el('devSteps').dispatchEvent(new Event('input', { bubbles: true })); }catch(_){}
+  }
 }
 function clampWorkspaceWidth(value){
   var width = Number(value);
@@ -766,6 +989,7 @@ function updateSeedModeUi(){
   var randomBtn = el('seedRandom');
   var lockBtn = el('seedLock');
   var hint = el('seedModeHint');
+  var tooltip = el('seedLockTooltip');
   var seedField = el('seed');
   var locked = seedMode === 'lock';
   if(randomBtn){
@@ -777,11 +1001,17 @@ function updateSeedModeUi(){
     lockBtn.setAttribute('aria-pressed', locked ? 'true' : 'false');
   }
   if(hint){
+    hint.classList.remove('is-warn');
     if(locked){
       hint.textContent = '已鎖定構圖（種子碼 ' + (seedField && seedField.value ? seedField.value : '—') + '），改描述後再生成就能微調。';
     }else{
       hint.textContent = '每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。';
     }
+  }
+  if(tooltip && locked){
+    tooltip.classList.remove('is-visible');
+    tooltip.setAttribute('aria-hidden', 'true');
+    tooltip.hidden = true;
   }
 }
 function setSeedMode(mode){
@@ -792,6 +1022,7 @@ function lockCompositionSeed(seedValue){
   var seedField = el('seed');
   if(!isConcreteSeed(seedValue)){
     setStatus('這張圖沒有可鎖定的種子碼（隨機產生的舊圖無法重現），請先生成一張新圖再鎖定', 'warn');
+    showToast('這張圖沒有可鎖定的種子碼，請先生成新圖', 'warn');
     return false;
   }
   if(seedField){ seedField.value = String(seedValue); }
@@ -867,7 +1098,11 @@ function setGenerationSettings(settings){
   }
   if(Object.prototype.hasOwnProperty.call(source, 'providerPrompt') && el('prompt')){
     el('prompt').value = source.providerPrompt || '';
-    el('prompt').removeAttribute('data-auto-source');
+    if(source.providerPrompt && source.prompt){
+      el('prompt').setAttribute('data-auto-source', String(source.prompt).trim());
+    }else{
+      el('prompt').removeAttribute('data-auto-source');
+    }
   }
   if(Object.prototype.hasOwnProperty.call(source, 'avoid') && el('avoid')){ el('avoid').value = source.avoid || ''; }
   if(Object.prototype.hasOwnProperty.call(source, 'model')){ el('model').value = source.model || 'schnell'; }
@@ -875,8 +1110,15 @@ function setGenerationSettings(settings){
   if(Object.prototype.hasOwnProperty.call(source, 'width') && el('customWidth')){ el('customWidth').value = source.width || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'height') && el('customHeight')){ el('customHeight').value = source.height || 1024; }
   if(Object.prototype.hasOwnProperty.call(source, 'seed') && el('seed')){ el('seed').value = String(source.seed || 0); }
+  if(Object.prototype.hasOwnProperty.call(source, 'steps') && el('devSteps')){
+    el('devSteps').value = source.steps != null && source.steps !== '' ? String(source.steps) : '';
+  }
+  if(Object.prototype.hasOwnProperty.call(source, 'cfgScale') && el('devCfgScale')){
+    el('devCfgScale').value = source.cfgScale != null && source.cfgScale !== '' ? String(source.cfgScale) : '';
+  }
   updateCustomSizeVisibility();
   updateDevTuningVisibility();
+  updateQualityPresetUi();
 }
 function setNextGenerationSourceRecord(id){
   pendingSourceRecordId = id || '';
@@ -932,6 +1174,10 @@ function applyPromptEnhancement(){
   });
 }
 function progressCopy(model, seconds){
+  var preset = currentQualityPreset();
+  if(preset === 'draft' || model === 'schnell'){
+    return '⚡ 快速模型產圖中… 已用 ' + seconds + ' 秒';
+  }
   if(model === 'dev'){
     return '🎨 高品質模型產圖中… 已用 ' + seconds + ' 秒，通常會久一點';
   }
@@ -999,6 +1245,10 @@ function copySettings(){
   });
 }
 function regenerate(){
+  if(isGenerationBusy()){
+    setStatus('正在生成或等待重試，請稍候再生', 'warn');
+    return;
+  }
   if(!lastGeneration){
     setStatus('尚無可再生的圖片', 'warn');
     return;
@@ -1006,16 +1256,26 @@ function regenerate(){
   setSeedMode('random');
   setGenerationSettings({
     prompt: lastGeneration.prompt,
+    providerPrompt: lastGeneration.providerPrompt,
     avoid: lastGeneration.avoid,
     model: lastGeneration.model,
     size: lastGeneration.size,
+    width: lastGeneration.width,
+    height: lastGeneration.height,
+    steps: lastGeneration.steps,
+    cfgScale: lastGeneration.cfgScale,
     seed: ''
   });
   generate();
 }
 function lockCompositionFromRecord(record){
+  if(isGenerationBusy()){
+    setStatus('正在生成或等待重試，請稍候套用構圖', 'warn');
+    return false;
+  }
   if(!record){
     setStatus('找不到可鎖定構圖的圖片', 'warn');
+    showToast('找不到可鎖定構圖的圖片', 'warn');
     return false;
   }
   setGenerationSettings({
@@ -1027,6 +1287,7 @@ function lockCompositionFromRecord(record){
   });
   if(lockCompositionSeed(record.seed)){
     setStatus('已鎖定這張的構圖，改描述後按生成就能微調', 'done');
+    showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
     scrollToComposerAndFocus();
     return true;
   }
@@ -1034,7 +1295,8 @@ function lockCompositionFromRecord(record){
 }
 function useComposition(){
   if(!lastGeneration){
-    setStatus('尚無可鎖定構圖的圖片', 'warn');
+    setStatus('尚無可鎖定構圖的圖片，請先生成一張圖', 'warn');
+    showToast('尚無可鎖定構圖的圖片，請先生成一張圖', 'warn');
     return;
   }
   lockCompositionFromRecord(lastGeneration);
@@ -1044,14 +1306,16 @@ function onSeedLockClick(){
   if(lastGeneration && isConcreteSeed(lastGeneration.seed)){
     if(lockCompositionSeed(lastGeneration.seed)){
       setStatus('已鎖定剛才那張的構圖，改描述後按生成就能微調', 'done');
+      showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
     }
     return;
   }
   if(seedField && isConcreteSeed(seedField.value)){
     lockCompositionSeed(seedField.value);
+    showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
     return;
   }
-  setStatus('先生成一張圖，才能鎖定它的構圖', 'warn');
+  showSeedLockFeedback('先生成一張圖，才能鎖定它的構圖');
 }
 function onSeedManualInput(){
   var seedField = el('seed');
@@ -1148,11 +1412,13 @@ function renderBatchResults(stage, images, base){
     mainImage.width = typeof item.width === 'number' ? item.width : fallback.width;
     mainImage.height = typeof item.height === 'number' ? item.height : fallback.height;
     mainSeed.textContent = '種子碼 ' + (typeof item.seed === 'number' ? item.seed : '—');
-    mainDownload.href = image;
+    mainDownload.dataset.rawImageData = image;
+    mainDownload.href = createDownloadUrl(image, mainDownload);
     mainDownload.download = slugify(base.prompt) + '_' + (item.seed || 0) + extensionFromImageData(image);
     mainLock.onclick = function(){
       if(lockCompositionSeed(item.seed)){
         setStatus('已鎖定構圖（種子碼 ' + item.seed + '），改描述後生成就能微調', 'done');
+        showToast('已鎖定構圖，改描述後按生成即可微調', 'done');
       }
     };
     for(j = 0; j < thumbButtons.length; j += 1){
@@ -1230,6 +1496,8 @@ function renderBatchResults(stage, images, base){
     grid.appendChild(card);
 
     record = {
+      id: createHistoryRecordId(),
+      createdAt: new Date().toISOString(),
       image: image,
       thumbnail: image,
       prompt: base.prompt,
@@ -1243,7 +1511,8 @@ function renderBatchResults(stage, images, base){
       width: typeof item.width === 'number' ? item.width : fallback.width,
       height: typeof item.height === 'number' ? item.height : fallback.height,
       provider: typeof item.provider === 'string' ? item.provider : '',
-      sourceRecordId: '',
+      providerProvenance: item.providerProvenance,
+      sourceRecordId: pendingSourceRecordId,
       mode: 'normal'
     };
     records.push(record);
@@ -1529,12 +1798,14 @@ function generate(options){
       stage.appendChild(img);
       stage.appendChild(createMobileSaveHint());
       revealResultStage(true);
-      dl.href = image;
+      dl.dataset.rawImageData = image;
+      dl.href = createDownloadUrl(image, dl);
       dl.download = slugify(prompt) + '_' + timestamp() + extensionFromImageData(image);
       enableDownload(true);
       fallbackDimensions = getSizeDimensions(size);
       generatedRecord = {
         id: createHistoryRecordId(),
+        createdAt: new Date().toISOString(),
         image: image,
         thumbnail: typeof data.thumbnail === 'string' ? data.thumbnail : image,
         prompt: prompt,
@@ -1548,6 +1819,7 @@ function generate(options){
         width: typeof data.width === 'number' ? data.width : fallbackDimensions.width,
         height: typeof data.height === 'number' ? data.height : fallbackDimensions.height,
         provider: typeof data.provider === 'string' ? data.provider : '',
+        providerProvenance: data.providerProvenance,
         sourceRecordId: pendingSourceRecordId,
         mode: 'normal'
       };
@@ -1656,6 +1928,7 @@ function getProviderHealth(){
 
 window.ImageGenApp = {
   generate: generate,
+  isGenerationBusy: isGenerationBusy,
   setPromptAndGenerate: setPromptAndGenerate,
   setPromptForReview: setPromptForReview,
   applyInspiration: applyInspiration,
@@ -1664,10 +1937,23 @@ window.ImageGenApp = {
   getLastGeneration: getLastGeneration,
   setNextGenerationSourceRecord: setNextGenerationSourceRecord,
   lockCompositionFromRecord: lockCompositionFromRecord,
+  useComposition: useComposition,
+  onSeedLockClick: onSeedLockClick,
   copyText: copyText,
   setStatus: setStatus,
+  showToast: showToast,
+  showSeedLockFeedback: showSeedLockFeedback,
+  showDemoNotice: showDemoNotice,
+  showPwaUpdateNotice: showPwaUpdateNotice,
+  dismissPwaUpdateNotice: dismissPwaUpdateNotice,
+  reloadPwaVersion: reloadPwaVersion,
   refreshProvider: refreshProvider,
   getProviderHealth: getProviderHealth,
+  dataUrlToBlob: dataUrlToBlob,
+  createDownloadUrl: createDownloadUrl,
+  triggerDownload: triggerDownload,
+  providerNoteFor: providerNoteFor,
+  providerDisplayName: providerDisplayName,
   el: el
 };
 window.ModalA11y = {
@@ -1676,9 +1962,30 @@ window.ModalA11y = {
   focusFirst: focusModalElement
 };
 
+var demoNoticeElement = null;
+
 function showDemoNotice(on){
-  var notice = el('demo-notice');
-  if(notice){ notice.hidden = !on; }
+  var notice = el('demo-notice') || demoNoticeElement;
+  if(!notice){ return; }
+  demoNoticeElement = notice;
+  if(!on){
+    notice.hidden = true;
+    notice.setAttribute('aria-hidden', 'true');
+    if(notice.parentNode){
+      notice.parentNode.removeChild(notice);
+    }
+  }else{
+    notice.hidden = false;
+    notice.removeAttribute('aria-hidden');
+    if(!notice.parentNode){
+      var hero = document.querySelector('.hero');
+      if(hero && hero.parentNode){
+        hero.parentNode.insertBefore(notice, hero);
+      }else{
+        document.body.appendChild(notice);
+      }
+    }
+  }
 }
 function providerDisplayName(provider){
   if(provider === 'workers-ai'){ return 'Workers AI'; }
@@ -1702,8 +2009,10 @@ function providerListFromHealth(data){
 function providerNoteFor(provider){
   if(provider === 'demo'){ return '（示範圖片，圖片服務連接後可產生正式圖片）'; }
   if(provider === 'workers-ai'){ return '（Workers AI FLUX）'; }
+  if(provider === 'pollinations'){ return '（Pollinations FLUX）'; }
   if(provider === 'nvidia-fallback'){ return '（Workers AI 忙碌，已自動改用 NVIDIA FLUX 備援）'; }
-  return '（NVIDIA FLUX）';
+  if(provider === 'nvidia'){ return '（NVIDIA FLUX）'; }
+  return provider ? '（' + providerDisplayName(provider) + '）' : '（NVIDIA FLUX）';
 }
 function setSelectIfOptionExists(id, value){
   var field = el(id);
@@ -1816,9 +2125,24 @@ document.addEventListener('DOMContentLoaded', function(){
   setGenerationState('idle');
   refreshProvider();
   el('go').addEventListener('click', generate);
+  if(el('dl')){
+    el('dl').addEventListener('click', function(event){
+      var dl = el('dl');
+      if(dl.classList.contains('is-disabled') || dl.getAttribute('aria-disabled') === 'true'){
+        event.preventDefault();
+        return;
+      }
+      var targetData = dl.dataset.rawImageData;
+      if(targetData && targetData.indexOf('data:') === 0){
+        event.preventDefault();
+        triggerDownload(targetData, dl.download || 'flux.png');
+      }
+    });
+  }
   if(el('mobileGenerate')){ el('mobileGenerate').addEventListener('click', generate); }
   if(el('mobileGenerateBar')){ el('mobileGenerateBar').hidden = false; }
   if(el('reloadPwa')){ el('reloadPwa').addEventListener('click', reloadPwaVersion); }
+  if(el('dismissPwaUpdate')){ el('dismissPwaUpdate').addEventListener('click', dismissPwaUpdateNotice); }
   if(el('regenerate')){ el('regenerate').addEventListener('click', regenerate); }
   if(el('copySettings')){ el('copySettings').addEventListener('click', copySettings); }
   if(el('copyPrompt')){ el('copyPrompt').addEventListener('click', copyPrompt); }
@@ -1864,7 +2188,12 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
   if(el('size')){ el('size').addEventListener('change', function(){ updateCustomSizeVisibility(); if(!generationInFlight){ setGenerationState('idle'); } }); }
-  if(el('model')){ el('model').addEventListener('change', function(){ updateDevTuningVisibility(); }); }
+  if(el('model')){
+    el('model').addEventListener('change', function(){
+      updateDevTuningVisibility();
+      updateQualityPresetUi();
+    });
+  }
   updateDevTuningVisibility();
   Array.prototype.forEach.call(document.querySelectorAll('.quality-preset-btn'), function(btn){
     btn.addEventListener('click', function(){ applyQualityPreset(btn.getAttribute('data-preset')); });

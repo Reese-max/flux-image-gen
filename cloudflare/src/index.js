@@ -31,6 +31,9 @@ import {
 import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
+import "../../app/static/provenance.js";
+
+const provenance = globalThis.ImageProvenance;
 
 function elapsedMs(started) {
   return Math.max(0, Math.round(Date.now() - started));
@@ -74,6 +77,20 @@ async function recordPromptEvent(env, request, route, started, event) {
     durationMs: elapsedMs(started),
     ...event,
   });
+}
+
+// The rate gate can return 429 (limited) or 503 (fail-closed when the binding
+// is absent/broken in production). Telemetry must record the real status and
+// code instead of hardcoding the 429 shape.
+async function rateLimitFailureEvent(response) {
+  let code = response.status === 429 ? "rate_limited" : "rate_limiter_error";
+  try {
+    const body = await response.clone().json();
+    if (body && body.code) code = String(body.code);
+  } catch {
+    // keep the status-derived code when the body is unreadable
+  }
+  return { outcome: "error", statusCode: response.status, errorCode: code };
 }
 
 async function recordVisionQaEvent(env, request, started, visionQa) {
@@ -170,13 +187,11 @@ async function handleClientError(request) {
 
 async function handleGenerate(request, env) {
   const started = Date.now();
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -302,13 +317,11 @@ async function handleGenerate(request, env) {
 
 async function handleGenerateBatch(request, env) {
   const started = Date.now();
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "generate_batch",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -465,13 +478,11 @@ async function handleGenerateBatch(request, env) {
 
 async function handleEdit(request, env) {
   const started = Date.now();
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordUsageEvent(env, request, {
       route: "edit",
-      outcome: "error",
-      statusCode: 429,
-      errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
       durationMs: elapsedMs(started),
     });
     return limited;
@@ -580,7 +591,7 @@ async function handleGallerySave(request, env) {
   if (!bucket || typeof bucket.put !== "function") {
     return json({ error: "雲端圖庫尚未啟用", code: "gallery_disabled" }, 503);
   }
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) return limited;
 
   if (!(await verifyGalleryToken(env, request.headers.get("x-gallery-token")))) {
@@ -607,6 +618,14 @@ async function handleGallerySave(request, env) {
 
   const id = `${crypto.randomUUID()}.${GALLERY_EXT[decoded.contentType]}`;
   const meta = sanitizeGalleryMeta(payload.meta);
+  const outputHash = await provenance.sha256(decoded.bytes);
+  if (payload.meta && payload.meta.provenance) {
+    try {
+      meta.provenance = await provenance.publicProvenance(payload.meta.provenance, decoded.bytes);
+    } catch {
+      return json({ error: "圖片與來源 receipt 不符", code: "invalid_provenance" }, 400);
+    }
+  }
   const deleteToken = issueGalleryDeleteToken();
   const deleteTokenHash = await hashGalleryDeleteToken(deleteToken);
   await bucket.put(`${GALLERY_PREFIX}${id}`, decoded.bytes, {
@@ -615,6 +634,8 @@ async function handleGallerySave(request, env) {
       visibility: meta.visibility,
       promptPublic: meta.promptPublic,
       metadataKey: `${GALLERY_META_PREFIX}${id}.json`,
+      outputSha256: outputHash,
+      receiptSha256: meta.provenance ? meta.provenance.receipt_sha256 : "",
     },
   });
   await bucket.put(`${GALLERY_META_PREFIX}${id}.json`, JSON.stringify({
@@ -952,6 +973,13 @@ async function handleSharePage(env, id) {
   const promptBlock = promptPublic && prompt
     ? `<pre>${escapeHtml(prompt)}</pre><button type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.querySelector('pre').textContent)">複製 prompt 模板</button>`
     : "<p>此作品未公開完整 prompt。</p><p>仍可套用公開設定（模型、尺寸、風格與用途），再自行補上中文描述。</p>";
+  const publicReceipt = metadata.provenance;
+  const provenanceBlock = publicReceipt && /^[a-f0-9]{64}$/.test(publicReceipt.output_sha256)
+    ? `<p>Provider：${escapeHtml(publicReceipt.provider)}；Model：${escapeHtml(publicReceipt.model)}</p>
+       <p>Output SHA-256：${escapeHtml(publicReceipt.output_sha256)}</p>
+       <p>Receipt SHA-256：${escapeHtml(publicReceipt.receipt_sha256)}</p>
+       <p>Content Credentials：${escapeHtml(publicReceipt.credential_status)}（用戶端狀態；分享伺服器未驗證簽發者信任）</p>`
+    : "<p>此作品未提供來源 receipt。</p>";
   const html = `<!doctype html>
 <html lang="zh-Hant">
 <head>
@@ -996,6 +1024,11 @@ async function handleSharePage(env, id) {
       <h2>Prompt</h2>
       ${promptBlock}
     </section>
+    <section class="card">
+      <h2>來源與驗證</h2>
+      ${provenanceBlock}
+      <p>receipt 未簽章，雜湊相符不保證作者或畫面內容為真。缺少 Content Credentials 不代表真人製作。</p>
+    </section>
     <section class="actions">
       <a class="button" href="${escapeHtml(templateUrl)}">${escapeHtml(regenerateLabel)}</a>
       <button type="button" data-template="${escapeHtml(templateSummary)}" onclick="navigator.clipboard&&navigator.clipboard.writeText(this.dataset.template)">複製模板設定</button>
@@ -1016,10 +1049,10 @@ async function handlePromptTransform(request, env) {
   const route = "prompt_transform";
   const started = Date.now();
   // Each call can hit the Gemini API (separate paid quota); throttle like /generate.
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
@@ -1027,6 +1060,7 @@ async function handlePromptTransform(request, env) {
   let payload;
   try {
     payload = await readJsonPayload(request);
+    assertPromptAllowedForGeneration(payload.source);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordPromptEvent(env, request, route, started, {
@@ -1057,12 +1091,20 @@ async function handlePromptTransform(request, env) {
     try {
       const resolvedStyle = resolveStyle(source, normalizeStyle(payload.style));
       const prompt = await geminiTransformPrompt(source, resolvedStyle, env, providerTelemetry);
+      assertPromptAllowedForGeneration(prompt);
       await recordPromptEvent(env, request, route, started, {
         outcome: "success", statusCode: 200,
         ...promptUsageTarget(env, route, "gemini", providerTelemetry.attempts),
       });
       return json({ source, prompt, provider: "gemini", warnings: [] });
     } catch (geminiErr) {
+      if (geminiErr instanceof HttpError && geminiErr.code === "prompt_blocked") {
+        await recordPromptEvent(env, request, route, started, {
+          outcome: "error", statusCode: geminiErr.status, errorCode: geminiErr.code,
+          ...promptUsageTarget(env, route, "gemini", providerTelemetry.attempts),
+        });
+        return httpErrorJson(geminiErr);
+      }
       console.error(JSON.stringify({ event: "gemini_transform_failed", error: String(geminiErr) }));
       // fall through to the offline rule-based engine
     }
@@ -1070,6 +1112,7 @@ async function handlePromptTransform(request, env) {
 
   try {
     const result = transformPlainPrompt(source, payload.style);
+    assertPromptAllowedForGeneration(result.prompt);
     await recordPromptEvent(env, request, route, started, {
       outcome: "success", statusCode: 200,
       ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
@@ -1097,10 +1140,10 @@ async function handlePromptComplete(request, env) {
   const route = "prompt_complete";
   const started = Date.now();
   // Gemma completion can consume paid quota; throttle like /prompt/transform.
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
@@ -1108,6 +1151,7 @@ async function handlePromptComplete(request, env) {
   let payload;
   try {
     payload = await readJsonPayload(request);
+    assertPromptAllowedForGeneration(payload.source);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordPromptEvent(env, request, route, started, {
@@ -1135,6 +1179,7 @@ async function handlePromptComplete(request, env) {
   const providerTelemetry = { attempts: 0 };
   try {
     const result = await completePlainPrompt(source, payload.style, env, providerTelemetry);
+    assertPromptAllowedForGeneration(result.prompt);
     await recordPromptEvent(env, request, route, started, {
       outcome: "success", statusCode: 200,
       ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
@@ -1163,10 +1208,10 @@ async function handlePromptEnhance(request, env) {
   const route = "prompt_enhance";
   const started = Date.now();
   // Effect optimisation hits Gemini; throttle like /prompt/transform.
-  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER);
+  const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) {
     await recordPromptEvent(env, request, route, started, {
-      outcome: "error", statusCode: 429, errorCode: "rate_limited",
+      ...await rateLimitFailureEvent(limited),
     });
     return limited;
   }
@@ -1175,6 +1220,7 @@ async function handlePromptEnhance(request, env) {
   const providerTelemetry = { attempts: 0 };
   try {
     payload = await readJsonPayload(request);
+    assertPromptAllowedForGeneration(payload.prompt, payload.effect);
   } catch (e) {
     if (e instanceof HttpError) {
       await recordPromptEvent(env, request, route, started, {
@@ -1201,6 +1247,7 @@ async function handlePromptEnhance(request, env) {
       return json({ error: "效果描述太長", code: "bad_request" }, 400);
     }
     const result = await enhancePrompt(payload.prompt, payload.effect, env, providerTelemetry);
+    assertPromptAllowedForGeneration(result.prompt);
     await recordPromptEvent(env, request, route, started, {
       outcome: "success", statusCode: 200,
       ...promptUsageTarget(env, route, result.provider, providerTelemetry.attempts),
@@ -1214,7 +1261,7 @@ async function handlePromptEnhance(request, env) {
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 502;
     const code = e instanceof HttpError ? e.code : "prompt_enhance_failed";
-    const provider = e instanceof HttpError
+    const provider = e instanceof HttpError && providerTelemetry.attempts === 0
       ? "unknown"
       : String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
     await recordPromptEvent(env, request, route, started, {

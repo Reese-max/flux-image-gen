@@ -27,6 +27,33 @@
   var scriptLoads = {};
   var featureLoads = {};
 
+  function setEditInputReady(ready, failed) {
+    var input = document.getElementById('editFiles');
+    var drop = document.getElementById('editDrop');
+    var hint = document.getElementById('editReadyHint');
+    if (input) { input.disabled = !ready; }
+    if (drop) {
+      drop.setAttribute('aria-disabled', ready ? 'false' : 'true');
+      drop.setAttribute('aria-busy', !ready && !failed ? 'true' : 'false');
+    }
+    if (hint) {
+      hint.hidden = ready;
+      hint.textContent = failed ? '選圖暫時無法使用，請重新整理。' : '正在準備選圖…';
+    }
+  }
+
+  // Native disabled file inputs block the label's picker. Also prevent a file
+  // drop from navigating away before the lazy feature registers its handlers.
+  var editDrop = document.getElementById('editDrop');
+  if (editDrop) {
+    ['dragover', 'drop'].forEach(function (name) {
+      editDrop.addEventListener(name, function (event) {
+        var input = document.getElementById('editFiles');
+        if (input && input.disabled) { event.preventDefault(); }
+      });
+    });
+  }
+
   function loadScript(src) {
     if (scriptLoads[src]) { return scriptLoads[src]; }
     scriptLoads[src] = new Promise(function (resolve, reject) {
@@ -47,11 +74,25 @@
     var chain;
     if (!sources.length) { return Promise.resolve(); }
     if (featureLoads[name]) { return featureLoads[name]; }
+    if (name === 'edit') { setEditInputReady(false, false); }
     chain = Promise.resolve();
     sources.forEach(function (src) {
       chain = chain.then(function () { return loadScript(src); });
     });
+    // Local reference preparation depends on installed handlers, independently
+    // of the provider-health request (which can remain pending while offline).
     featureLoads[name] = chain.then(function () {
+      if (name === 'edit') {
+        if (!window.ImageEdit) {
+          setEditInputReady(false, true);
+          throw new Error('選圖暫時無法使用，請重新整理。');
+        }
+        setEditInputReady(true, false);
+      }
+    }, function (error) {
+      if (name === 'edit') { setEditInputReady(false, true); }
+      throw error;
+    }).then(function () {
       var cachedHealth;
       if (name !== 'edit' || !window.ImageEdit) { return; }
       if (!window.ImageGenApp || typeof window.ImageGenApp.refreshProvider !== 'function') {
@@ -294,6 +335,8 @@
     var seed = document.getElementById('seed');
     var seedRandom = document.getElementById('seedRandom');
     var seedLock = document.getElementById('seedLock');
+    var devSteps = document.getElementById('devSteps');
+    var devCfgScale = document.getElementById('devCfgScale');
     var stage = document.getElementById('stage');
     var status = document.getElementById('status');
     var sizeMeta = document.getElementById('canvasSizeMeta');
@@ -316,16 +359,28 @@
       }
       return match ? match[1].replace('×', ' × ') : '自動尺寸';
     }
+    function qualityText() {
+      var s = devSteps ? devSteps.value.trim() : '';
+      var c = devCfgScale ? devCfgScale.value.trim() : '';
+      if (s === '10' && c === '3') { return '草稿'; }
+      if (s === '45' && c === '4') { return '精緻'; }
+      if (s === '' && c === '') {
+        if (model && model.value === 'schnell') { return '草稿'; }
+        return '平衡';
+      }
+      return '自訂';
+    }
     function updateSettings() {
       var currentSize = sizeText();
-      var currentModel = model && model.value === 'dev' ? '高品質' : '快速草稿';
+      var currentQuality = qualityText();
       var locked = seedLock && seedLock.getAttribute('aria-pressed') === 'true';
       var currentSeed = locked && seed && seed.value ? 'Seed ' + seed.value : (locked ? 'Seed 鎖定' : 'Seed 自動');
       if (sizeMeta) { sizeMeta.textContent = currentSize; }
       if (presetChip) { presetChip.textContent = currentSize; }
-      if (modelMeta) { modelMeta.textContent = currentModel; }
+      if (modelMeta) { modelMeta.textContent = currentQuality; }
       if (seedMeta) { seedMeta.textContent = currentSeed; }
     }
+    window.updateCanvasSettings = updateSettings;
     function updateState() {
       var busy = stage && stage.getAttribute('aria-busy') === 'true';
       var text = status ? status.textContent : '';
@@ -349,8 +404,14 @@
     bindChange(seed);
     bindChange(seedRandom);
     bindChange(seedLock);
+    bindChange(devSteps);
+    bindChange(devCfgScale);
     bindChange(document.getElementById('customWidth'));
     bindChange(document.getElementById('customHeight'));
+    var presetButtons = document.querySelectorAll('.quality-preset-btn');
+    Array.prototype.forEach.call(presetButtons, function (btn) {
+      bindChange(btn);
+    });
     updateSettings();
     updateState();
 
@@ -367,6 +428,9 @@
       if (seedLock) {
         new MutationObserver(updateSettings).observe(seedLock, { attributes: true, attributeFilter: ['aria-pressed'] });
       }
+      Array.prototype.forEach.call(presetButtons, function (btn) {
+        new MutationObserver(updateSettings).observe(btn, { attributes: true, attributeFilter: ['aria-pressed', 'class'] });
+      });
     }
   })();
 })();
