@@ -114,11 +114,11 @@ export async function verifyTurnstileToken(token, request, env) {
   return null;
 }
 
-export async function readJsonPayload(request, maxBytes = MAX_JSON_BYTES) {
+export async function readBoundedBytes(request, maxBytes) {
   // Stream the body with a real byte counter. Trusting Content-Length lets a
   // client omit the header (or lie) and bypass the size cap entirely.
   if (!request.body) {
-    throw new HttpError("請求格式錯誤", 400, "bad_request");
+    return new Uint8Array(0);
   }
   const reader = request.body.getReader();
   const chunks = [];
@@ -144,11 +144,28 @@ export async function readJsonPayload(request, maxBytes = MAX_JSON_BYTES) {
     combined.set(chunk, offset);
     offset += chunk.byteLength;
   }
+  return combined;
+}
+
+export function isPlainObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export async function readJsonPayload(request, maxBytes = MAX_JSON_BYTES) {
+  const combined = await readBoundedBytes(request, maxBytes);
+  let payload;
   try {
-    return JSON.parse(new TextDecoder().decode(combined));
+    payload = JSON.parse(new TextDecoder().decode(combined));
   } catch {
     throw new HttpError("請求格式錯誤", 400, "bad_request");
   }
+  // Every JSON route expects a JSON object. Arrays, numbers, strings, booleans
+  // and null must be rejected here so callers never read properties off them
+  // (null previously threw a TypeError and surfaced as a 500).
+  if (!isPlainObject(payload)) {
+    throw new HttpError("請求格式錯誤", 400, "bad_request");
+  }
+  return payload;
 }
 
 export async function readLimitedText(response, maxBytes = 512) {

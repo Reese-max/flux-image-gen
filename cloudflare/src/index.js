@@ -1,13 +1,14 @@
 // Cloudflare Worker entry: serves the static SPA and routes the JSON API.
 // Request handlers live here; pure helpers are split into sibling modules
 // (constants / http / prompt / image / gallery). Mirrors the Python backend.
-import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
+import { GALLERY_EXT, GALLERY_META_PREFIX, GALLERY_PREFIX, GEMINI_COMPLETE_DEFAULT_MODEL, GEMINI_DEFAULT_MODEL, MAX_EDIT_BODY_BYTES, MAX_ENHANCE_EFFECT_LENGTH, MAX_ENHANCE_PROMPT_LENGTH, MAX_GALLERY_JSON_BYTES, MAX_TRANSFORM_SOURCE_LENGTH, MODEL_ENDPOINTS, SIZE_MAP, WORKERS_AI_EDIT_MODEL } from "./constants.js";
 import {
   HttpError,
   checkRateLimit,
   httpErrorJson,
   json,
   makeRequestId,
+  readBoundedBytes,
   readJsonPayload,
   sanitizeClientErrorReport,
   turnstileConfig,
@@ -18,6 +19,7 @@ import { assertPromptAllowedForGeneration } from "./moderation.js";
 import {
   editImage,
   generateOneImage,
+  getMinimaxApiKey,
   getNvidiaApiKey,
   randomImageSeed,
   validateBatchCount,
@@ -28,7 +30,7 @@ import {
   validateSeed,
   validateSteps,
 } from "./image.js";
-import { decodeImageDataUrl, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
+import { checkGalleryTokenSignature, decodeImageDataUrl, galleryEnabled, hashGalleryDeleteToken, issueGalleryDeleteToken, issueGalleryToken, sanitizeGalleryMeta, verifyGalleryDeleteTokenHash, verifyGalleryToken } from "./gallery.js";
 import { buildUsageSummary, recordUsageEvent, resetUsageMetrics } from "./usage.js";
 import { maybeRunVisionQa } from "./vision.js";
 import "../../app/static/provenance.js";
@@ -40,11 +42,14 @@ function elapsedMs(started) {
 }
 
 function generationUsageTarget(env, model) {
-  if (model === "schnell" && env && env.AI && typeof env.AI.run === "function") {
+  if (model === "schnell" && !getNvidiaApiKey(env) && !getMinimaxApiKey(env) && env && env.AI && typeof env.AI.run === "function") {
     return { provider: "workers-ai", model };
   }
   if (getNvidiaApiKey(env)) {
     return { provider: "nvidia", model: model === "schnell" ? "dev" : model };
+  }
+  if (getMinimaxApiKey(env)) {
+    return { provider: "minimax", model };
   }
   return { provider: "demo", model };
 }
@@ -118,6 +123,7 @@ function constantTimeStringEqual(a, b) {
 
 function buildHealthResponse(env) {
   const hasNvidia = Boolean(getNvidiaApiKey(env));
+  const hasMinimax = Boolean(getMinimaxApiKey(env));
   const hasWorkersAI = Boolean(env.AI);
   const storageAvailable = Boolean(env.IMAGE_BUCKET && typeof env.IMAGE_BUCKET.put === "function");
   const versionId = env.CF_VERSION_METADATA && env.CF_VERSION_METADATA.id
@@ -133,27 +139,30 @@ function buildHealthResponse(env) {
   let mode = "demo";
   let message = "Demo 模式，不會真實出圖";
 
-  if (hasNvidia || hasWorkersAI) {
-    providerStatus = hasNvidia && hasWorkersAI ? "ready" : "degraded";
+  if (hasNvidia || hasMinimax || hasWorkersAI) {
+    providerStatus = (hasNvidia || hasMinimax) && hasWorkersAI ? "ready" : "degraded";
     mode = "live";
     message = providerStatus === "ready" ? "真實出圖可用" : "部分服務可用";
   }
 
   return {
     status: "ok",
-    provider: hasNvidia ? "nvidia" : (hasWorkersAI ? "workers-ai" : "demo"),
+    provider: hasNvidia ? "nvidia" : (hasMinimax ? "minimax" : (hasWorkersAI ? "workers-ai" : "demo")),
     providerStatus,
     mode,
     providers: {
       nvidia: hasNvidia,
+      ...(hasMinimax ? { minimax: true } : {}),
       workersAI: hasWorkersAI,
     },
     providerList: [
       ...(hasNvidia ? ["nvidia"] : []),
+      ...(hasMinimax ? ["minimax"] : []),
       ...(hasWorkersAI ? ["workers-ai"] : []),
     ],
-    hasApiKey: hasNvidia || hasWorkersAI,
+    hasApiKey: hasNvidia || hasMinimax || hasWorkersAI,
     storageAvailable,
+    galleryEnabled: galleryEnabled(env),
     visionQa: String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true",
     turnstile: turnstileConfig(env),
     message,
@@ -292,7 +301,7 @@ async function handleGenerate(request, env) {
       await recordVisionQaEvent(env, request, qaStarted, visionQa);
       if (visionQa) result.visionQa = visionQa;
     }
-    const galleryToken = await issueGalleryToken(env);
+    const galleryToken = await issueGalleryToken(env, result.image);
     return json(galleryToken ? { ...result, galleryToken } : result);
   } catch (e) {
     if (e instanceof HttpError) {
@@ -419,6 +428,8 @@ async function handleGenerateBatch(request, env) {
     for (let index = 0; index < settled.length; index++) {
       const item = settled[index];
       if (item.status === "fulfilled") {
+        const itemGalleryToken = await issueGalleryToken(env, item.value.image);
+        if (itemGalleryToken) item.value.galleryToken = itemGalleryToken;
         images.push(item.value);
         await recordUsageEvent(env, request, {
           route: "generate_batch",
@@ -465,9 +476,8 @@ async function handleGenerateBatch(request, env) {
         if (visionQa) image.visionQa = visionQa;
       }
     }
-    const galleryToken = await issueGalleryToken(env);
     const response = { images, errors, partial: errors.length > 0 };
-    return json(galleryToken ? { ...response, galleryToken } : response);
+    return json(response);
   } catch (e) {
     if (e instanceof HttpError) {
       return httpErrorJson(e);
@@ -488,10 +498,43 @@ async function handleEdit(request, env) {
     return limited;
   }
 
+  // Reject oversized uploads before parsing multipart. A declared
+  // Content-Length lets us refuse without touching the body at all; when the
+  // header is missing (chunked upload) readBoundedBytes stops as soon as the
+  // byte counter passes the cap.
+  const rawContentLength = request.headers.get("content-length");
+  if (rawContentLength != null && rawContentLength !== "") {
+    const declaredLength = Number(rawContentLength);
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_EDIT_BODY_BYTES) {
+      await recordUsageEvent(env, request, {
+        route: "edit",
+        outcome: "error",
+        statusCode: 413,
+        errorCode: "payload_too_large",
+        durationMs: elapsedMs(started),
+      });
+      return json({ error: "上傳內容太大", code: "payload_too_large" }, 413);
+    }
+  }
+
   let form;
   try {
-    form = await request.formData();
-  } catch {
+    const body = await readBoundedBytes(request, MAX_EDIT_BODY_BYTES);
+    const headers = new Headers();
+    const contentType = request.headers.get("content-type");
+    if (contentType) headers.set("content-type", contentType);
+    form = await new Response(body, { headers }).formData();
+  } catch (e) {
+    if (e instanceof HttpError) {
+      await recordUsageEvent(env, request, {
+        route: "edit",
+        outcome: "error",
+        statusCode: e.status,
+        errorCode: e.code,
+        durationMs: elapsedMs(started),
+      });
+      return httpErrorJson(e);
+    }
     await recordUsageEvent(env, request, {
       route: "edit",
       outcome: "error",
@@ -594,7 +637,8 @@ async function handleGallerySave(request, env) {
   const limited = await checkRateLimit(request, env.GENERATE_RATE_LIMITER, env);
   if (limited) return limited;
 
-  if (!(await verifyGalleryToken(env, request.headers.get("x-gallery-token")))) {
+  const galleryToken = request.headers.get("x-gallery-token");
+  if (!(await checkGalleryTokenSignature(env, galleryToken))) {
     return json({ error: "儲存授權無效或已過期，請重新生成圖片再儲存", code: "unauthorized" }, 401);
   }
 
@@ -614,6 +658,10 @@ async function handleGallerySave(request, env) {
   } catch (e) {
     if (e instanceof HttpError) return httpErrorJson(e);
     throw e;
+  }
+
+  if (!(await verifyGalleryToken(env, galleryToken, decoded.bytes))) {
+    return json({ error: "儲存授權無效或已過期，請重新生成圖片再儲存", code: "unauthorized" }, 401);
   }
 
   const id = `${crypto.randomUUID()}.${GALLERY_EXT[decoded.contentType]}`;
@@ -638,17 +686,27 @@ async function handleGallerySave(request, env) {
       receiptSha256: meta.provenance ? meta.provenance.receipt_sha256 : "",
     },
   });
-  await bucket.put(`${GALLERY_META_PREFIX}${id}.json`, JSON.stringify({
-    id,
-    imageKey: `${GALLERY_PREFIX}${id}`,
-    visibility: meta.visibility,
-    promptPublic: meta.promptPublic === "true",
-    metadata: meta,
-    deleteTokenHash,
-    createdAt: new Date().toISOString(),
-  }), {
-    httpMetadata: { contentType: "application/json; charset=utf-8" },
-  });
+  try {
+    await bucket.put(`${GALLERY_META_PREFIX}${id}.json`, JSON.stringify({
+      id,
+      imageKey: `${GALLERY_PREFIX}${id}`,
+      visibility: meta.visibility,
+      promptPublic: meta.promptPublic === "true",
+      metadata: meta,
+      deleteTokenHash,
+      createdAt: new Date().toISOString(),
+    }), {
+      httpMetadata: { contentType: "application/json; charset=utf-8" },
+    });
+  } catch {
+    try {
+      await bucket.delete(`${GALLERY_PREFIX}${id}`);
+    } catch (cleanupError) {
+      console.error(`[gallery] metadata write failed and image cleanup failed; orphaned object: ${GALLERY_PREFIX}${id}`, cleanupError);
+      return json({ error: "圖庫中繼資料寫入失敗，且殘留圖片清理未完成，請通知站方處理", code: "gallery_cleanup_failed" }, 502);
+    }
+    return json({ error: "圖庫中繼資料寫入失敗，請稍後再試", code: "gallery_save_failed" }, 502);
+  }
   return json({
     id,
     url: `/gallery/${id}`,
@@ -1318,6 +1376,7 @@ export default {
       return handleEdit(request, env);
     }
     if (url.pathname === "/gallery" && request.method === "POST") {
+      if (!galleryEnabled(env)) return json({ error: "雲端相簿已停用", code: "gallery_disabled" }, 404);
       return handleGallerySave(request, env);
     }
     if (url.pathname.startsWith("/gallery/") && url.pathname.endsWith("/delete") && request.method === "GET") {

@@ -63,6 +63,9 @@ class Settings:
     workers_ai_edit_model: str = os.getenv(
         "WORKERS_AI_EDIT_MODEL", "@cf/black-forest-labs/flux-2-klein-4b"
     )
+    # MiniMax image-01 provider: sits between NVIDIA and Workers AI in the
+    # fallback chain (NVIDIA -> MiniMax -> Workers AI -> Pollinations). Empty = off.
+    minimax_api_key: str = os.getenv("MINIMAX_API_KEY", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
     gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-31b-it")

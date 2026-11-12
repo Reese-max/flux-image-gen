@@ -5,6 +5,8 @@ import test from 'node:test';
 import { transformSync } from 'esbuild';
 import { inspectGeneratedImage } from '../src/image.js';
 import { detectHighRiskPromptCategory } from '../src/moderation.js';
+import { MAX_EDIT_BODY_BYTES } from '../src/constants.js';
+import { HttpError } from '../src/http.js';
 import worker, { resetUsageMetrics, transformPlainPrompt } from '../src/index.js';
 
 const CJK_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
@@ -26,17 +28,27 @@ function adminGet(path, token = 'admin-secret') {
   });
 }
 
-function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', secret).update(timestamp).digest('hex');
+function galleryTokenForImage(image, secret = TEST_GALLERY_SECRET, timestamp = Date.now().toString()) {
+  const match = /^data:[^;]+;base64,(.+)$/s.exec(String(image || ''));
+  const imageBytes = match ? Buffer.from(match[1], 'base64') : Buffer.alloc(0);
+  const imageHash = createHash('sha256').update(imageBytes).digest('hex');
+  const nonce = 'test-nonce';
+  const signature = createHmac('sha256', secret).update(`${timestamp}.${nonce}.${imageHash}`).digest('hex');
+  return `${timestamp}.${nonce}.${imageHash}.${signature}`;
+}
+
+function galleryRequestWithToken(body, token) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Gallery-Token'] = token;
   return new Request('https://example.test/gallery', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Gallery-Token': `${timestamp}.${signature}`,
-    },
+    headers,
     body: JSON.stringify(body),
   });
+}
+
+function signedGalleryRequest(body, secret = TEST_GALLERY_SECRET) {
+  return galleryRequestWithToken(body, galleryTokenForImage(body && body.image, secret));
 }
 
 // "test" is an explicit pass-through mode, so the rate limiter stays a no-op
@@ -1198,6 +1210,114 @@ test('POST /generate falls back to Pollinations when NVIDIA and Workers AI both 
     assert.equal(data.model, 'flux');
     assert.ok(data.image.startsWith('data:image/jpeg;base64,'));
     assert.equal(ai.calls.length, 1);
+    assert.equal(pollinationsCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate keyless schnell falls back to Pollinations when Workers AI fails on infrastructure', async () => {
+  const originalFetch = globalThis.fetch;
+  // No NVIDIA key: the schnell tier calls Workers AI directly. An infra error
+  // must take the same Pollinations tail as the keyed fallback chain.
+  const ai = fakeAi(new Error('model overloaded'));
+  let pollinationsCalls = 0;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response('no keyed provider should be called', { status: 500 });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'pollinations');
+    assert.equal(data.model, 'flux');
+    assert.ok(data.image.startsWith('data:image/jpeg;base64,'));
+    assert.equal(ai.calls.length, 1);
+    assert.equal(pollinationsCalls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate keyless schnell rejects a non-image Workers AI payload with 502', async () => {
+  // Long valid-base64 junk: passes the length heuristic but fails the strict
+  // mime sniff, so it must not be wrapped into data:image/png and called success.
+  const ai = fakeAi({ image: 'QUFB'.repeat(30) });
+  const response = await worker.fetch(
+    jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+    fakeEnv({ AI: ai })
+  );
+  const data = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(data.code, 'bad_provider_response');
+});
+
+test('POST /generate keyless schnell surfaces a Workers AI 429 as rate_limited', async () => {
+  const err = Object.assign(new Error('rate limit exceeded'), { status: 429, retry_after: 30 });
+  const ai = fakeAi(err);
+  let pollinationsCalls = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async function () {
+    pollinationsCalls += 1;
+    return new Response(new Uint8Array([0xff, 0xd8, 0xff]), {
+      status: 200,
+      headers: { 'content-type': 'image/jpeg' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square' }),
+      fakeEnv({ AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 429);
+    assert.equal(data.code, 'rate_limited');
+    assert.equal(data.retry_after, 30);
+    // Rate limiting is request-level; Pollinations is never tried.
+    assert.equal(pollinationsCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /generate keyed chain still falls back to Pollinations on a Workers AI 429', async () => {
+  const originalFetch = globalThis.fetch;
+  // The keyed chain's behaviour is unchanged: a Workers AI failure still wraps
+  // to a 5xx workers_ai_error, so the Pollinations tail takes over.
+  const ai = fakeAi(Object.assign(new Error('rate limited'), { status: 429 }));
+  let pollinationsCalls = 0;
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      pollinationsCalls += 1;
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'pollinations');
     assert.equal(pollinationsCalls, 1);
   } finally {
     globalThis.fetch = originalFetch;
@@ -2385,12 +2505,200 @@ test('POST /gallery requires a valid token when GALLERY_TOKEN_SECRET is set', as
     new Request('https://example.test/gallery', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Gallery-Token': genData.galleryToken },
-      body: JSON.stringify({ image: TINY_PNG_DATA_URL }),
+      body: JSON.stringify({ image: genData.image }),
     }),
     env
   );
   assert.equal(withToken.status, 201);
   assert.equal([...bucket.store.keys()].filter((key) => key.startsWith('gallery')).length, 2);
+});
+
+test('POST /gallery rejects tokens not bound to the posted image bytes', async () => {
+  const bucket = fakeBucket();
+  const env = galleryEnv(bucket);
+  const otherImage = `data:image/png;base64,${Buffer.from('some other png bytes').toString('base64')}`;
+
+  // A validly-signed token for a different image must not authorize this save.
+  const mismatched = await worker.fetch(
+    galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, galleryTokenForImage(otherImage)),
+    env
+  );
+  assert.equal(mismatched.status, 401);
+  assert.equal((await mismatched.json()).code, 'unauthorized');
+
+  // The token /generate returns is bound to the generated image, not any other.
+  const gen = await worker.fetch(jsonRequest('/generate', { prompt: 'a cat' }), env);
+  const genData = await gen.json();
+  const wrongImage = await worker.fetch(
+    galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, genData.galleryToken),
+    env
+  );
+  assert.equal(wrongImage.status, 401);
+  assert.equal((await wrongImage.json()).code, 'unauthorized');
+  assert.equal([...bucket.store.keys()].filter((key) => key.startsWith('gallery')).length, 0);
+});
+
+test('POST /gallery rejects legacy timestamp-only and expired image-bound tokens', async () => {
+  const bucket = fakeBucket();
+  const env = galleryEnv(bucket);
+
+  const legacyTs = Date.now().toString();
+  const legacySig = createHmac('sha256', TEST_GALLERY_SECRET).update(legacyTs).digest('hex');
+  const legacy = await worker.fetch(
+    galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, `${legacyTs}.${legacySig}`),
+    env
+  );
+  assert.equal(legacy.status, 401);
+  assert.equal((await legacy.json()).code, 'unauthorized');
+
+  const expiredTs = (Date.now() - 3 * 60 * 60 * 1000).toString();
+  const expired = await worker.fetch(
+    galleryRequestWithToken(
+      { image: TINY_PNG_DATA_URL },
+      galleryTokenForImage(TINY_PNG_DATA_URL, TEST_GALLERY_SECRET, expiredTs)
+    ),
+    env
+  );
+  assert.equal(expired.status, 401);
+  assert.equal((await expired.json()).code, 'unauthorized');
+  assert.equal(bucket.store.size, 0);
+});
+
+test('POST /generate/batch issues an image-bound galleryToken on each image item', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  try {
+    const bucket = fakeBucket();
+    const env = galleryEnv(bucket, { NVIDIA_API_KEY: 'test-key' });
+    const response = await worker.fetch(
+      jsonRequest('/generate/batch', { prompt: 'a cat', model: 'schnell', size: 'square', count: 2 }),
+      env
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.images.length, 2);
+    assert.equal(Object.hasOwn(data, 'galleryToken'), false);
+    for (const item of data.images) {
+      assert.equal(typeof item.galleryToken, 'string');
+      const saved = await worker.fetch(
+        galleryRequestWithToken({ image: item.image }, item.galleryToken),
+        env
+      );
+      assert.equal(saved.status, 201);
+      const wrong = await worker.fetch(
+        galleryRequestWithToken({ image: TINY_PNG_DATA_URL }, item.galleryToken),
+        env
+      );
+      assert.equal(wrong.status, 401);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('POST /gallery deletes the stored image and returns 502 when the metadata write fails', async () => {
+  const bucket = fakeBucket();
+  const realPut = bucket.put;
+  bucket.put = async (key, value, options) => {
+    if (key.startsWith('gallery-meta/')) throw new Error('r2 metadata write failed');
+    return realPut(key, value, options);
+  };
+
+  const response = await worker.fetch(
+    signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat' } }),
+    galleryEnv(bucket)
+  );
+  const data = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(data.code, 'gallery_save_failed');
+  assert.equal(bucket.store.size, 0, 'the orphaned image object must be deleted');
+});
+
+test('POST /gallery returns gallery_cleanup_failed and logs the orphan key when image cleanup also fails', async () => {
+  const bucket = fakeBucket();
+  const realPut = bucket.put;
+  bucket.put = async (key, value, options) => {
+    if (key.startsWith('gallery-meta/')) throw new Error('r2 metadata write failed');
+    return realPut(key, value, options);
+  };
+  bucket.delete = async () => { throw new Error('r2 delete failed'); };
+
+  const errors = [];
+  const realError = console.error;
+  console.error = (...args) => { errors.push(args.map(String).join(' ')); };
+  try {
+    const response = await worker.fetch(
+      signedGalleryRequest({ image: TINY_PNG_DATA_URL, meta: { prompt: 'a cat' } }),
+      galleryEnv(bucket)
+    );
+    const data = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(data.code, 'gallery_cleanup_failed');
+    const orphans = [...bucket.store.keys()].filter((key) => key.startsWith('gallery/'));
+    assert.equal(orphans.length, 1, 'the image object remains when cleanup fails');
+    assert.equal(bucket.store.has('gallery-meta/' + orphans[0].slice('gallery/'.length) + '.json'), false);
+    assert.ok(
+      errors.some((line) => line.includes(orphans[0])),
+      'the orphaned image key must be logged via console.error'
+    );
+  } finally {
+    console.error = realError;
+  }
+});
+
+test('verifyGalleryToken always enforces the image binding', async () => {
+  const { checkGalleryTokenSignature, issueGalleryToken, verifyGalleryToken } = await import('../src/gallery.js');
+  const env = galleryEnv(fakeBucket());
+  const token = await issueGalleryToken(env, TINY_PNG_DATA_URL);
+  const imageBytes = Buffer.from(TINY_PNG_DATA_URL.split(',')[1], 'base64');
+
+  assert.equal(typeof token, 'string');
+  assert.equal(await checkGalleryTokenSignature(env, token), true);
+  assert.equal(await verifyGalleryToken(env, token), false, 'omitted imageBytes must not bypass the binding');
+  assert.equal(await verifyGalleryToken(env, token, undefined), false);
+  assert.equal(await verifyGalleryToken(env, token, imageBytes), true);
+  const otherBytes = Buffer.from('some other png bytes');
+  assert.equal(await verifyGalleryToken(env, token, otherBytes), false);
+});
+
+test('GET /share/:id keeps custom width/height in the regenerate link', async () => {
+  const bucket = fakeBucket();
+  const saveResponse = await worker.fetch(
+    signedGalleryRequest({
+      image: TINY_PNG_DATA_URL,
+      meta: { prompt: 'custom sized cat', promptPublic: true, model: 'schnell', size: 'custom', width: 640, height: 768 },
+    }),
+    galleryEnv(bucket)
+  );
+  const saved = await saveResponse.json();
+  assert.equal(saveResponse.status, 201);
+  const stored = JSON.parse(bucket.store.get(`gallery-meta/${saved.id}.json`).value);
+  assert.equal(stored.metadata.width, 640);
+  assert.equal(stored.metadata.height, 768);
+
+  const share = await worker.fetch(
+    new Request(`https://example.test/share/${saved.id}`, { method: 'GET' }),
+    galleryEnv(bucket)
+  );
+  const html = await share.text();
+  assert.equal(share.status, 200);
+  assert.match(html, /size=custom/);
+  assert.match(html, /width=640/);
+  assert.match(html, /height=768/);
+});
+
+test('sanitizeGalleryMeta drops width/height outside the custom range', async () => {
+  const { sanitizeGalleryMeta } = await import('../src/gallery.js');
+  const out = sanitizeGalleryMeta({ size: 'custom', width: 100, height: 4000, model: 'schnell' });
+  assert.equal(Object.hasOwn(out, 'width'), false);
+  assert.equal(Object.hasOwn(out, 'height'), false);
+  const ok = sanitizeGalleryMeta({ size: 'custom', width: 256, height: 1920 });
+  assert.equal(ok.width, 256);
+  assert.equal(ok.height, 1920);
 });
 
 test('POST /gallery accepts a realistic-size image larger than the generic 64KB JSON cap', async () => {
@@ -3114,6 +3422,17 @@ test('POST /edit rejects a non-image provider response instead of wrapping it as
   assert.equal((await response.json()).code, 'bad_provider_response');
 });
 
+test('POST /edit rejects a base64 non-image provider payload with 502', async () => {
+  // Long valid-base64 junk passes the length heuristic but fails the strict
+  // mime sniff; it must not be wrapped into data:image/png and called success.
+  const response = await worker.fetch(
+    editRequest('edit', 1),
+    aiEnv(async () => ({ image: 'QUFB'.repeat(30) }))
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, 'bad_provider_response');
+});
+
 test('POST /edit rejects a blank prompt with 400', async () => {
   const response = await worker.fetch(editRequest('   ', 1), aiEnv(() => ({ image: 'x' })));
   assert.equal(response.status, 400);
@@ -3130,6 +3449,67 @@ test('POST /edit rejects zero images with 400', async () => {
   const response = await worker.fetch(editRequest('edit', 0), aiEnv(() => ({ image: 'x' })));
   assert.equal(response.status, 400);
 });
+
+test('POST /edit rejects a declared Content-Length above the 50 MiB cap with 413 before reading', async () => {
+  let called = false;
+  const request = new Request('https://example.test/edit', {
+    method: 'POST',
+    headers: {
+      'content-type': 'multipart/form-data; boundary=----x',
+      'content-length': String(MAX_EDIT_BODY_BYTES + 1),
+    },
+    body: 'not the real body',
+  });
+  const response = await worker.fetch(
+    request,
+    aiEnv(async () => { called = true; return { image: 'x' }; })
+  );
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, 'payload_too_large');
+  assert.equal(called, false);
+});
+
+test('POST /edit stops streaming an unbounded body once it passes the cap', async () => {
+  let pulled = 0;
+  const chunk = new Uint8Array(1024 * 1024);
+  const body = new ReadableStream({
+    pull(controller) {
+      pulled += 1;
+      if (pulled > 100) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+  const request = new Request('https://example.test/edit', {
+    method: 'POST',
+    headers: { 'content-type': 'multipart/form-data; boundary=----x' },
+    body,
+    duplex: 'half',
+  });
+  assert.equal(request.headers.get('content-length'), null);
+
+  const response = await worker.fetch(request, aiEnv(() => ({ image: 'x' })));
+  assert.equal(response.status, 413);
+  assert.equal((await response.json()).code, 'payload_too_large');
+  // Reading cancels near the cap instead of draining all 100 MiB.
+  assert.ok(pulled < 80, `read ${pulled} chunks`);
+});
+
+test('JSON routes reject non-object bodies with 400 bad_request', async () => {
+  const bodies = [null, [], 42, 'hello', true];
+  const paths = ['/prompt/transform', '/prompt/complete', '/prompt/enhance', '/generate', '/generate/batch'];
+  for (const path of paths) {
+    for (const body of bodies) {
+      const response = await worker.fetch(jsonRequest(path, body), fakeEnv());
+      const data = await response.json();
+      assert.equal(response.status, 400, `${path} body=${JSON.stringify(body)}`);
+      assert.equal(data.code, 'bad_request', `${path} body=${JSON.stringify(body)}`);
+    }
+  }
+});
+
 
 test('GET /api/health reports whether Vision QA is enabled', async () => {
   const off = await (await worker.fetch(new Request('http://worker.test/api/health'), fakeEnv({}))).json();
@@ -3502,3 +3882,40 @@ test('fail-closed batch and edit events record their real status and error code'
   assert.equal(usage.byRoute.edit.failures, 1);
 });
 
+test('keyed chain still wraps a Workers AI HttpError and falls back to Pollinations', async () => {
+  const originalFetch = globalThis.fetch;
+  const ai = fakeAi(new HttpError('rate limited', 429, 'rate_limited'));
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
+  globalThis.fetch = async function (url) {
+    const target = typeof url === 'string' ? url : url.url;
+    if (target.includes('image.pollinations.ai')) {
+      return new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } });
+    }
+    return new Response(JSON.stringify({ error: 'internal' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
+
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/generate', { prompt: 'a cat', model: 'schnell', size: 'square', seed: 7 }),
+      fakeEnv({ NVIDIA_API_KEY: 'test-key', AI: ai, POLLINATIONS_FALLBACK_ENABLED: 'true' })
+    );
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).provider, 'pollinations');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('edit still wraps a Workers AI HttpError as workers_ai_error', async () => {
+  const response = await worker.fetch(
+    editRequest('make it blue', 1),
+    aiEnv(async () => {
+      throw new HttpError('provider rejected request', 400, 'bad_request');
+    })
+  );
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, 'workers_ai_error');
+});

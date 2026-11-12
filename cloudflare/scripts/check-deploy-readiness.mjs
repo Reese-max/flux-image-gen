@@ -96,15 +96,33 @@ function wranglerInvocation(argv) {
   throw new Error('Usage: check-deploy-readiness.mjs [--wrangler-npx-version X.Y.Z]');
 }
 
+// Secrets not required while the gallery is off. GALLERY_TOKEN_SECRET signs gallery save tokens; GALLERY_ADMIN_TOKEN
+// also gates the owner's /api/usage dashboard, which answers 503 admin_usage_disabled until that secret is set.
+export const GALLERY_SECRETS = Object.freeze(['GALLERY_TOKEN_SECRET', 'GALLERY_ADMIN_TOKEN']);
+
+// GALLERY_ENABLED = "false" in [vars] turns the gallery off, so its secrets are not required.
+export function galleryDisabledInToml(tomlContent) {
+  const value = varsTable(String(tomlContent || '')).split('\n').map((line) => tomlString(line, 'GALLERY_ENABLED')).find(Boolean) ?? 'true';
+  return value.trim().toLowerCase() === 'false';
+}
+
+export function requiredProductionSecrets(tomlContent) {
+  return tomlContent != null && galleryDisabledInToml(tomlContent)
+    ? REQUIRED_PRODUCTION_SECRETS.filter((name) => !GALLERY_SECRETS.includes(name))
+    : [...REQUIRED_PRODUCTION_SECRETS];
+}
+
 export function validateReadinessInputs({ gitStatus, secretListOutput, wranglerTomlContent }) {
   assertCleanWorktree(gitStatus);
-  const missing = findMissingSecrets(parseSecretNames(secretListOutput));
+  const required = requiredProductionSecrets(wranglerTomlContent);
+  const missing = findMissingSecrets(parseSecretNames(secretListOutput), required);
   if (missing.length > 0) {
     throw new Error(`Missing required production secrets: ${missing.join(', ')}`);
   }
   if (wranglerTomlContent != null) {
     assertProductionAbuseControls(wranglerTomlContent);
   }
+  return required;
 }
 
 // A TOML basic or literal string. Only line-anchored assignments are matched
@@ -289,8 +307,9 @@ function main() {
     fail('Unable to read wrangler.toml for abuse-control verification.');
   }
 
+  let required;
   try {
-    validateReadinessInputs({
+    required = validateReadinessInputs({
       gitStatus: gitStatus.stdout,
       secretListOutput: secretList.stdout,
       wranglerTomlContent,
@@ -299,7 +318,7 @@ function main() {
     fail(error.message);
   }
 
-  console.log(`[deploy-readiness] PASS: ${REQUIRED_PRODUCTION_SECRETS.join(', ')}`);
+  console.log(`[deploy-readiness] PASS: ${required.join(', ')}`);
 }
 
 const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);

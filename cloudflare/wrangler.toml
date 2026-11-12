@@ -28,6 +28,7 @@ binding = "ASSETS"
 [vars]
 # Public, non-secret config. Secret keys are set separately:
 #   npx wrangler secret put NVIDIA_API_KEY
+#   npx wrangler secret put MINIMAX_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY
 #   npx wrangler secret put TURNSTILE_SECRET_KEY
 #   npx wrangler secret put GALLERY_TOKEN_SECRET
@@ -61,6 +62,10 @@ ENVIRONMENT = "production"
 # open the gate.
 TURNSTILE_REQUIRED = "true"
 TURNSTILE_SITE_KEY = "0x4AAAAAAD2QELaSWsFTNJOV"
+# R2 gallery saving (POST /gallery) is off: no save tokens are issued and the
+# deploy gate does not require GALLERY_TOKEN_SECRET / GALLERY_ADMIN_TOKEN.
+# Existing share pages stay readable. Set "true" and add both secrets to turn it on.
+GALLERY_ENABLED = "false"
 # Cost/usage dashboard. Worker logs structured usage_event lines and exposes
 # aggregated, prompt-free counters at GET /api/usage.
 USAGE_ESTIMATED_COST_USD_PER_IMAGE = "0.003"

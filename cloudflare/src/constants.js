@@ -164,6 +164,12 @@ export const IMAGE_FETCH_TIMEOUT_MS = 60_000;
 // old 2 × 60s retry path turns a transient model stall into a two-minute wait.
 export const WORKERS_AI_FETCH_TIMEOUT_MS = 45_000;
 
+// MiniMax image-01 provider: sits between NVIDIA and Workers AI in the chain
+// (NVIDIA -> MiniMax -> Workers AI -> Pollinations). Requires MINIMAX_API_KEY;
+// serves both speed tiers. Dims must be in 512..2048 and divisible by 8.
+export const MINIMAX_API_URL = "https://api.minimax.io/v1/image_generation";
+export const MINIMAX_FETCH_TIMEOUT_MS = 60_000;
+
 // Third-tier fallback: keyless Pollinations flux endpoint. Reached only when both
 // NVIDIA and Workers AI fail on infrastructure (5xx/timeout), never on a content
 // filter or rate limit. Returns raw image bytes (~4s observed).
@@ -182,6 +188,9 @@ export const WORKERS_AI_EDIT_MODEL = "@cf/black-forest-labs/flux-2-klein-4b";
 export const MAX_EDIT_IMAGES = 4;
 // 單張上傳上限（前端已縮到 <512，這是防濫用的硬上限）。
 export const MAX_EDIT_IMAGE_BYTES = 12 * 1024 * 1024;
+// /edit 的 multipart 總量上限：所有圖片上限再加上 2 MiB 的表單／prompt
+// 餘裕（50 MiB），避免在解析 formData 前把整個 body 讀進記憶體。
+export const MAX_EDIT_BODY_BYTES = MAX_EDIT_IMAGES * MAX_EDIT_IMAGE_BYTES + 2 * 1024 * 1024;
 export const MAX_BATCH_COUNT = 4;
 
 // --- Cloud gallery (R2) ---

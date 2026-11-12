@@ -9,6 +9,8 @@ import {
   MAX_EDIT_IMAGES,
   MAX_EDIT_IMAGE_BYTES,
   MAX_SEED,
+  MINIMAX_API_URL,
+  MINIMAX_FETCH_TIMEOUT_MS,
   MODEL_ENDPOINTS,
   POLLINATIONS_BASE_URL,
   POLLINATIONS_FETCH_TIMEOUT_MS,
@@ -78,25 +80,8 @@ function findImageCandidate(data) {
   return null;
 }
 
-function detectMimeFromBase64(b64) {
-  // Decode only the first few bytes to sniff the signature.
-  let bytes;
-  try {
-    const bin = atob(b64.slice(0, 16));
-    bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  } catch {
-    return "image/png";
-  }
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
-  if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return "image/gif";
-  if (bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return "image/webp";
-  return "image/png";
-}
-
-// Like detectMimeFromBase64 but returns null when the bytes are not a known
-// image signature (or fail to decode). Used to gate the provider's direct
+// Sniff the image signature from base64 bytes; returns null when the bytes are
+// not a known image signature (or fail to decode). Used to gate the provider's
 // { image } fast path so a non-image token isn't wrapped into a broken data URL
 // and reported as success (mirrors Python's strict base64.b64decode + sniff).
 function detectImageMimeStrict(b64) {
@@ -229,10 +214,21 @@ export function inspectGeneratedImage(image, expectedWidth, expectedHeight) {
 function extractImage(data, providerLabel = "NVIDIA") {
   const candidate = findImageCandidate(data);
   if (!candidate) throw new HttpError(`${providerLabel} 回應中找不到圖片資料`, 502, "bad_provider_response");
-  if (candidate.startsWith("data:image/") || candidate.startsWith("http://") || candidate.startsWith("https://")) {
+  if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
     return candidate;
   }
-  return `data:${detectMimeFromBase64(candidate)};base64,` + candidate;
+  if (candidate.startsWith("data:image/")) {
+    const match = candidate.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/s);
+    if (!match || !detectImageMimeStrict(match[1])) {
+      throw new HttpError(`${providerLabel} 回應的圖片資料不是有效的圖片`, 502, "bad_provider_response");
+    }
+    return candidate;
+  }
+  const mime = detectImageMimeStrict(candidate);
+  if (!mime) {
+    throw new HttpError(`${providerLabel} 回應的圖片資料不是有效的圖片`, 502, "bad_provider_response");
+  }
+  return `data:${mime};base64,` + candidate;
 }
 
 // Workers AI has no artifacts/finishReason on the error path; a flagged prompt
@@ -241,12 +237,47 @@ function isWorkersAiContentFilterError(e) {
   return /nsfw|content[ _-]?(safety|filter|moderat)|flagged/i.test(String((e && e.message) || e));
 }
 
+// workerd's binding error has no stable status shape, so accept the common
+// carriers (status/statusCode props, a numeric code, or a bare "429" in the
+// message). The keyless tier uses this to surface a real provider 429 as
+// rate_limited instead of the generic 502 workers_ai_error.
+function workersAiErrorStatus(e) {
+  if (!e || typeof e !== "object") return null;
+  const status = Number(e.status ?? e.statusCode ?? e.code);
+  if (Number.isFinite(status) && status >= 400 && status < 600) return status;
+  return /\b429\b/.test(String(e.message || "")) ? 429 : null;
+}
+
+function workersAiErrorRetryAfter(e) {
+  if (!e || typeof e !== "object") return null;
+  const raw =
+    e.retry_after ??
+    e.retryAfter ??
+    (e.headers && typeof e.headers.get === "function" ? e.headers.get("retry-after") : null);
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? Math.max(1, parsed) : null;
+}
+
 function makeDemoImageDataUrl() {
   return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 }
 
 export function getNvidiaApiKey(env) {
   return String((env && env.NVIDIA_API_KEY) || "").trim();
+}
+
+export function getMinimaxApiKey(env) {
+  return String((env && env.MINIMAX_API_KEY) || "").trim();
+}
+
+// MiniMax requires width/height in 512..2048, divisible by 8. Scale up so the
+// short side reaches 512, cap the long side at 2048, round to a multiple of 8,
+// then clamp into range. Mirrors app/image_service.py::minimax_dimensions.
+export function minimaxDimensions(width, height) {
+  let factor = Math.max(1, 512 / Math.min(width, height));
+  if (Math.max(width, height) * factor > 2048) factor = 2048 / Math.max(width, height);
+  const mapSide = (v) => Math.min(2048, Math.max(512, Math.round((v * factor) / 8) * 8));
+  return [mapSide(width), mapSide(height)];
 }
 
 export function validatePrompt(prompt) {
@@ -356,9 +387,18 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     if (isWorkersAiContentFilterError(e)) {
       throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
     }
-    throw e && (e.name === "TimeoutError" || e.name === "AbortError")
-      ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
-      : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+    if (e && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout");
+    }
+    const wrapped = new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+    // Preserve the provider's own status and retry hint on the wrapped error so
+    // the keyless tier can surface a real 429 as rate_limited. The keyed
+    // fallback chain ignores these fields and keeps its existing behaviour.
+    const providerStatus = workersAiErrorStatus(e);
+    if (providerStatus != null) wrapped.providerStatus = providerStatus;
+    const providerRetryAfter = workersAiErrorRetryAfter(e);
+    if (providerRetryAfter != null) wrapped.providerRetryAfter = providerRetryAfter;
+    throw wrapped;
   } finally {
     clearTimeout(timer);
   }
@@ -427,6 +467,86 @@ async function generateWithPollinations({ prompt, width, height, seed }) {
     seed: effectiveSeed,
     imageQuality: inspectGeneratedImage(image, width, height),
     providerProvenance: { model_id: "flux", steps: null, cfg_scale: null },
+  };
+}
+
+// MiniMax image-01: POSTs {model, prompt, width, height, response_format:"base64",
+// n:1[, seed]} and returns base64 JPEG bytes in data.image_base64[0]. Success
+// requires HTTP 200 AND base_resp.status_code === 0. Serves both speed tiers.
+// Error mapping (base_resp.status_code, or the HTTP status when the body is not
+// JSON): 1002/HTTP 429 -> rate_limited; 1026/1027 -> content_filtered;
+// 1004/2049 -> provider_auth_failed; anything else / 5xx / timeout / non-image
+// bytes -> minimax_error / bad_provider_response. Mirrors MiniMaxProvider in
+// app/image_service.py. The key never appears in any error message.
+async function generateWithMinimax(env, { prompt, model, width, height, seed }) {
+  const key = getMinimaxApiKey(env);
+  if (!key) throw new HttpError("缺少 MINIMAX_API_KEY", 503, "missing_api_key");
+  const [mmWidth, mmHeight] = minimaxDimensions(width, height);
+  const body = { model: "image-01", prompt, width: mmWidth, height: mmHeight, response_format: "base64", n: 1 };
+  if (seed) body.seed = seed;
+
+  let resp;
+  try {
+    resp = await fetch(MINIMAX_API_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(MINIMAX_FETCH_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw e && (e.name === "TimeoutError" || e.name === "AbortError")
+      ? new HttpError("MiniMax 產圖逾時，請稍後再試", 502, "minimax_error")
+      : new HttpError("MiniMax 連線失敗，請稍後再試", 502, "minimax_error");
+  }
+
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch {
+    data = null;
+  }
+  const baseCode =
+    data && data.base_resp && typeof data.base_resp.status_code === "number"
+      ? data.base_resp.status_code
+      : null;
+
+  if (resp.status === 429 || baseCode === 1002) {
+    const ra = parseInt(resp.headers.get("retry-after") || "", 10);
+    const err = new HttpError("叫用太頻繁，請稍後再試", 429, "rate_limited");
+    if (!Number.isNaN(ra)) err.retry_after = Math.max(1, ra);
+    throw err;
+  }
+  if (baseCode === 1026 || baseCode === 1027) {
+    throw new HttpError("此描述觸發 MiniMax 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
+  }
+  if (baseCode === 1004 || baseCode === 2049) {
+    throw new HttpError("MiniMax 認證失敗，請檢查金鑰設定", 502, "provider_auth_failed");
+  }
+  if (!resp.ok || (baseCode !== null && baseCode !== 0)) {
+    throw new HttpError("MiniMax 生圖失敗，請稍後再試", 502, "minimax_error");
+  }
+  if (!data) {
+    throw new HttpError("MiniMax 回應不是有效 JSON", 502, "bad_provider_response");
+  }
+
+  const dataNode = data && typeof data.data === "object" && data.data !== null ? data.data : {};
+  const list = Array.isArray(dataNode.image_base64) ? dataNode.image_base64 : [];
+  const b64 = typeof list[0] === "string" ? list[0].trim() : "";
+  const detected = b64 && isValidBase64(b64) ? detectImageMimeStrict(b64) : null;
+  const mime = detected === "image/jpeg" || detected === "image/png" || detected === "image/webp" ? detected : null;
+  if (!mime) {
+    throw new HttpError("MiniMax 回應的圖片資料格式不正確", 502, "bad_provider_response");
+  }
+  const image = `data:${mime};base64,` + b64;
+  return {
+    image,
+    provider: "minimax",
+    model,
+    width: mmWidth,
+    height: mmHeight,
+    seed,
+    imageQuality: inspectGeneratedImage(image, mmWidth, mmHeight),
+    providerProvenance: { model_id: "image-01", steps: null, cfg_scale: null },
   };
 }
 
@@ -580,10 +700,18 @@ async function tripNvidiaCircuit() {
   }
 }
 
-// The Workers AI -> Pollinations tail of the fallback chain, shared by the normal
-// NVIDIA-failed path and the circuit-open skip path. Mirrors the inline logic that
-// generateOneImage used to carry.
-async function generateWithFallbackChain(env, { prompt, model, width, height, seed }, { hasWorkersAi, pollinationsEnabled }) {
+// The MiniMax -> Workers AI -> Pollinations tail of the fallback chain, shared by
+// the normal provider-failed path and the circuit-open skip path. A MiniMax
+// content filter (422) / rate limit (429) does NOT fall through. `minimaxFailed`
+// skips the MiniMax hop when MiniMax itself was the provider that just failed.
+async function generateWithFallbackChain(env, { prompt, model, width, height, seed }, { hasWorkersAi, pollinationsEnabled, minimaxFailed = false }) {
+  if (getMinimaxApiKey(env) && !minimaxFailed) {
+    try {
+      return await generateWithMinimax(env, { prompt, model, width, height, seed });
+    } catch (mmErr) {
+      if (!shouldFallbackToWorkersAi(mmErr)) throw mmErr;
+    }
+  }
   if (hasWorkersAi) {
     try {
       return await generateWithWorkersAi(env, { prompt, model, width, height, seed });
@@ -610,23 +738,57 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     [width, height] = SIZE_MAP[size];
   }
   const hasWorkersAi = !!(env && env.AI && typeof env.AI.run === "function");
-  // Fast tier prefers NVIDIA (schnell maps to flux.1-dev below) because the
-  // Workers AI models apply a stricter content filter; Workers AI is the
-  // fallback for key-less deploys AND when NVIDIA is unavailable (see below).
-  if (model === "schnell" && !getNvidiaApiKey(env) && hasWorkersAi) {
-    return generateWithWorkersAi(env, { prompt, model, width, height, seed });
-  }
-  const key = getNvidiaApiKey(env);
-  if (!key) {
-    const image = makeDemoImageDataUrl();
-    return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height),
-      providerProvenance: { model_id: "demo", steps: null, cfg_scale: null } };
-  }
   // Third-tier Pollinations fallback (keyless). Gated by env flag; when on, a
   // dark NVIDIA/Workers AI provider fails over here on infrastructure errors only.
   const pollinationsEnabled =
     String((env && env.POLLINATIONS_FALLBACK_ENABLED) || "").trim().toLowerCase() === "true";
-  const hasFallback = hasWorkersAi || pollinationsEnabled;
+  const nvidiaKey = getNvidiaApiKey(env);
+  const minimaxKey = getMinimaxApiKey(env);
+  // Fast tier prefers NVIDIA (schnell maps to flux.1-dev below), then MiniMax (both
+  // tiers), because the Workers AI models apply a stricter content filter; Workers AI
+  // is the fallback for key-less deploys AND when NVIDIA is unavailable (see below).
+  if (model === "schnell" && !nvidiaKey && !minimaxKey && hasWorkersAi) {
+    try {
+      return await generateWithWorkersAi(env, { prompt, model, width, height, seed });
+    } catch (waErr) {
+      // Keyless tier: the provider's own 429 surfaces as rate_limited so the
+      // client can honour retry_after. The keyed chain intentionally keeps the
+      // generic workers_ai_error wrap for the same provider failure.
+      if (waErr && waErr.providerStatus === 429) {
+        const rateLimited = new HttpError("叫用太頻繁，請稍後再試", 429, "rate_limited");
+        if (waErr.providerRetryAfter != null) rateLimited.retry_after = waErr.providerRetryAfter;
+        throw rateLimited;
+      }
+      // Workers AI infrastructure failure on the keyless path takes the same
+      // fallback tail as the keyed chain: Pollinations when enabled.
+      if (pollinationsEnabled && shouldFallbackToWorkersAi(waErr)) {
+        return await generateWithPollinations({ prompt, width, height, seed });
+      }
+      throw waErr;
+    }
+  }
+  if (!nvidiaKey && !minimaxKey) {
+    const image = makeDemoImageDataUrl();
+    return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height),
+      providerProvenance: { model_id: "demo", steps: null, cfg_scale: null } };
+  }
+  // No NVIDIA key: MiniMax is the primary provider for BOTH tiers. Infra
+  // failures move down the chain to Workers AI -> Pollinations; rate_limited /
+  // content_filtered propagate unchanged.
+  if (!nvidiaKey) {
+    const minimaxHasFallback = hasWorkersAi || pollinationsEnabled;
+    try {
+      return await generateWithMinimax(env, { prompt, model, width, height, seed });
+    } catch (error) {
+      if (!shouldFallbackToWorkersAi(error) || !minimaxHasFallback) throw error;
+      return await generateWithFallbackChain(
+        env,
+        { prompt, model, width, height, seed },
+        { hasWorkersAi, pollinationsEnabled, minimaxFailed: true }
+      );
+    }
+  }
+  const hasFallback = hasWorkersAi || pollinationsEnabled || Boolean(minimaxKey);
   // Circuit open + a fallback available: skip NVIDIA entirely (no ~60s dark-provider
   // timeout) and serve straight from the fallback chain. Without a fallback, skipping
   // would just fail, so keep hitting NVIDIA. Only infra failures (5xx/timeout) ever
