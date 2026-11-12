@@ -6,7 +6,7 @@
   // tests/test_static_ui.py::test_service_worker_cache_version_tracks_static_assets.
   // Change a front-end asset and the test fails until this and CACHE_NAME are both
   // updated — without the bump, returning tabs keep rendering the previous UI.
-  var ASSET_FINGERPRINT = '73f61db42e5b';
+  var ASSET_FINGERPRINT = 'a50a4f987838';
   var STATIC_URLS = [
     '/',
     '/static/styles.css',

@@ -1856,6 +1856,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
     flex: 1 1 auto;
     min-height: 48px;
   }
+  /* 固定列在場時卡片內的「生成圖片」重複：只留拇指區的固定列；不支援 :has 的瀏覽器照舊顯示 */
+  body:has(#mobileGenerateBar:not([hidden])) .prompt-controls #go { display: none; }
+  body:has(#mobileGenerateBar:not([hidden])) .prompt-controls { grid-template-columns: 1fr; }
   .pwa-update-notice {
     left: 12px;
     right: 12px;
