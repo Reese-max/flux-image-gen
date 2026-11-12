@@ -78,25 +78,8 @@ function findImageCandidate(data) {
   return null;
 }
 
-function detectMimeFromBase64(b64) {
-  // Decode only the first few bytes to sniff the signature.
-  let bytes;
-  try {
-    const bin = atob(b64.slice(0, 16));
-    bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  } catch {
-    return "image/png";
-  }
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return "image/png";
-  if (bytes.length >= 4 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x38) return "image/gif";
-  if (bytes.length >= 4 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return "image/webp";
-  return "image/png";
-}
-
-// Like detectMimeFromBase64 but returns null when the bytes are not a known
-// image signature (or fail to decode). Used to gate the provider's direct
+// Sniff the image signature from base64 bytes; returns null when the bytes are
+// not a known image signature (or fail to decode). Used to gate the provider's
 // { image } fast path so a non-image token isn't wrapped into a broken data URL
 // and reported as success (mirrors Python's strict base64.b64decode + sniff).
 function detectImageMimeStrict(b64) {
@@ -229,16 +212,48 @@ export function inspectGeneratedImage(image, expectedWidth, expectedHeight) {
 function extractImage(data, providerLabel = "NVIDIA") {
   const candidate = findImageCandidate(data);
   if (!candidate) throw new HttpError(`${providerLabel} 回應中找不到圖片資料`, 502, "bad_provider_response");
-  if (candidate.startsWith("data:image/") || candidate.startsWith("http://") || candidate.startsWith("https://")) {
+  if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
     return candidate;
   }
-  return `data:${detectMimeFromBase64(candidate)};base64,` + candidate;
+  if (candidate.startsWith("data:image/")) {
+    const match = candidate.match(/^data:image\/[a-zA-Z0-9.+-]+;base64,(.+)$/s);
+    if (!match || !detectImageMimeStrict(match[1])) {
+      throw new HttpError(`${providerLabel} 回應的圖片資料不是有效的圖片`, 502, "bad_provider_response");
+    }
+    return candidate;
+  }
+  const mime = detectImageMimeStrict(candidate);
+  if (!mime) {
+    throw new HttpError(`${providerLabel} 回應的圖片資料不是有效的圖片`, 502, "bad_provider_response");
+  }
+  return `data:${mime};base64,` + candidate;
 }
 
 // Workers AI has no artifacts/finishReason on the error path; a flagged prompt
 // surfaces as a thrown AiError whose message mentions the safety filter.
 function isWorkersAiContentFilterError(e) {
   return /nsfw|content[ _-]?(safety|filter|moderat)|flagged/i.test(String((e && e.message) || e));
+}
+
+// workerd's binding error has no stable status shape, so accept the common
+// carriers (status/statusCode props, a numeric code, or a bare "429" in the
+// message). The keyless tier uses this to surface a real provider 429 as
+// rate_limited instead of the generic 502 workers_ai_error.
+function workersAiErrorStatus(e) {
+  if (!e || typeof e !== "object") return null;
+  const status = Number(e.status ?? e.statusCode ?? e.code);
+  if (Number.isFinite(status) && status >= 400 && status < 600) return status;
+  return /\b429\b/.test(String(e.message || "")) ? 429 : null;
+}
+
+function workersAiErrorRetryAfter(e) {
+  if (!e || typeof e !== "object") return null;
+  const raw =
+    e.retry_after ??
+    e.retryAfter ??
+    (e.headers && typeof e.headers.get === "function" ? e.headers.get("retry-after") : null);
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? Math.max(1, parsed) : null;
 }
 
 function makeDemoImageDataUrl() {
@@ -356,9 +371,18 @@ async function generateWithWorkersAi(env, { prompt, model, width, height, seed }
     if (isWorkersAiContentFilterError(e)) {
       throw new HttpError("此描述觸發 Workers AI 內容安全過濾，無法生成圖片，請換個描述再試", 422, "content_filtered");
     }
-    throw e && (e.name === "TimeoutError" || e.name === "AbortError")
-      ? new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout")
-      : new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+    if (e && (e.name === "TimeoutError" || e.name === "AbortError")) {
+      throw new HttpError("Workers AI 產圖逾時，請稍後再試", 504, "timeout");
+    }
+    const wrapped = new HttpError("Workers AI 生圖失敗，請稍後再試", 502, "workers_ai_error");
+    // Preserve the provider's own status and retry hint on the wrapped error so
+    // the keyless tier can surface a real 429 as rate_limited. The keyed
+    // fallback chain ignores these fields and keeps its existing behaviour.
+    const providerStatus = workersAiErrorStatus(e);
+    if (providerStatus != null) wrapped.providerStatus = providerStatus;
+    const providerRetryAfter = workersAiErrorRetryAfter(e);
+    if (providerRetryAfter != null) wrapped.providerRetryAfter = providerRetryAfter;
+    throw wrapped;
   } finally {
     clearTimeout(timer);
   }
@@ -610,11 +634,32 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     [width, height] = SIZE_MAP[size];
   }
   const hasWorkersAi = !!(env && env.AI && typeof env.AI.run === "function");
+  // Third-tier Pollinations fallback (keyless). Gated by env flag; when on, a
+  // dark NVIDIA/Workers AI provider fails over here on infrastructure errors only.
+  const pollinationsEnabled =
+    String((env && env.POLLINATIONS_FALLBACK_ENABLED) || "").trim().toLowerCase() === "true";
   // Fast tier prefers NVIDIA (schnell maps to flux.1-dev below) because the
   // Workers AI models apply a stricter content filter; Workers AI is the
   // fallback for key-less deploys AND when NVIDIA is unavailable (see below).
   if (model === "schnell" && !getNvidiaApiKey(env) && hasWorkersAi) {
-    return generateWithWorkersAi(env, { prompt, model, width, height, seed });
+    try {
+      return await generateWithWorkersAi(env, { prompt, model, width, height, seed });
+    } catch (waErr) {
+      // Keyless tier: the provider's own 429 surfaces as rate_limited so the
+      // client can honour retry_after. The keyed chain intentionally keeps the
+      // generic workers_ai_error wrap for the same provider failure.
+      if (waErr && waErr.providerStatus === 429) {
+        const rateLimited = new HttpError("叫用太頻繁，請稍後再試", 429, "rate_limited");
+        if (waErr.providerRetryAfter != null) rateLimited.retry_after = waErr.providerRetryAfter;
+        throw rateLimited;
+      }
+      // Workers AI infrastructure failure on the keyless path takes the same
+      // fallback tail as the keyed chain: Pollinations when enabled.
+      if (pollinationsEnabled && shouldFallbackToWorkersAi(waErr)) {
+        return await generateWithPollinations({ prompt, width, height, seed });
+      }
+      throw waErr;
+    }
   }
   const key = getNvidiaApiKey(env);
   if (!key) {
@@ -622,10 +667,6 @@ export async function generateOneImage(env, { prompt, model, size, width, height
     return { image, provider: "demo", model, width, height, seed, imageQuality: inspectGeneratedImage(image, width, height),
       providerProvenance: { model_id: "demo", steps: null, cfg_scale: null } };
   }
-  // Third-tier Pollinations fallback (keyless). Gated by env flag; when on, a
-  // dark NVIDIA/Workers AI provider fails over here on infrastructure errors only.
-  const pollinationsEnabled =
-    String((env && env.POLLINATIONS_FALLBACK_ENABLED) || "").trim().toLowerCase() === "true";
   const hasFallback = hasWorkersAi || pollinationsEnabled;
   // Circuit open + a fallback available: skip NVIDIA entirely (no ~60s dark-provider
   // timeout) and serve straight from the fallback chain. Without a fallback, skipping

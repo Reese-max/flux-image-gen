@@ -16,7 +16,7 @@ function bucket() {
 async function setup() {
   const storage = bucket();
   const env = { ENVIRONMENT: 'development', IMAGE_BUCKET: storage, GALLERY_TOKEN_SECRET: 'local-fixture-signing-only' };
-  const token = await issueGalleryToken(env);
+  const token = await issueGalleryToken(env, image);
   const record = { id: 'local-id', image, prompt: 'never publish this prompt', provider: 'workers-ai', model: 'schnell',
     size: 'square', seed: 42, createdAt: '2026-10-17T00:00:00.000Z' };
   record.provenance = await api.createReceipt(record, { inspect: async () => ({ status: 'verified' }) });
@@ -56,6 +56,23 @@ test('gallery rejects altered receipt/output hashes before writing R2; existing 
   assert.equal(storage.objects.size, 0);
   const unauthorized = await worker.fetch(new Request('https://example.test/gallery', { method: 'POST', body: '{invalid json' }), env);
   assert.equal(unauthorized.status, 401);
+});
+
+test('provenance receipts drop non-object input entries instead of throwing', () => {
+  const receipt = api.normalizeReceipt({ receipt_schema_version: 1, record_id: 'record-1',
+    inputs: [null, 'junk', 42, { original_sha256: 'a'.repeat(64), submitted_sha256: 'b'.repeat(64) }] });
+  assert.equal(receipt.inputs.length, 1);
+  assert.equal(receipt.inputs[0].original_sha256, 'a'.repeat(64));
+  assert.equal(receipt.inputs[0].submitted_sha256, 'b'.repeat(64));
+});
+
+test('Worker receipt normalization (shared app/static module) drops non-object inputs but keeps digest validation', () => {
+  const receipt = globalThis.ImageProvenance.normalizeReceipt({ receipt_schema_version: 1, record_id: 'record-1',
+    inputs: [null, 'junk', 42, ['nested'], { original_sha256: 'a'.repeat(64) },
+      { original_sha256: 'a'.repeat(64), submitted_sha256: 'b'.repeat(64) }] });
+  assert.equal(receipt.inputs.length, 1);
+  assert.equal(receipt.inputs[0].original_sha256, 'a'.repeat(64));
+  assert.equal(receipt.inputs[0].submitted_sha256, 'b'.repeat(64));
 });
 
 test('public gallery metadata strips capability URL queries and credential-like text', async () => {

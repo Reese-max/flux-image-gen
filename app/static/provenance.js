@@ -120,7 +120,9 @@
     });
   }
   function normalizeInputs(inputs) {
-    return (Array.isArray(inputs) ? inputs : []).slice(0, 4).map(function (input) {
+    return (Array.isArray(inputs) ? inputs : []).filter(function (input) {
+      return input && typeof input === 'object' && !Array.isArray(input);
+    }).slice(0, 4).map(function (input) {
       var transformed = input.transform === 'resize_reencode';
       return {
         original_sha256: digest(input.original_sha256), submitted_sha256: digest(input.submitted_sha256),
