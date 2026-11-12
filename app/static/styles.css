@@ -1871,7 +1871,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; gap: 12px; }
-  .pill { font-size: 14px; padding: 6px 11px; }
+  /* 窄螢幕狀態文字較長（例：真實出圖可用 · NVIDIA FLUX + Workers AI），允許在膠囊內換行而不是被切掉 */
+  .topbar-actions { min-width: 0; flex: 1 1 auto; }
+  .pill { font-size: 14px; padding: 6px 11px; min-width: 0; white-space: normal; text-wrap: balance; line-height: 1.35; border-radius: var(--radius); }
   .idea .emo { font-size: 22px; }
   .form-grid { grid-template-columns: 1fr; }
   .modal { padding: 18px; }
