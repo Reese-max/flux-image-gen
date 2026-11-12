@@ -399,8 +399,8 @@ body.is-workspace-resizing {
 .help-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   margin-top: 18px; padding: 10px 15px; min-height: 44px; border-radius: 999px;
-  border: 1px solid var(--accent-line);
-  background: var(--accent-soft); color: var(--text);
+  border: 1px solid var(--line-2); /* 預設中性；hover／focus 才用主色回饋 */
+  background: var(--surface-2); color: var(--text);
   font-family: var(--font); font-size: 14px; font-weight: 800; cursor: pointer;
   box-shadow: var(--shadow-sm);
 }
@@ -462,7 +462,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .section-heading p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .section-kicker {
   font-family: var(--mono); font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--accent-2);
+  color: var(--muted); /* 分區小標退為中性，陶土橘留給主要操作與目前所在位置 */
 }
 .prompt-controls {
   display: grid;
@@ -844,10 +844,11 @@ select option { background: var(--surface); color: var(--text); }
   box-shadow: 0 10px 30px -8px rgba(194, 90, 51, 0.45);
 }
 .btn.primary:hover { transform: translateY(-2px); box-shadow: 0 16px 38px -10px rgba(194, 90, 51, 0.55); }
+/* 次要按鈕改走 .btn.download 的中性樣式：不再用主色淡底，避免和旁邊的「生成圖片」搶注意力 */
 .btn.secondary {
-  color: var(--text); background: var(--accent-soft); border-color: var(--accent-line);
+  color: var(--text); background: var(--surface-2); border-color: var(--line-2);
 }
-.btn.secondary:hover { background: var(--accent-soft); border-color: var(--accent); transform: translateY(-2px); }
+.btn.secondary:hover { background: var(--bg-2); border-color: var(--line-2); transform: translateY(-2px); }
 .btn.download {
   color: var(--text); background: var(--surface-2); border-color: var(--line);
 }
@@ -969,7 +970,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 /* 真實範例圖：cover 填滿縮圖框，暖色漸層作為 lazy-load 期間的底。 */
 .example-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .example-body { display: grid; gap: 8px; padding: 14px; }
-.example-category { color: var(--accent-2); font: 700 14px/1.2 var(--mono); letter-spacing: 0.02em; }
+.example-category { color: var(--muted); font: 700 14px/1.2 var(--mono); letter-spacing: 0.02em; }
 .example-body h3 { margin: 0; font-size: 16px; line-height: 1.25; }
 .example-body p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .apply-example { justify-self: start; margin-top: 4px; }
@@ -2392,7 +2393,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .topbar-help {
     display: inline-flex; align-items: center; justify-content: center;
     width: 44px; min-height: 44px; border-radius: 999px;
-    border: 1px solid var(--accent-line); background: var(--accent-soft);
+    border: 1px solid var(--line-2); background: var(--surface-2);
     color: var(--text); font-size: 16px; font-weight: 800; cursor: pointer;
   }
   .title { margin-bottom: 4px; font-size: clamp(24px, 7.4vw, 30px); }
