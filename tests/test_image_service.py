@@ -68,7 +68,7 @@ class ImageServiceTests(unittest.IsolatedAsyncioTestCase):
             resolve_seed(None, "unknown", Settings())
 
     async def test_demo_provider_returns_png_data_url_without_key(self):
-        provider = choose_provider(Settings(nvidia_api_key="", image_provider="auto"))
+        provider = choose_provider(Settings(nvidia_api_key="", minimax_api_key="", image_provider="auto"))
         result = await provider.generate(
             GenerationRequest(
                 prompt="a cute corgi astronaut floating in space",
@@ -925,7 +925,7 @@ class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
     def test_schnell_without_nvidia_falls_back_to_workers_ai(self):
         from app.image_service import WorkersAiProvider, _resolve_provider_and_request
 
-        settings = Settings(nvidia_api_key="", image_provider="auto", cf_account_id="acct", cf_api_token="tok")
+        settings = Settings(nvidia_api_key="", minimax_api_key="", image_provider="auto", cf_account_id="acct", cf_api_token="tok")
         provider, request = _resolve_provider_and_request(
             GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
         )
@@ -935,7 +935,7 @@ class FastTierRoutingTests(unittest.IsolatedAsyncioTestCase):
     def test_schnell_in_demo_mode_is_left_untouched(self):
         from app.image_service import DemoProvider, _resolve_provider_and_request
 
-        settings = Settings(nvidia_api_key="", image_provider="auto", cf_account_id="", cf_api_token="")
+        settings = Settings(nvidia_api_key="", minimax_api_key="", image_provider="auto", cf_account_id="", cf_api_token="")
         provider, request = _resolve_provider_and_request(
             GenerationRequest(prompt="a corgi", model="schnell", size="square"), settings
         )

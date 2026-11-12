@@ -29,3 +29,23 @@ def _prepend_git_tools_to_path():
 
 
 _prepend_git_tools_to_path()
+
+
+# Shared pytest setup for the offline suite.
+#
+# ``app.settings.Settings`` binds its field defaults from ``os.environ`` at class
+# definition time (i.e. on first import). Tests must never reach the real MiniMax,
+# NVIDIA, or Cloudflare endpoints just because a developer has provider keys in
+# their shell, so clear every env var that selects/configures a real image
+# provider *before* any test module imports ``app.settings`` — pytest loads this
+# conftest first. Tests that exercise a provider stub the HTTP layer and pass
+# explicit kwargs such as ``Settings(minimax_api_key=FAKE_KEY)``.
+for _var in (
+    "NVIDIA_API_KEY",
+    "MINIMAX_API_KEY",
+    "CF_ACCOUNT_ID",
+    "CF_API_TOKEN",
+    "IMAGE_PROVIDER",
+    "POLLINATIONS_FALLBACK_ENABLED",
+):
+    os.environ.pop(_var, None)
