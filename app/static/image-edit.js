@@ -587,7 +587,7 @@
       chip.className = 'edit-preset';
       chip.textContent = preset.label;
       chip.title = preset.text;
-      chip.setAttribute('aria-label', '帶入快速指令：' + preset.text);
+      chip.setAttribute('aria-label', preset.label + '，帶入快速指令：' + preset.text);
       chip.addEventListener('click', function () {
         var current = (promptEl.value || '').trim();
         promptEl.value = current ? current + '\n' + preset.text : preset.text;

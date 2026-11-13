@@ -103,7 +103,8 @@ body {
   display: grid;
   grid-template-columns: minmax(320px, var(--control-panel-width)) 10px minmax(0, 1fr);
   align-items: stretch;
-  min-height: clamp(680px, calc(100dvh - 280px), 900px);
+  /* 工作台填滿首屏剩餘高度：頁首＋大標＋分頁約 380px（原 280px 已過時，加上 680px 下限讓兩欄超出視窗、控制台下方留空） */
+  min-height: clamp(480px, calc(100dvh - 380px), 900px);
   margin-bottom: 28px;
   scroll-margin-top: 88px;
 }
@@ -260,7 +261,7 @@ body {
 .preview-view-btn:hover { color: var(--text); }
 .preview-view-btn.is-active {
   background: var(--accent-soft);
-  color: var(--accent-2);
+  color: var(--accent-3); /* accent-soft 上 accent-3 為 5.0:1（accent-2 只有 4.12:1） */
 }
 .generation-preview .stage {
   flex: 1 1 auto;
@@ -342,7 +343,7 @@ body.is-workspace-resizing {
 .brand-name { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; }
 .badge {
   font-size: 11px; font-weight: 700; font-family: var(--mono);
-  padding: 3px 9px; border-radius: 999px; color: var(--accent-2);
+  padding: 3px 9px; border-radius: 999px; color: var(--accent-3); /* 11px 小字：accent-2 對 accent-soft 4.12:1 不足，accent-3 為 5.0:1 */
   background: var(--accent-soft); border: 1px solid var(--accent-line);
 }
 .pill {
@@ -367,7 +368,8 @@ body.is-workspace-resizing {
   text-align: center;
 }
 .canvas-empty-mark { font-size: 22px; }
-.canvas-empty p { margin: 0; font-size: 14px; }
+.canvas-empty p { margin: 0; font-size: 14px; color: var(--text); } /* 畫布底色上 --muted 只有 4.38:1 */
+.canvas-empty strong { color: var(--text); } /* 16px 粗體不算大字，同樣需要 4.5:1 */
 .canvas-empty-hints { display: none; }
 .pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 0 rgba(111, 143, 101, 0.5); }
 .pill.online { color: var(--sage-ink); background: var(--sage-soft); border-color: var(--sage-line); }
@@ -399,8 +401,8 @@ body.is-workspace-resizing {
 .help-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   margin-top: 18px; padding: 10px 15px; min-height: 44px; border-radius: 999px;
-  border: 1px solid var(--accent-line);
-  background: var(--accent-soft); color: var(--text);
+  border: 1px solid var(--line-2); /* 預設中性；hover／focus 才用主色回饋 */
+  background: var(--surface-2); color: var(--text);
   font-family: var(--font); font-size: 14px; font-weight: 800; cursor: pointer;
   box-shadow: var(--shadow-sm);
 }
@@ -432,6 +434,14 @@ body.is-workspace-resizing {
   .help-btn { grid-column: 2; grid-row: 3; justify-self: start; margin-top: 4px; }
   .tabs { margin-bottom: 16px; }
 }
+/* 寬螢幕：左欄只跟大標一樣寬，說明緊貼在旁成一組；多出的空間留在右側，不夾在大標與說明中間 */
+@media (min-width: 981px) {
+  .hero {
+    grid-template-columns: auto minmax(250px, 46ch);
+    justify-content: start;
+    column-gap: var(--space-7);
+  }
+}
 
 /* ---------- composer ---------- */
 .composer { padding: clamp(14px, 3vw, 20px); margin-bottom: 16px; }
@@ -462,7 +472,7 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .section-heading p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .section-kicker {
   font-family: var(--mono); font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--accent-2);
+  color: var(--muted); /* 分區小標退為中性，陶土橘留給主要操作與目前所在位置 */
 }
 .prompt-controls {
   display: grid;
@@ -844,10 +854,11 @@ select option { background: var(--surface); color: var(--text); }
   box-shadow: 0 10px 30px -8px rgba(194, 90, 51, 0.45);
 }
 .btn.primary:hover { transform: translateY(-2px); box-shadow: 0 16px 38px -10px rgba(194, 90, 51, 0.55); }
+/* 次要按鈕改走 .btn.download 的中性樣式：不再用主色淡底，避免和旁邊的「生成圖片」搶注意力 */
 .btn.secondary {
-  color: var(--text); background: var(--accent-soft); border-color: var(--accent-line);
+  color: var(--text); background: var(--surface-2); border-color: var(--line-2);
 }
-.btn.secondary:hover { background: var(--accent-soft); border-color: var(--accent); transform: translateY(-2px); }
+.btn.secondary:hover { background: var(--bg-2); border-color: var(--line-2); transform: translateY(-2px); }
 .btn.download {
   color: var(--text); background: var(--surface-2); border-color: var(--line);
 }
@@ -969,7 +980,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 /* 真實範例圖：cover 填滿縮圖框，暖色漸層作為 lazy-load 期間的底。 */
 .example-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .example-body { display: grid; gap: 8px; padding: 14px; }
-.example-category { color: var(--accent-2); font: 700 14px/1.2 var(--mono); letter-spacing: 0.02em; }
+.example-category { color: var(--muted); font: 700 14px/1.2 var(--mono); letter-spacing: 0.02em; }
 .example-body h3 { margin: 0; font-size: 16px; line-height: 1.25; }
 .example-body p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .apply-example { justify-self: start; margin-top: 4px; }
@@ -1433,7 +1444,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 
 /* ---------- footer ---------- */
 .footer { text-align: center; font-size: 14px; color: var(--muted); line-height: 1.7; padding-top: 8px; }
-.footer-meta { margin-top: 6px; font-family: var(--mono); opacity: 0.85; }
+.footer-meta { margin-top: 6px; font-family: var(--mono); } /* 不用 opacity：會把裡面的連結與文字對比壓到 3.6–3.7:1；顏色本身已是低調的 --muted／--accent-2 */
 .footer-links {
   display: inline-flex;
   gap: 8px;
@@ -1456,8 +1467,8 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 .footer-link:hover, .footer-link:focus-visible { color: var(--text); outline: none; }
 /* 站長工具連結（#usage 直達）：比一般 footer 連結更低調 */
-.footer-admin-link { color: var(--faint); }
-.footer-admin-link:hover, .footer-admin-link:focus-visible { color: var(--muted); }
+.footer-admin-link { color: var(--muted); } /* 仍比 accent 的一般連結低調；--faint 對 --bg 只有 2.78:1，可點的連結不能用 */
+.footer-admin-link:hover, .footer-admin-link:focus-visible { color: var(--text); }
 
 /* ---------- modal ---------- */
 .modal-backdrop {
@@ -1854,6 +1865,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
     flex: 1 1 auto;
     min-height: 48px;
   }
+  /* 固定列在場時卡片內的「生成圖片」重複：只留拇指區的固定列；不支援 :has 的瀏覽器照舊顯示 */
+  body:has(#mobileGenerateBar:not([hidden])) .prompt-controls #go { display: none; }
+  body:has(#mobileGenerateBar:not([hidden])) .prompt-controls { grid-template-columns: 1fr; }
   .pwa-update-notice {
     left: 12px;
     right: 12px;
@@ -1871,7 +1885,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 }
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; gap: 12px; }
-  .pill { font-size: 14px; padding: 6px 11px; }
+  /* 窄螢幕狀態文字較長（例：真實出圖可用 · NVIDIA FLUX + Workers AI），允許在膠囊內換行而不是被切掉 */
+  .topbar-actions { min-width: 0; flex: 1 1 auto; }
+  .pill { font-size: 14px; padding: 6px 11px; min-width: 0; white-space: normal; text-wrap: balance; line-height: 1.35; border-radius: var(--radius); }
   .idea .emo { font-size: 22px; }
   .form-grid { grid-template-columns: 1fr; }
   .modal { padding: 18px; }
@@ -2007,6 +2023,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .edit-mode-card:hover, .edit-mode-card:focus-visible, .edit-mode-card.is-active {
   border-color: var(--accent-line);
   background: var(--accent-soft);
+  color: var(--text); /* accent-soft 上 muted 只有 4.42:1 */
   outline: none;
 }
 .edit-drop {
@@ -2337,9 +2354,9 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .tab:hover { color: var(--text); background: var(--bg-2); }
 .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tab.is-active {
-  color: var(--accent-ink);
-  background: linear-gradient(180deg, var(--accent-2), var(--accent-3));
-  box-shadow: 0 8px 22px -6px rgba(194, 90, 51, 0.45);
+  /* 同站內已選切換鈕（.preview-view-btn.is-active）：淡底主色字，實心漸層只留給「生成圖片」主按鈕 */
+  color: var(--accent-3);
+  background: var(--accent-soft);
 }
 .tab-ico { font-size: 17px; line-height: 1; }
 .tab-mobile-label { display: none; }
@@ -2390,7 +2407,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
   .topbar-help {
     display: inline-flex; align-items: center; justify-content: center;
     width: 44px; min-height: 44px; border-radius: 999px;
-    border: 1px solid var(--accent-line); background: var(--accent-soft);
+    border: 1px solid var(--line-2); background: var(--surface-2);
     color: var(--text); font-size: 16px; font-weight: 800; cursor: pointer;
   }
   .title { margin-bottom: 4px; font-size: clamp(24px, 7.4vw, 30px); }
@@ -2490,6 +2507,12 @@ body[data-tab="usage"] #mobileGenerateBar { display: none !important; }
   .canvas-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); }
   .canvas-status-spacer { flex: 1 1 auto; }
   .canvas-status-shortcut { color: var(--muted); }
+  /* 畫布欄窄時（約 1000–1200px 寬）：標題、工具、狀態各項保持一行，放不下就整項換行，不擠成直排或被裁 */
+  .generation-preview .result-heading { flex-wrap: wrap; row-gap: 8px; }
+  .generation-preview .result-heading h2 { white-space: nowrap; }
+  .canvas-heading-tools { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  .canvas-preset-chip, .canvas-statusbar > span { white-space: nowrap; }
+  .canvas-statusbar { flex-wrap: wrap; row-gap: 4px; }
   .generation-preview .stage.is-canvas-interactive {
     overflow: hidden;
     cursor: grab;
