@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .prompt_llm import MAX_PROMPT_SOURCE_LENGTH, PromptLLMError, llm_complete_prompt
+from .prompt_llm import (
+    MAX_PROMPT_SOURCE_LENGTH,
+    PromptLLMError,
+    llm_complete_prompt,
+    resolve_gemini_keys,
+)
 from .prompt_transform import _normalize_style, _resolve_style
 from .settings import get_settings
 
@@ -45,7 +50,7 @@ def complete_plain_prompt(source: str, style: str = "auto") -> PromptCompleteRes
     settings = get_settings()
     warnings: tuple[str, ...]
 
-    if settings.gemini_api_key.strip():
+    if resolve_gemini_keys(settings):
         try:
             completed = llm_complete_prompt(source_text, resolved_style, settings=settings)
             provider = "gemini"

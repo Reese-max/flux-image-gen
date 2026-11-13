@@ -14,7 +14,7 @@ import {
   turnstileConfig,
   verifyTurnstileToken,
 } from "./http.js";
-import { completePlainPrompt, enhancePrompt, geminiTransformPrompt, normalizeStyle, resolveStyle, transformPlainPrompt } from "./prompt.js";
+import { completePlainPrompt, enhancePrompt, geminiTransformPrompt, normalizeStyle, resolveGeminiKeys, resolveStyle, transformPlainPrompt } from "./prompt.js";
 import { assertPromptAllowedForGeneration } from "./moderation.js";
 import {
   editImage,
@@ -61,7 +61,7 @@ function providerAttemptCount(source, fallback = 0) {
 }
 
 function promptUsageTarget(env, route, provider, attempts = 0) {
-  const hasGemini = Boolean(String((env && env.GEMINI_API_KEY) || "").trim());
+  const hasGemini = resolveGeminiKeys(env).length > 0;
   const attemptedGemini = hasGemini && (provider === "gemini" || provider === "rule_based");
   const usageProvider = attemptedGemini && provider === "rule_based" ? "gemini-fallback" : provider;
   const model = usageProvider && usageProvider.startsWith("gemini")
@@ -105,8 +105,8 @@ async function recordVisionQaEvent(env, request, started, visionQa) {
     outcome: visionQa.available ? "success" : "error",
     statusCode: visionQa.available ? 200 : 503,
     errorCode: visionQa.available ? "" : (visionQa.code || "vision_qa_failed"),
-    provider: "gemini",
-    model: String((env && env.GEMINI_VISION_MODEL) || "gemini-2.5-flash"),
+    provider: visionQa.provider || "nvidia",
+    model: String((env && env.NVIDIA_VISION_MODEL) || "meta/llama-3.2-90b-vision-instruct"),
     durationMs: elapsedMs(started),
     attempt: providerAttemptCount(visionQa),
   });
@@ -164,6 +164,12 @@ function buildHealthResponse(env) {
     storageAvailable,
     galleryEnabled: galleryEnabled(env),
     visionQa: String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true",
+    // QA 實際跑得起來才回後端名稱；空字串＝沒啟用或缺 NVIDIA_API_KEY。
+    visionQaProvider:
+      String((env && env.VISION_QA_ENABLED) || "").trim().toLowerCase() === "true"
+        && !!String((env && env.NVIDIA_API_KEY) || "").trim()
+        ? "nvidia"
+        : "",
     turnstile: turnstileConfig(env),
     message,
     checkedAt: new Date().toISOString(),
@@ -1149,7 +1155,7 @@ async function handlePromptTransform(request, env) {
 
   // LLM-first: try Gemini when a key is configured, then gracefully fall back.
   const providerTelemetry = { attempts: 0 };
-  if (String((env && env.GEMINI_API_KEY) || "").trim()) {
+  if (resolveGeminiKeys(env).length) {
     try {
       const resolvedStyle = resolveStyle(source, normalizeStyle(payload.style));
       const prompt = await geminiTransformPrompt(source, resolvedStyle, env, providerTelemetry);
@@ -1188,7 +1194,7 @@ async function handlePromptTransform(request, env) {
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 400;
     const code = e instanceof HttpError ? e.code : "bad_request";
-    const provider = String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
+    const provider = resolveGeminiKeys(env).length ? "gemini" : "unknown";
     await recordPromptEvent(env, request, route, started, {
       outcome: "error", statusCode: status, errorCode: code,
       ...promptUsageTarget(env, route, provider, providerTelemetry.attempts),
@@ -1255,7 +1261,7 @@ async function handlePromptComplete(request, env) {
   } catch (e) {
     const status = e instanceof HttpError ? e.status : 502;
     const code = e instanceof HttpError ? e.code : "prompt_complete_failed";
-    const provider = String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
+    const provider = resolveGeminiKeys(env).length ? "gemini" : "unknown";
     await recordPromptEvent(env, request, route, started, {
       outcome: "error", statusCode: status, errorCode: code,
       ...promptUsageTarget(env, route, provider, providerTelemetry.attempts),
@@ -1325,7 +1331,7 @@ async function handlePromptEnhance(request, env) {
     const code = e instanceof HttpError ? e.code : "prompt_enhance_failed";
     const provider = e instanceof HttpError && providerTelemetry.attempts === 0
       ? "unknown"
-      : String((env && env.GEMINI_API_KEY) || "").trim() ? "gemini" : "unknown";
+      : resolveGeminiKeys(env).length ? "gemini" : "unknown";
     await recordPromptEvent(env, request, route, started, {
       outcome: "error", statusCode: status, errorCode: code,
       ...promptUsageTarget(env, route, provider, providerTelemetry.attempts),

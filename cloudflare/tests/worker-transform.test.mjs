@@ -176,6 +176,55 @@ test('POST /prompt/transform uses Gemini when GEMINI_API_KEY is set', async () =
   }
 });
 
+test('POST /prompt/transform rotates to the next key when one is out of quota', async () => {
+  // Free-tier quota is per key, so a 429 must move to the next one; retrying the
+  // same key just burns the attempt.
+  const originalFetch = globalThis.fetch;
+  const used = [];
+  globalThis.fetch = async (_url, init) => {
+    used.push(init.headers['x-goog-api-key']);
+    if (used.length === 1) return new Response('quota exceeded', { status: 429 });
+    return new Response(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"prompt": "a cat"}' }] } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  };
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/transform', { source: '一隻貓', style: 'auto' }),
+      fakeEnv({ GEMINI_API_KEYS: 'first,second' })
+    );
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.provider, 'gemini');
+    assert.deepEqual(used, ['first', 'second']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('GEMINI_API_KEYS alone still counts as having Gemini available', async () => {
+  // The "do we have a key" gates used to read GEMINI_API_KEY only; with just the
+  // plural set they would fall through to the offline rules and never call AI.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: '{"prompt": "a fox"}' }] } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  try {
+    const response = await worker.fetch(
+      jsonRequest('/prompt/transform', { source: '一隻狐狸', style: 'auto' }),
+      fakeEnv({ GEMINI_API_KEYS: 'only-plural' })
+    );
+    const data = await response.json();
+    assert.equal(data.provider, 'gemini', 'should not fall back to rule_based');
+    assert.equal(data.prompt, 'a fox');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('POST /prompt/transform unwraps a fenced JSON envelope from Gemini', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
@@ -678,16 +727,19 @@ test('inspectGeneratedImage reports safe header-only diagnostics', () => {
   assert.match(quality.issues.join('；'), /圖片資料過小/);
 });
 
-test('POST /generate can attach optional Gemini vision QA without leaking image data', async () => {
+test('POST /generate can attach optional vision QA and keeps the image out of the prompt', async () => {
   const originalFetch = globalThis.fetch;
   let visionPayload;
-  globalThis.fetch = async (_url, init) => {
-    visionPayload = JSON.parse(init.body);
-    return new Response(JSON.stringify({
-      candidates: [{
-        content: {
-          parts: [{
-            text: JSON.stringify({
+  // QA now shares NVIDIA_API_KEY with generation, so the same key also sends
+  // /generate to NVIDIA. Route by URL: chat/completions is QA, everything else
+  // is the image call.
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('/chat/completions')) {
+      visionPayload = JSON.parse(init.body);
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
               promptMatchScore: 91,
               compositionScore: 82,
               visualQualityScore: 73,
@@ -696,23 +748,29 @@ test('POST /generate can attach optional Gemini vision QA without leaking image 
               recommendation: 'edit',
               reason: '主體符合，手部需微調',
             }),
-          }],
-        },
-      }],
-    }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+          },
+        }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   try {
     const response = await worker.fetch(
       jsonRequest('/generate', { prompt: 'a person holding a cup', model: 'schnell', size: 'square', visionQa: true }),
-      fakeEnv({ GEMINI_API_KEY: 'test-key', VISION_QA_ENABLED: 'true' })
+      fakeEnv({ NVIDIA_API_KEY: 'nv-test', VISION_QA_ENABLED: 'true' })
     );
     const data = await response.json();
     assert.equal(response.status, 200);
-    assert.equal(data.visionQa.provider, 'gemini');
+    assert.equal(data.visionQa.provider, 'nvidia');
     assert.equal(data.visionQa.promptMatchScore, 91);
     assert.equal(data.visionQa.detectedIssues[0], '手指略怪');
-    assert.equal(JSON.stringify(visionPayload).includes('data:image'), false);
-    assert.equal(visionPayload.contents[0].parts[1].inline_data.mime_type, 'image/png');
+    // The image belongs in image_url only - never inlined into the text part.
+    const content = visionPayload.messages[0].content;
+    assert.equal(content[0].text.includes('data:image'), false);
+    assert.ok(content[1].image_url.url.startsWith('data:image/png;base64,'));
+    // json_object does not pin fields, so the prompt must name them.
+    assert.ok(content[0].text.includes('promptMatchScore'));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -722,24 +780,33 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
   resetUsageMetrics();
   const originalFetch = globalThis.fetch;
   let sawSignal = false;
-  globalThis.fetch = async (_url, init) => new Promise((_, reject) => {
-    sawSignal = Boolean(init && init.signal);
-    if (!init || !init.signal) {
-      reject(new Error('missing Vision QA abort signal'));
-      return;
+  // Only the QA call hangs; the image call must still succeed, otherwise this
+  // would test a failed generation rather than a failed inspection.
+  globalThis.fetch = async (url, init) => {
+    if (!String(url).includes('/chat/completions')) {
+      return new Response(JSON.stringify({ artifacts: [{ base64: 'iVBORw0KGgo=' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
-    const timer = setTimeout(() => {}, 2000);
-    init.signal.addEventListener('abort', () => {
-      clearTimeout(timer);
-      reject(init.signal.reason);
-    }, { once: true });
-  });
+    return new Promise((_, reject) => {
+      sawSignal = Boolean(init && init.signal);
+      if (!init || !init.signal) {
+        reject(new Error('missing Vision QA abort signal'));
+        return;
+      }
+      const timer = setTimeout(() => {}, 2000);
+      init.signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(init.signal.reason);
+      }, { once: true });
+    });
+  };
   const env = fakeEnv({
-    GEMINI_API_KEY: 'test-key',
+    NVIDIA_API_KEY: 'nv-test',
     VISION_QA_ENABLED: 'true',
     VISION_QA_TIMEOUT_MS: '10',
     GALLERY_ADMIN_TOKEN: 'admin-secret',
     USAGE_ESTIMATED_PROMPT_COST_USD_PER_REQUEST: '0.001',
+    USAGE_ESTIMATED_COST_USD_PER_IMAGE: '0.003',
   });
 
   try {
@@ -764,7 +831,9 @@ test('POST /generate preserves a completed image when Vision QA times out', asyn
     assert.equal(usage.byRoute.generate.successes, 1);
     assert.equal(usage.byRoute.vision_qa.failures, 1);
     assert.equal(usage.byRoute.vision_qa.attempts, 1);
-    assert.equal(usage.estimatedCostUsd, 0.001);
+    // One image at 0.003 plus one per-request QA call at 0.001. QA must never be
+    // priced per image - it produces none.
+    assert.equal(usage.estimatedCostUsd, 0.004);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1886,7 +1955,7 @@ test('Cloudflare Wrangler auth checker diagnoses login and dry-run gates', async
   assert.match(checker, /CommandLineArgsError/);
   assert.match(checker, /Account ID/);
   assert.match(checker, /--dry-run:\\s\+exiting now\\\./);
-  assert.match(checker, /R2 bucket/);
+  assert.match(checker, /AI binding/);
   assert.match(checker, /rate limit binding/);
   assert.match(checker, /PASS: Wrangler login and dry-run configuration are verifiable/);
 });
@@ -2745,6 +2814,22 @@ test('POST /gallery rejects a non-data-URL image', async () => {
   const data = await response.json();
   assert.equal(response.status, 400);
   assert.equal(data.code, 'bad_request');
+});
+
+test('disabled cloud gallery rejects saves while existing routes retain their contracts', async () => {
+  const env = fakeEnv({ GALLERY_ENABLED: 'false', IMAGE_BUCKET: fakeBucket(), GALLERY_ADMIN_TOKEN: 'admin-secret' });
+  const saved = await worker.fetch(jsonRequest('/gallery', { image: 'data:image/png;base64,ZmFrZQ==' }), env);
+  assert.equal(saved.status, 404);
+  assert.equal((await saved.json()).code, 'gallery_disabled');
+  const missingImage = await worker.fetch(new Request('https://example.test/gallery/old.png'), env);
+  assert.equal(missingImage.status, 404);
+  assert.equal((await missingImage.json()).code, 'not_found');
+  const missingShare = await worker.fetch(new Request('https://example.test/share/old.png'), env);
+  assert.equal(missingShare.status, 404);
+  const listing = await worker.fetch(adminGet('/api/gallery'), env);
+  assert.equal(listing.status, 200);
+  assert.deepEqual((await listing.json()).items, []);
+  assert.equal(env.IMAGE_BUCKET.store.size, 0);
 });
 
 test('POST /generate/batch returns an images array of the requested count', async () => {

@@ -87,6 +87,12 @@
       </button>
     </nav>
 
+    <!-- 人機驗證放在分頁外層：生成與改圖共用同一個 widget，切到改圖分頁時才看得到驗證框。 -->
+    <div id="turnstileGate" class="turnstile-gate" hidden>
+      <div id="turnstileWidget" class="cf-turnstile" data-action="turnstile-spin-v1"></div>
+      <p id="turnstileStatus" class="turnstile-status" role="status" aria-live="polite">公開站生成前需完成人機驗證。</p>
+    </div>
+
     <div class="tabpanel" id="panel-generate" role="tabpanel" aria-labelledby="tab-generate">
     <div class="generation-workspace" id="generationWorkspace">
       <aside class="generation-controls glass" id="generationControls" aria-label="生成設定面板">
@@ -149,109 +155,135 @@
           <button id="completePrompt" class="btn secondary" type="button" aria-describedby="transformStatus">✨ 幫我補完整</button>
           <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
         </div>
-        <div id="turnstileGate" class="turnstile-gate" hidden>
-          <div id="turnstileWidget" class="cf-turnstile" data-action="turnstile-spin-v1"></div>
-          <p id="turnstileStatus" class="turnstile-status" role="status" aria-live="polite">公開站生成前需完成人機驗證。</p>
-        </div>
         <div id="transformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>
 
+      <!-- 常用輸出先顯示；低頻的畫質與提示詞工具再個別展開。 -->
       <details id="advancedSettings" class="advanced-settings">
-        <summary>進階設定（提示詞、效果、畫質與尺寸）</summary>
-        <p class="prompt-shortcut-hint">可用下方按鈕轉成英文；鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
-        <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
-        <label class="final-prompt-label" for="prompt">英文提示詞（可查看、複製、編輯）</label>
-        <textarea id="prompt" rows="3" maxlength="4000" aria-describedby="status" placeholder="通常不必填；直接按「生成圖片」會自動由中文整理好。"></textarea>
+        <summary>
+          <span class="advanced-summary-copy">
+            <span>更多設定</span>
+            <small>尺寸、張數、畫質與提示詞</small>
+          </span>
+        </summary>
 
-        <div id="promptEnhancer" class="prompt-enhancer" role="group" aria-label="幫圖片加效果">
-          <label class="field-label" for="effectPrompt">加效果（選填）</label>
-          <p class="prompt-shortcut-hint">用中文說明想要的效果，AI 會把它融進上方英文提示詞。</p>
-          <div class="enhance-actions">
-            <input id="effectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="status"
-              placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
-            <button class="btn mini secondary" id="applyEffect" type="button">用 AI 套用效果</button>
-          </div>
-        </div>
-
-        <div class="prompt-controls advanced-controls" role="group" aria-label="進階生成設定">
-          <div class="field seed-field">
-            <span class="field-label">畫面變化</span>
-            <div class="seed-mode" role="group" aria-label="構圖模式">
-              <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">🎲 每次都不一樣</button>
-              <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false" aria-describedby="seedModeHint">🔒 鎖定這張構圖</button>
-              <div id="seedLockTooltip" class="seed-lock-tooltip" role="tooltip" aria-hidden="true" hidden>先生成一張圖，才能鎖定它的構圖</div>
-            </div>
-            <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的這張就切「鎖定」。</p>
-            <input id="seed" type="hidden">
-
-          </div>
-          <label class="field field-wide">
-            <span class="field-label">生成後 AI 檢查</span>
-            <input id="visionQa" type="checkbox">
-            <small class="seed-advanced-hint">交給視覺模型評分構圖／畫質／符合度並指出問題；只在單張生成時適用，會多花幾秒。</small>
-          </label>
-        </div>
-
-        <div class="composer-foot">
-          <div class="controls">
-            <label class="field">
-              <span class="field-label">生成參數</span>
-              <!-- 兩個畫質檔已合併：生成一律走 NVIDIA FLUX.1-dev。select 保留在
-                   DOM 供歷史再生／分享連結回填 model 值，不再顯示。 -->
-              <select id="model" hidden aria-hidden="true">
-                <option value="schnell">快速（草稿）</option>
-                <option value="dev" selected>高品質（較慢）</option>
-              </select>
-              <div id="devTuning" class="custom-size-fields">
-                <div class="seed-mode" role="group" aria-label="畫質檔">
-                  <button id="qualityDraft" class="seed-mode-btn quality-preset-btn" type="button" data-preset="draft" aria-pressed="false">🚀 草稿</button>
-                  <button id="qualityBalanced" class="seed-mode-btn quality-preset-btn is-active" type="button" data-preset="balanced" aria-pressed="true">⚖️ 平衡</button>
-                  <button id="qualityFine" class="seed-mode-btn quality-preset-btn" type="button" data-preset="fine" aria-pressed="false">✨ 精緻</button>
+        <div class="advanced-settings-body">
+          <section class="advanced-group advanced-output" aria-labelledby="advGroupOutput">
+            <h3 class="advanced-group-title" id="advGroupOutput">尺寸與張數</h3>
+            <div class="controls">
+              <label class="field">
+                <span class="field-label">用途尺寸</span>
+                <div class="select-wrap">
+                  <select id="size" aria-label="選擇用途尺寸">
+                    <option value="ig_post">IG 貼文 1:1（1024×1024）</option>
+                    <option value="ppt_16_9">PPT 橫式 16:9（1344×768）</option>
+                    <option value="ig_story">IG 限動 / Reels / Shorts 9:16（768×1344）</option>
+                    <option value="youtube_thumb">YouTube 縮圖 16:9（1344×768）</option>
+                    <option value="mobile_wallpaper">手機桌布 9:19.5（768×1664）</option>
+                    <option value="poster_3_4">海報 3:4（960×1280）</option>
+                    <option value="a4_illustration">A4 插圖（896×1280）</option>
+                    <option value="hero_21_9">網頁 Hero 21:9（1792×768）</option>
+                  </select>
+                  <span class="chevron" aria-hidden="true">▾</span>
                 </div>
-                <p id="qualityPresetHint" class="seed-mode-hint">站方推薦：速度與品質平衡，多數情況直接用這個。</p>
-                <details class="seed-advanced">
-                  <summary>自訂數值（steps / cfg_scale）</summary>
-                  <label>細緻度 steps（5–50）
-                    <input id="devSteps" class="text-input" type="number" min="5" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
-                  </label>
-                  <label>貼合提示詞 cfg_scale（1.5–9）
-                    <input id="devCfgScale" class="text-input" type="number" min="1.5" max="9" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
-                  </label>
-                  <p class="seed-advanced-hint">steps 越高越細緻但越慢；cfg_scale 越高越貼合描述，太高會顯得僵硬。</p>
-                </details>
+                <small class="seed-advanced-hint">選「用途」時會自動帶入，這裡可以覆寫。</small>
+              </label>
+              <label class="field">
+                <span class="field-label">張數</span>
+                <div class="select-wrap">
+                  <select id="batchCount" aria-label="選擇生成張數">
+                    <option value="1">1 張</option>
+                    <option value="2">2 張變體</option>
+                    <option value="3">3 張變體</option>
+                    <option value="4">4 張變體</option>
+                  </select>
+                  <span class="chevron" aria-hidden="true">▾</span>
+                </div>
+                <small class="seed-advanced-hint">多張會使用更多生成額度，也會花更久時間。</small>
+              </label>
+            </div>
+            <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
+          </section>
+
+          <details id="advancedQualitySettings" class="advanced-subsection">
+            <summary>
+              <span class="advanced-subsection-copy">
+                <strong id="advGroupQuality">生成品質</strong>
+                <small>構圖、畫質與生成後檢查</small>
+              </span>
+            </summary>
+            <div class="advanced-subsection-body">
+              <div class="prompt-controls advanced-controls" role="group" aria-label="進階生成設定">
+                <div class="field seed-field">
+                  <span class="field-label">畫面變化</span>
+                  <div class="seed-mode" role="group" aria-label="構圖模式">
+                    <button id="seedRandom" class="seed-mode-btn is-active" type="button" aria-pressed="true">每次換構圖</button>
+                    <button id="seedLock" class="seed-mode-btn" type="button" aria-pressed="false" aria-describedby="seedModeHint">鎖定構圖</button>
+                    <div id="seedLockTooltip" class="seed-lock-tooltip" role="tooltip" aria-hidden="true" hidden>先生成一張圖，才能鎖定它的構圖</div>
+                  </div>
+                  <p id="seedModeHint" class="seed-mode-hint">每次生成都換新構圖；想留住喜歡的構圖時再鎖定。</p>
+                  <input id="seed" type="hidden">
+                </div>
+                <label class="field field-wide vision-qa-option">
+                  <span class="field-label">生成後 AI 檢查</span>
+                  <input id="visionQa" type="checkbox">
+                  <small class="seed-advanced-hint">檢查構圖、畫質與符合度；僅適用單張，會多花幾秒。</small>
+                </label>
               </div>
-              <p class="model-license-hint">圖片授權與商用限制依實際生成服務條款而定；商用前請自行確認第三方權利。</p>
-            </label>
-            <label class="field">
-              <span class="field-label">用途尺寸</span>
-              <div class="select-wrap">
-                <select id="size" aria-label="選擇用途尺寸">
-                  <option value="ig_post">IG 貼文 1:1（1024×1024）</option>
-                  <option value="ppt_16_9">PPT 橫式 16:9（1344×768）</option>
-                  <option value="ig_story">IG 限動 / Reels / Shorts 9:16（768×1344）</option>
-                  <option value="youtube_thumb">YouTube 縮圖 16:9（1344×768）</option>
-                  <option value="mobile_wallpaper">手機桌布 9:19.5（768×1664）</option>
-                  <option value="poster_3_4">海報 3:4（960×1280）</option>
-                  <option value="a4_illustration">A4 插圖（896×1280）</option>
-                  <option value="hero_21_9">網頁 Hero 21:9（1792×768）</option>
+
+              <div class="field">
+                <span class="field-label">畫質</span>
+                <!-- 兩個畫質檔已合併：生成一律走 NVIDIA FLUX.1-dev。select 保留在
+                     DOM 供歷史再生／分享連結回填 model 值，不再顯示。 -->
+                <select id="model" hidden aria-hidden="true">
+                  <option value="schnell">快速（草稿）</option>
+                  <option value="dev" selected>高品質（較慢）</option>
                 </select>
-                <span class="chevron" aria-hidden="true">▾</span>
+                <div id="devTuning" class="custom-size-fields">
+                  <div class="seed-mode" role="group" aria-label="畫質檔">
+                    <button id="qualityDraft" class="seed-mode-btn quality-preset-btn" type="button" data-preset="draft" aria-pressed="false">草稿</button>
+                    <button id="qualityBalanced" class="seed-mode-btn quality-preset-btn is-active" type="button" data-preset="balanced" aria-pressed="true">平衡</button>
+                    <button id="qualityFine" class="seed-mode-btn quality-preset-btn" type="button" data-preset="fine" aria-pressed="false">精緻</button>
+                  </div>
+                  <p id="qualityPresetHint" class="seed-mode-hint">建議使用「平衡」，兼顧速度與畫質。</p>
+                  <details class="seed-advanced">
+                    <summary>自訂畫質參數</summary>
+                    <label>細緻度（steps，5–50）
+                      <input id="devSteps" class="text-input" type="number" min="5" max="50" step="1" inputmode="numeric" placeholder="留空＝用站方預設">
+                    </label>
+                    <label>提示詞貼合度（cfg_scale，1.5–9）
+                      <input id="devCfgScale" class="text-input" type="number" min="1.5" max="9" step="0.5" inputmode="decimal" placeholder="留空＝用站方預設">
+                    </label>
+                    <p class="seed-advanced-hint">數值越高越細緻或貼合，但也更慢；過高可能顯得僵硬。</p>
+                  </details>
+                </div>
               </div>
-            </label>
-            <label class="field">
-              <span class="field-label">張數</span>
-              <div class="select-wrap">
-                <select id="batchCount" aria-label="選擇生成張數">
-                  <option value="1">1 張</option>
-                  <option value="2">2 張變體</option>
-                  <option value="3">3 張變體</option>
-                  <option value="4">4 張變體</option>
-                </select>
-                <span class="chevron" aria-hidden="true">▾</span>
+            </div>
+          </details>
+
+          <details id="advancedPromptSettings" class="advanced-subsection">
+            <summary>
+              <span class="advanced-subsection-copy">
+                <strong id="advGroupPrompt">提示詞工具</strong>
+                <small>查看英文提示詞或追加效果</small>
+              </span>
+            </summary>
+            <div class="advanced-subsection-body">
+              <p class="prompt-shortcut-hint">通常不用填。需要微調英文提示詞時再使用；Ctrl / ⌘ + Enter 可快速轉換。</p>
+              <button id="transformPrompt" class="btn secondary" type="button">轉成英文提示詞</button>
+              <label class="final-prompt-label" for="prompt">英文提示詞</label>
+              <textarea id="prompt" rows="3" maxlength="4000" aria-describedby="status" placeholder="會由中文描述自動整理，也可在這裡微調。"></textarea>
+
+              <div id="promptEnhancer" class="prompt-enhancer" role="group" aria-label="幫圖片加效果">
+                <label class="field-label" for="effectPrompt">追加效果（選填）</label>
+                <div class="enhance-actions">
+                  <input id="effectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="status"
+                    placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
+                  <button class="btn mini secondary" id="applyEffect" type="button">套用效果</button>
+                </div>
               </div>
-              <small class="seed-advanced-hint">多張會使用更多生成額度，也會花更久時間。</small>
-            </label>
-          </div>
+            </div>
+          </details>
         </div>
       </details>
       <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -259,7 +291,7 @@
         </div>
       </aside>
 
-      <div id="workspaceDivider" class="workspace-divider" role="separator" aria-label="調整生成設定面板寬度" aria-orientation="vertical" aria-controls="generationControls" aria-valuemin="320" aria-valuemax="560" aria-valuenow="390" tabindex="0">
+      <div id="workspaceDivider" class="workspace-divider" role="separator" aria-label="調整生成設定面板寬度" aria-orientation="vertical" aria-controls="generationControls" aria-valuemin="320" aria-valuemax="560" aria-valuenow="460" tabindex="0">
         <span aria-hidden="true"></span>
       </div>
 
@@ -427,62 +459,137 @@
         </div>
         <div id="editStatus" class="status edit-availability-status" aria-live="polite">等待參考圖與改圖指令</div>
         <div class="edit-panel-body">
-          <section class="edit-control-section">
-            <div class="edit-section-label"><span>01</span><strong>選擇工作模式</strong></div>
-            <div class="edit-mode-grid" aria-label="參考圖模式">
-              <button class="edit-mode-card is-active" type="button" data-edit-mode="general" aria-pressed="true">
-                <i aria-hidden="true">◫</i><strong>一般改圖</strong><span>換色、換背景、合成與風格轉移。</span>
-              </button>
-              <button class="edit-mode-card" type="button" data-edit-mode="character" aria-pressed="false">
-                <i aria-hidden="true">◇</i><strong>角色一致模式</strong><span>保留角色核心外觀與辨識特徵。</span>
-              </button>
-              <button class="edit-mode-card" type="button" data-edit-mode="product" aria-pressed="false">
-                <i aria-hidden="true">▣</i><strong>產品照模式</strong><span>保持商品外觀並重建背景與光線。</span>
-              </button>
-            </div>
-          </section>
+          <!-- 版面與生成分頁一致：首屏 composer 放必要決策，其餘收進「進階設定」。 -->
+          <section class="composer" aria-label="改圖描述">
+            <div class="prompt-tool product-first" aria-label="中文改圖">
+              <div class="section-heading">
+                <span class="section-kicker">中文改圖</span>
+                <h2>上傳圖片，用中文說怎麼改。</h2>
+                <p>選一種模式，加入參考圖，再用中文描述要改成什麼樣子。</p>
+              </div>
 
-          <section class="edit-control-section">
-            <div class="edit-section-label"><span>02</span><strong>加入參考圖片</strong></div>
-            <label id="editDrop" class="edit-drop" for="editFiles" aria-disabled="true" aria-busy="true">
-              <input id="editFiles" type="file" accept="image/*" multiple hidden disabled>
-              <span class="edit-drop-icon" aria-hidden="true">＋</span>
-              <strong>拖曳圖片到這裡</strong>
-              <span class="edit-drop-text">或點一下選擇檔案 · 自動縮至模型可用尺寸</span>
-              <span id="editReadyHint" role="status">正在準備選圖…</span>
-            </label>
-            <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
-          </section>
+              <div class="edit-mode-grid" role="group" aria-label="參考圖模式">
+                <button class="edit-mode-card is-active" type="button" data-edit-mode="general" aria-pressed="true">
+                  <i aria-hidden="true">◫</i><strong>一般改圖</strong><span>換色、換背景、合成與風格轉移。</span>
+                </button>
+                <button class="edit-mode-card" type="button" data-edit-mode="character" aria-pressed="false">
+                  <i aria-hidden="true">◇</i><strong>角色一致模式</strong><span>保留角色核心外觀與辨識特徵。</span>
+                </button>
+                <button class="edit-mode-card" type="button" data-edit-mode="product" aria-pressed="false">
+                  <i aria-hidden="true">▣</i><strong>產品照模式</strong><span>保持商品外觀並重建背景與光線。</span>
+                </button>
+              </div>
 
-          <section class="edit-control-section">
-            <div class="edit-section-label"><span>03</span><strong>描述修改內容</strong></div>
-            <div class="edit-product-controls" id="editProductControls" aria-label="產品照設定" hidden>
-              <label class="field">
-                <span class="field-label">產品背景</span>
-                <select id="editProductBackground" class="text-input">
-                  <option value="clean studio background">乾淨棚拍背景</option>
-                  <option value="matte stone surface">霧面石材平台</option>
-                  <option value="warm lifestyle interior">溫暖生活情境</option>
-                  <option value="pure white ecommerce background">白底電商主圖</option>
-                </select>
+              <label id="editDrop" class="edit-drop" for="editFiles" aria-disabled="true" aria-busy="true">
+                <input id="editFiles" type="file" accept="image/*" multiple hidden disabled>
+                <span class="edit-drop-icon" aria-hidden="true">＋</span>
+                <strong>拖曳圖片到這裡</strong>
+                <span class="edit-drop-text">或點一下選擇檔案 · 最多 4 張 · 自動縮至模型可用尺寸</span>
+                <span id="editReadyHint" role="status">正在準備選圖…</span>
               </label>
-              <label class="field">
-                <span class="field-label">產品光線</span>
-                <select id="editProductLighting" class="text-input">
-                  <option value="softbox studio lighting">柔和棚燈</option>
-                  <option value="natural window light">自然窗光</option>
-                  <option value="dramatic rim light">高級輪廓光</option>
-                  <option value="bright clean commercial lighting">明亮商業光</option>
-                </select>
-              </label>
+              <div id="editThumbs" class="edit-thumbs" aria-live="polite"></div>
+              <p id="editRefRoleHint" class="seed-mode-hint">多張圖時，用每張縮圖下方的選單標明它是<b>角色</b>、<b>產品</b>、<b>風格</b>還是<b>構圖</b>參考，AI 會分別對待。</p>
+
+              <div class="edit-preset-block">
+                <div class="edit-preset-head">
+                  <span>✦ 快速指令</span>
+                  <small>點一下帶入，可再自行修改 · 不消耗額度</small>
+                </div>
+                <div id="editPresets" class="edit-presets" role="group" aria-label="快速改圖指令"></div>
+              </div>
+
+              <label class="final-prompt-label" id="editPromptLabel" for="editPrompt">改圖指令</label>
+              <p id="editPromptHelp" class="visually-hidden">必填。請用中文描述要改成什麼樣子；按開始改圖後系統會自動整理成完整指令。</p>
+              <textarea id="editPrompt" rows="2" maxlength="900" aria-describedby="editPromptHelp editStatus" aria-required="true"
+                placeholder="例如：把背景換成雨夜街道，保留主體構圖與色彩層次。"></textarea>
+
+              <!-- 產品照模式專屬，跟著模式顯示在眼前，不收進進階設定。 -->
+              <div class="edit-product-controls" id="editProductControls" aria-label="產品照設定" hidden>
+                <label class="field">
+                  <span class="field-label">產品背景</span>
+                  <select id="editProductBackground" class="text-input">
+                    <option value="clean studio background">乾淨棚拍背景</option>
+                    <option value="matte stone surface">霧面石材平台</option>
+                    <option value="warm lifestyle interior">溫暖生活情境</option>
+                    <option value="pure white ecommerce background">白底電商主圖</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-label">產品光線</span>
+                  <select id="editProductLighting" class="text-input">
+                    <option value="softbox studio lighting">柔和棚燈</option>
+                    <option value="natural window light">自然窗光</option>
+                    <option value="dramatic rim light">高級輪廓光</option>
+                    <option value="bright clean commercial lighting">明亮商業光</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="composer-options" role="group" aria-label="改圖選項">
+                <label class="field option-field">
+                  <span class="field-label">風格</span>
+                  <div class="select-wrap">
+                    <select id="editPromptStyle" aria-label="選擇改圖風格">
+                      <option value="auto">維持原風格</option>
+                      <option value="cute">可愛</option>
+                      <option value="cinematic">電影感</option>
+                      <option value="realistic">寫實</option>
+                      <option value="anime">動漫</option>
+                      <option value="product">產品照</option>
+                    </select>
+                    <span class="chevron" aria-hidden="true">▾</span>
+                  </div>
+                </label>
+              </div>
+              <div class="field segmented-field">
+                <div class="segmented-head">
+                  <span class="field-label">修改幅度</span>
+                  <strong id="editStrengthValue">適中</strong>
+                </div>
+                <div class="segmented-slider" data-seg="1">
+                  <span class="segmented-ticks" aria-hidden="true">
+                    <i data-edit-strength="subtle"></i><i data-edit-strength="balanced"></i><i data-edit-strength="bold"></i>
+                  </span>
+                  <input id="editStrength" type="range" min="0" max="2" step="1" value="1"
+                    aria-label="修改幅度" aria-valuetext="適中" list="editStrengthTicks">
+                </div>
+                <datalist id="editStrengthTicks">
+                  <option value="0" label="微調"></option>
+                  <option value="1" label="適中"></option>
+                  <option value="2" label="大改"></option>
+                </datalist>
+              </div>
+              <p id="editStrengthHint" class="seed-mode-hint">依指令調整，同時維持原圖的整體構圖與氛圍。</p>
+
+              <!-- 與修改幅度同樣在回答「要改多少」，放在一起而不是分兩層。 -->
+              <div class="field">
+                <span class="edit-keep-head" id="editKeepHead">要保留的部分（可複選）</span>
+                <div id="editKeep" class="edit-keep-group" role="group" aria-labelledby="editKeepHead"></div>
+              </div>
+
+              <div class="prompt-controls">
+                <button id="editCompletePrompt" class="btn secondary" type="button" aria-describedby="editTransformStatus">✨ 幫我補完整</button>
+                <button id="editGo" class="btn primary hero-generate" type="button" disabled aria-disabled="true" aria-describedby="editStatus">✦ 開始改圖</button>
+              </div>
+              <div id="editTransformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
             </div>
-            <label class="edit-prompt-label" id="editPromptLabel" for="editPrompt">改圖指令</label>
-            <textarea id="editPrompt" aria-label="改圖指令" rows="4" maxlength="900"
-              placeholder="例如：把背景換成雨夜街道，保留主體構圖與色彩層次。"></textarea>
+
+            <!-- 只留會呼叫 API 的兩個工具；不消耗額度的快速指令已移到首屏。 -->
+            <details id="editAdvancedSettings" class="advanced-settings">
+              <summary>進階設定（轉英文指令與 AI 加效果）</summary>
+              <p class="prompt-shortcut-hint">這兩項會呼叫 AI。鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文，Tab 會正常移到下一個控制項。</p>
+              <button id="editTransformPrompt" class="btn secondary" type="button">轉成英文指令</button>
+
+              <div id="editPromptEnhancer" class="prompt-enhancer" role="group" aria-label="幫改圖加效果">
+                <label class="field-label" for="editEffectPrompt">加效果（選填）</label>
+                <div class="enhance-actions">
+                  <input id="editEffectPrompt" class="text-input" type="text" maxlength="500" aria-describedby="editTransformStatus"
+                    placeholder="例如：更夢幻、加霓虹光、背景虛化、換成黃昏光線">
+                  <button class="btn mini secondary" id="editApplyEffect" type="button">用 AI 套用效果</button>
+                </div>
+              </div>
+            </details>
           </section>
-        </div>
-        <div class="edit-panel-footer">
-          <button id="editGo" class="btn primary" type="button" disabled aria-disabled="true">✦ 開始改圖</button>
         </div>
       </aside>
 
@@ -501,9 +608,20 @@
             <p>左側加入參考圖片並輸入指令後，按下「開始改圖」。</p>
           </div>
         </section>
-        <div class="edit-preview-actions">
-          <span>輸入圖片會在瀏覽器中先縮小後送出</span>
+        <div class="canvas-statusbar edit-statusbar" id="editStatusbar" aria-label="目前改圖設定">
+          <span class="canvas-state"><i aria-hidden="true"></i><b id="editStateMeta">待命</b></span>
+          <span id="editModeMeta">一般改圖</span>
+          <span id="editRefMeta">0 張參考圖</span>
+          <span id="editStrengthMeta">適中</span>
+          <span class="canvas-status-spacer"></span>
+          <span id="editProviderMeta" class="canvas-interaction-hint">輸入圖片會在瀏覽器中先縮小後送出</span>
+        </div>
+
+        <div class="edit-preview-actions" id="editResultActions">
           <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">⬇ 下載結果</a>
+          <button id="editCompare" class="btn secondary" type="button" disabled aria-pressed="false" aria-label="前後對比：切換原圖與結果">⇔ 前後對比</button>
+          <button id="editReuse" class="btn secondary" type="button" disabled aria-label="用結果再改一次：把結果當成新的參考圖繼續改">🔁 用結果再改一次</button>
+          <button id="editCopyPrompt" class="btn secondary" type="button" aria-label="複製指令：複製這次送出的完整改圖指令">📋 複製指令</button>
         </div>
       </section>
     </div>
@@ -571,12 +689,12 @@
         <div>
           <span class="section-kicker">站長工具</span>
           <h2>成本 Dashboard</h2>
-          <p>查看所選 UTC 日期的生成次數、供應商嘗試、失敗率、估計成本與異常提醒。需輸入站長 Token；此摘要不保存提示詞、圖片內容或原始 IP。</p>
+          <p>查看所選 UTC 日期的生成次數、供應商嘗試、失敗率、估計成本與異常提醒。需輸入用量站長 Token（USAGE_ADMIN_TOKEN；未設定時使用 GALLERY_ADMIN_TOKEN）；此摘要不保存提示詞、圖片內容或原始 IP。</p>
         </div>
         <div class="history-actions usage-query-controls">
-          <label class="field" for="galleryAdminToken">
+          <label class="field" for="usageAdminToken">
             <span class="field-label">站長 Token</span>
-            <input id="galleryAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 GALLERY_ADMIN_TOKEN" aria-label="用量與雲端圖庫站長 Token">
+            <input id="usageAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 USAGE_ADMIN_TOKEN 或 GALLERY_ADMIN_TOKEN" aria-label="用量站長 Token">
           </label>
           <label class="field" for="usageDate">
             <span class="field-label">查詢日期（UTC）</span>
@@ -624,6 +742,10 @@
           <span id="galleryAdminCount" class="gallery-admin-count">尚未載入</span>
         </div>
         <div class="gallery-admin-controls">
+          <label class="field" for="galleryAdminToken">
+            <span class="field-label">圖庫站長 Token</span>
+            <input id="galleryAdminToken" class="text-input" type="password" autocomplete="off" placeholder="輸入 GALLERY_ADMIN_TOKEN" aria-label="雲端圖庫站長 Token">
+          </label>
           <button id="refreshGalleryAdmin" class="btn mini secondary" type="button">讀取雲端圖庫</button>
           <button id="galleryAdminNext" class="btn mini secondary" type="button" disabled>載入下一頁</button>
         </div>
@@ -736,7 +858,7 @@
           </section>
           <section>
             <h3>本機資料如何保存</h3>
-            <p>本機歷史與教學偏好只會存在這台瀏覽器的 localStorage；本站介面不提供作品雲端保存功能。</p>
+            <p>本站目前主要使用 localStorage 保存教學狀態與本機歷史；不需要登入 cookie。你可以在這裡清除本機資料。</p>
           </section>
           <section>
             <h3>Cookies、localStorage 與刪除資料</h3>

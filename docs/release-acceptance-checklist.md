@@ -18,7 +18,7 @@
 | [ ] | Node LTS for Wrangler | 若 Wrangler dry-run crash，需改用 Node 20 或 22 LTS 後重跑 `check:wrangler` 與 `deploy:dry-run` | 是 |
 | [ ] | 乾淨部署來源 | 正式 deploy 前 `git status --porcelain` 必須無輸出；wrapper 通過 readiness gate 後才可用 HEAD 標記版本 | 是 |
 | [ ] | 固定 production 目標 | Wrapper 只接受無參數正式 deploy 或 `--dry-run`；不得用 `--env`、`--name`、`--config`、自訂 entrypoint、`--tag` 或 `--message` 改寫目標／版本對照 | 是 |
-| [ ] | Production secrets inventory | `node cloudflare\scripts\check-deploy-readiness.mjs` 唯讀確認 `TURNSTILE_SECRET_KEY`、`GALLERY_TOKEN_SECRET`、`GALLERY_ADMIN_TOKEN`、`NVIDIA_API_KEY`、`GEMINI_API_KEY` 全部存在；輸出不得含 secret 值 | 是 |
+| [ ] | Production secrets inventory | `node cloudflare\scripts\check-deploy-readiness.mjs` 唯讀確認 `TURNSTILE_SECRET_KEY`、`NVIDIA_API_KEY`、`GEMINI_API_KEY` 存在；相簿啟用時另需 `GALLERY_TOKEN_SECRET` 與 `GALLERY_ADMIN_TOKEN`；`USAGE_ADMIN_TOKEN` 選用，未設定時用量認證回退 `GALLERY_ADMIN_TOKEN`，header 為 `X-Gallery-Admin-Token`；輸出不得含 secret 值 | 是 |
 | [ ] | GitHub Actions CI | `.github/workflows/ci.yml` 的 `verify` job 在目標 commit 通過；repo 尚無 remote 時不得勾選 | 是 |
 | [ ] | Version metadata／observability | `wrangler.toml` 有 `CF_VERSION_METADATA` 與取樣後 Workers Logs；部署後 health 可對應 active Version ID | 是 |
 | [ ] | Rollback rehearsal | 依 `docs/deployment-checklist.md` 執行 `wrangler versions list`／`wrangler versions view` 的唯讀步驟，確認已知正常版本與 `wrangler rollback <VERSION_ID>` 指令；不要為演練真的 rollback | 是 |
@@ -71,7 +71,7 @@
 | [ ] | 風格卡 JSON 匯入 / 匯出 | 匯出會提醒含完整 prompt；匯入 schema version 錯誤會友善失敗 | TASK-026, TASK-027 | 是 |
 | [ ] | 專案整理 | 建立專案、加入作品與風格卡、從專案繼續生成 | TASK-029 | 否 |
 
-## 6. 雲端保存、分享與圖庫管理
+## 6. 本機歷史、圖片下載、雲端保存與圖庫管理
 
 | 狀態 | 項目 | 驗收方式 | 對應任務 | Release blocker |
 |---|---|---|---|---|

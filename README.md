@@ -48,6 +48,7 @@ FastAPI 版與 `cloudflare/` Cloudflare Workers 版同步支援以下功能：
 - 線上功能 QA：Cloudflare 版提供 `npm run qa:browser`，會實際點擊 Prompt 強化器、歷史牆、詳情面板、標籤、PWA 與手機底部生成列。
 - 線上效能 QA：Cloudflare 版提供 `npm run qa:perf`，會量 TTFB、FCP、LCP、CLS、資源數與傳輸量，輸出到 `cloudflare/output/playwright/cloudflare-perf-qa.json`。
 - 錯誤監控：前端會把 `window.error`、`unhandledrejection` 與生成 API 失敗送到同源 `POST /client-error`；Worker 會回 `x-request-id` 並記錄已截斷的白名單欄位。
+- 生成後視覺 QA：逐次勾選才執行，使用 NVIDIA VLM 與 `NVIDIA_API_KEY`；缺少金鑰時回報不可用，不切換 Gemini。可用 `NVIDIA_VISION_MODEL` 與 `VISION_QA_TIMEOUT_MS` 設定。
 - 效能最佳化：已移除 Google Fonts 外部字型；Cloudflare deploy copy 會壓縮 JavaScript，範例圖與額外靈感模組則延後到接近可視區才載入。
 - 變更清單：本輪提交包在 `docs/release-package-2026-06-25.md`，版本紀錄在 `CHANGELOG.md`。
 
@@ -135,7 +136,7 @@ npx wrangler secret put MINIMAX_API_KEY
 
 ### `GET /api/usage`
 
-回傳 prompt-free 成本／用量摘要；可加 `?date=YYYY-MM-DD` 查指定日期。前端「用量」分頁會呼叫此端點並顯示站長摘要。
+Worker 透過 `X-Gallery-Admin-Token` 驗證用量管理權限；`USAGE_ADMIN_TOKEN` 是選用的獨立 token，未設定時回退 `GALLERY_ADMIN_TOKEN`。回傳 prompt-free 成本／用量摘要；可加 `?date=YYYY-MM-DD` 查指定日期。前端「用量」分頁會呼叫此端點並顯示站長摘要。
 
 ```json
 {

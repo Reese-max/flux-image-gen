@@ -67,9 +67,11 @@ class Settings:
     # fallback chain (NVIDIA -> MiniMax -> Workers AI -> Pollinations). Empty = off.
     minimax_api_key: str = os.getenv("MINIMAX_API_KEY", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    # 多把免費金鑰輪替（逗號分隔），優先於單把 GEMINI_API_KEY。免費層的配額是綁在
+    # 每一把金鑰上的，所以重試時換下一把才真的能提高容量；只設一把時行為不變。
+    gemini_api_keys: str = os.getenv("GEMINI_API_KEYS", "")
     gemini_prompt_model: str = os.getenv("GEMINI_PROMPT_MODEL", "gemma-4-31b-it")
     gemini_complete_model: str = os.getenv("GEMINI_COMPLETE_MODEL", "gemma-4-31b-it")
-    gemini_vision_model: str = os.getenv("GEMINI_VISION_MODEL", "gemini-2.5-flash")
     gemini_base_url: str = os.getenv(
         "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
     )
@@ -78,6 +80,15 @@ class Settings:
         "GEMINI_COMPLETE_TIMEOUT_SECONDS", 5.0
     )
     vision_qa_enabled: bool = _bool_env("VISION_QA_ENABLED", False)
+    # 生成後視覺 QA 走 NVIDIA VLM：與生圖共用同一把 NVIDIA_API_KEY，不另外吃付費配額。
+    # 代價是延遲（實測 1024x1024 中位約 8.4 秒），但 QA 是逐次勾選的（預設不勾），
+    # 等待只落在主動要求的人身上。
+    nvidia_chat_base_url: str = os.getenv(
+        "NVIDIA_CHAT_BASE_URL", "https://integrate.api.nvidia.com/v1"
+    )
+    nvidia_vision_model: str = os.getenv(
+        "NVIDIA_VISION_MODEL", "meta/llama-3.2-90b-vision-instruct"
+    )
     # Third-tier keyless Pollinations fallback, reached only when NVIDIA and
     # Workers AI both fail on infrastructure (5xx/timeout). Off by default; set
     # POLLINATIONS_FALLBACK_ENABLED=true to enable (mirrors the Worker flag).

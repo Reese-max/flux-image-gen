@@ -1,3 +1,4 @@
+import hashlib
 import re
 from pathlib import Path
 
@@ -9,6 +10,21 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 def read_static(name):
     path = STATIC_DIR / name
     return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def compute_static_fingerprint():
+    """app/static 下所有會進 service worker 快取的 HTML/CSS/JS 的合併雜湊。
+
+    排除 service-worker.js 自己（雜湊就存在它裡面，納入會自我參照）。行尾正規化成
+    LF，否則同一份原始碼在 Windows（CRLF）與 CI（LF）會算出不同雜湊。
+    """
+    digest = hashlib.sha256()
+    for path in sorted(STATIC_DIR.glob("*.*"), key=lambda p: p.name):
+        if path.suffix not in {".html", ".css", ".js"} or path.name == "service-worker.js":
+            continue
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_text(encoding="utf-8").replace("\r\n", "\n").encode("utf-8"))
+    return digest.hexdigest()[:12]
 
 
 def read_repo(path):
@@ -134,7 +150,9 @@ def test_public_deployment_checklist_documents_required_gates():
     for required in [
         "NVIDIA_API_KEY",
         "GEMINI_API_KEY",
-        "GEMINI_VISION_MODEL",
+        "NVIDIA_VISION_MODEL",
+        "USAGE_ADMIN_TOKEN",
+        "X-Gallery-Admin-Token",
         "VISION_QA_ENABLED",
         "TURNSTILE_SECRET_KEY",
         "GALLERY_ADMIN_TOKEN",
@@ -233,6 +251,8 @@ def test_release_acceptance_checklist_tracks_manual_blockers():
         "螢幕閱讀器",
         "用途帶入尺寸",
         "張數明確可控",
+        "本機歷史",
+        "圖片下載",
         "R2 gallery save",
         "分享頁隱藏 prompt",
         "Turnstile 真實驗證",
@@ -579,7 +599,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v25" in service_worker_js
+    assert "ai-image-generator-pwa-v37" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -593,6 +613,28 @@ def test_service_worker_static_cache_is_safe():
         "usage-dashboard.js",
     ]:
         assert f"'/static/{lazy_script}'" not in service_worker_js
+
+
+def test_service_worker_cache_version_tracks_static_assets():
+    """改了前端資源卻沒 bump CACHE_NAME 時擋下來。
+
+    worker 是 network-first，舊快取只是 fallback，所以漏 bump 不會壞掉——但也不會
+    觸發 install 重抓資產、不會刪掉舊快取、前端的「新版本已準備好」提示也不會跳，
+    回訪的分頁就繼續渲染舊介面。這在實務上發生過一次（改完滑桿部署，線上仍是舊的
+    select），純靠記性擋不住，所以在這裡設一道閘門。
+    """
+    service_worker_js = read_static("service-worker.js")
+    match = re.search(r"var ASSET_FINGERPRINT = '([0-9a-f]+)';", service_worker_js)
+    assert match, "service-worker.js 少了 ASSET_FINGERPRINT"
+
+    expected = compute_static_fingerprint()
+    cache_name = re.search(r"var CACHE_NAME = '([^']+)';", service_worker_js)
+    assert cache_name, "service-worker.js 少了 CACHE_NAME"
+    assert match.group(1) == expected, (
+        f"app/static 的資源已變動。請把 service-worker.js 的 ASSET_FINGERPRINT 改成 "
+        f"'{expected}'，並把 CACHE_NAME（目前 '{cache_name.group(1)}'）的版本號 +1，"
+        f"否則回訪使用者會繼續看到舊介面。"
+    )
 
 
 def test_history_regenerate_restores_complete_settings_before_visible_generation():
@@ -610,6 +652,19 @@ def test_history_regenerate_restores_complete_settings_before_visible_generation
     assert "if (!switchToGenerateTab()) { return; }" in body
     assert body.index("switchToGenerateTab()") < body.index("setNextGenerationSourceRecord")
     assert body.index("switchToGenerateTab()") < body.index("ImageGenApp.setGenerationSettings({") < body.index("ImageGenApp.generate()")
+
+
+def test_history_composition_switches_to_generate_before_loading_settings():
+    history_wall_js = read_static("history-wall.js")
+    composition = re.search(
+        r"if \(useCompositionDetail\) \{([\s\S]*?)\n    \}\n    if \(historySearch\)",
+        history_wall_js,
+    )
+
+    assert composition
+    body = composition.group(1)
+    assert "if (!switchToGenerateTab()) { return; }" in body
+    assert body.index("switchToGenerateTab()") < body.index("lockCompositionFromRecord(record)")
 
 
 def test_cloudflare_csp_allows_local_image_preview_blobs():
@@ -671,17 +726,20 @@ def test_prompt_transform_ui_is_wired():
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html
     assert 'src="/static/prompt-transform.js"' in html
-    assert "fetch('/prompt/transform'" in transform_js
-    assert "fetch('/prompt/complete'" in transform_js
-    assert "plainPrompt" in transform_js
-    assert "transformPrompt" in transform_js
-    assert "completePrompt" in transform_js
-    assert "completePromptButton.addEventListener('click', completePrompt)" in transform_js
-    assert "finalPrompt.setAttribute('data-auto-source', source)" in transform_js
-    assert "finalPrompt.getAttribute('data-auto-source')" in transform_js
-    assert "finalPrompt.removeAttribute('data-auto-source')" in transform_js
-    assert "setCompletionBusy(completePromptButton, true)" in transform_js
-    assert "setCompletionBusy(completePromptButton, false)" in transform_js
+    assert "'/prompt/transform'" in transform_js
+    assert "'/prompt/complete'" in transform_js
+    # 生成分頁的欄位仍由同一份管線驅動（ctx 設定，不是硬編碼在函式裡）。
+    assert "sourceId: 'plainPrompt'" in transform_js
+    assert "targetId: 'prompt'" in transform_js
+    assert "styleId: 'promptStyle'" in transform_js
+    assert "transformButtonId: 'transformPrompt'" in transform_js
+    assert "completeButtonId: 'completePrompt'" in transform_js
+    assert "completeButton.addEventListener('click', function(){ completePrompt(ctx); })" in transform_js
+    assert "targetField.setAttribute('data-auto-source', source)" in transform_js
+    assert "targetField.getAttribute('data-auto-source')" in transform_js
+    assert "targetField.removeAttribute('data-auto-source')" in transform_js
+    assert "setBusy(button, true" in transform_js
+    assert "setBusy(button, false)" in transform_js
     assert "button.setAttribute('aria-busy', 'true')" in transform_js
     assert "button.removeAttribute('aria-busy')" in transform_js
     assert "event.key === 'Tab'" not in transform_js
@@ -775,7 +833,11 @@ def test_iteration_ux_scripts_integrate_with_app():
 def test_cloud_save_feature_is_removed():
     html = read_static("index.html")
     app_js = read_static("app.js")
+    history_store_js = read_static("history-store.js")
+    history_wall_js = read_static("history-wall.js")
     styles = read_static("styles.css")
+    worker_js = read_repo("cloudflare/src/index.js")
+    wrangler = read_repo("cloudflare/wrangler.toml")
 
     assert 'id="saveToCloud"' not in html
     assert 'id="cloudSaveModal"' not in html
@@ -785,6 +847,16 @@ def test_cloud_save_feature_is_removed():
     assert "function saveToCloud" not in app_js
     assert "fetch('/gallery'" not in app_js
     assert "galleryToken:" not in app_js
+    assert 'GALLERY_ENABLED = "false"' in wrangler
+    assert "IMAGE_BUCKET" in wrangler
+    assert "[[r2_buckets]]" in wrangler
+    assert "storageAvailable" in worker_js
+    assert "issueGalleryToken" in worker_js
+    assert 'from "./gallery.js"' in worker_js
+    assert "cloudShareUrl" in history_store_js
+    assert "cloudDeleteUrl" in history_store_js
+    assert "cloudShareUrl" in history_wall_js
+    assert "cloudDeleteUrl" in history_wall_js
     assert ".cloud-save-modal" not in styles
     assert ".cloud-save-copy" not in styles
     assert ".cloud-fallback-info" not in styles
@@ -870,6 +942,115 @@ def test_reference_image_modes_and_edit_stubs_are_wired():
     )
 
 
+def test_edit_tab_has_the_same_creative_toolkit_as_the_generate_tab():
+    """改圖分頁補齊生成分頁的工具：快速指令、強度/保留、對比、迭代、複製、歷史、失敗建議。"""
+    html = read_static("index.html")
+    image_edit_js = read_static("image-edit.js")
+    styles = read_static("styles.css")
+
+    # 快速指令庫 + 修改幅度 + 保留項目
+    assert 'id="editPresets"' in html
+    assert 'id="editStrength" type="range" min="0" max="2" step="1"' in html
+    assert 'id="editStrengthValue"' in html
+    assert "STRENGTH_ORDER = ['subtle', 'balanced', 'bold']" in image_edit_js
+    assert 'id="editStrengthHint"' in html
+    assert 'id="editKeep"' in html
+    # 結果操作列與狀態列
+    assert 'id="editCompare"' in html
+    assert 'id="editReuse"' in html
+    assert 'id="editCopyPrompt"' in html
+    assert 'id="editStatusbar"' in html
+    assert 'id="editStateMeta"' in html
+
+    assert "EDIT_PRESETS" in image_edit_js
+    assert "function presetsForMode" in image_edit_js
+    assert "function normalizeStrength" in image_edit_js
+    assert "function normalizeKeepList" in image_edit_js
+    assert "function buildEditRecord" in image_edit_js
+    assert "function renderCompare" in image_edit_js
+    # 歷史記錄與失敗建議重用生成分頁的既有管線，不另建一套
+    assert "imagegen:generated" in image_edit_js
+    assert "root.FailureAdvice.getAdvice" in image_edit_js
+    assert "navigator.clipboard.writeText" in image_edit_js
+
+    assert ".edit-preset" in styles
+    assert ".edit-keep" in styles
+    assert ".edit-compare" in styles
+    assert "clip-path: inset(0 0 0 var(--split))" in styles
+
+
+def test_edit_panel_matches_the_generate_panel_layout_and_prompt_tools():
+    """改圖設定面板與生成分頁同構：首屏 composer + 進階設定，並共用同一套 prompt 工具。"""
+    html = read_static("index.html")
+    image_edit_js = read_static("image-edit.js")
+    transform_js = read_static("prompt-transform.js")
+
+    # 版面：首屏 composer（模式／參考圖／指令／風格＋幅度／主按鈕），其餘收進進階設定。
+    assert 'class="composer" aria-label="改圖描述"' in html
+    assert 'id="editAdvancedSettings" class="advanced-settings"' in html
+    assert 'class="composer-options" role="group" aria-label="改圖選項"' in html
+    assert 'class="btn primary hero-generate"' in html
+    assert 'class="edit-panel-footer"' not in html
+
+    # 生成分頁的三個 prompt 工具在改圖分頁也有對應控制項。
+    assert 'id="editCompletePrompt"' in html
+    assert 'id="editTransformPrompt"' in html
+    assert 'id="editEffectPrompt"' in html
+    assert 'id="editApplyEffect"' in html
+    assert 'id="editTransformStatus"' in html
+    assert 'id="editPromptStyle"' in html
+    # 修改幅度是有序三段，用原生 range 畫成分段滑桿（拖曳／方向鍵由瀏覽器提供）。
+    assert 'id="editStrength" type="range" min="0" max="2" step="1"' in html
+    assert 'class="segmented-slider"' in html
+    assert 'class="segmented-ticks"' in html
+    assert 'id="editStrengthValue"' in html
+    assert "STRENGTH_ORDER" in image_edit_js
+    assert "function strengthFromIndex" in image_edit_js
+    assert "aria-valuetext" in html
+
+    # 補完整／轉英文重用同一份管線，只是換一組 ctx；加效果重用 PromptEnhancer。
+    assert "sourceId: 'editPrompt'" in transform_js
+    assert "styleId: 'editPromptStyle'" in transform_js
+    assert "statusId: 'editTransformStatus'" in transform_js
+    assert "root.PromptEnhancer.applyEffect" in image_edit_js
+
+    # 風格選擇要真的進得了送出的指令。
+    assert "STYLE_CLAUSES" in image_edit_js
+    assert "function normalizeStyle" in image_edit_js
+    assert "style: styleSelect ? styleSelect.value : 'auto'" in image_edit_js
+
+    # 人機驗證框移到分頁外層，兩個分頁共用；改圖送出前先自己擋一次。
+    assert html.index('id="turnstileGate"') < html.index('id="panel-generate"')
+    assert "isTurnstileRequired" in image_edit_js
+
+
+def test_edit_panel_keeps_mode_relevant_controls_out_of_the_fold():
+    """跟模式與「改多少」有關的控制項要在首屏，不能收進進階設定。
+
+    先前產品背景／光線藏在摺疊區裡：選了產品照模式，畫面上什麼都不會變，最相關的
+    兩個設定要自己展開才找得到。快速指令不消耗額度卻也被收起來，反而是會呼叫 API
+    的轉英文／加效果留在同一層。
+    """
+    html = read_static("index.html")
+    advanced_at = html.index('id="editAdvancedSettings"')
+
+    for element_id in ("editProductControls", "editPresets", "editKeep"):
+        assert html.index(f'id="{element_id}"') < advanced_at, (
+            f"{element_id} 應該留在首屏，不該收進進階設定"
+        )
+
+    # 進階設定只留會呼叫 AI 的兩項。
+    assert html.index('id="editTransformPrompt"') > advanced_at
+    assert html.index('id="editApplyEffect"') > advanced_at
+
+    # 多圖能力要講出來，否則沒人知道可以傳 4 張並分別標用途。
+    assert "最多 4 張" in html
+    assert 'id="editRefRoleHint"' in html
+    # 錯誤訊息要指出那個 role 下拉在哪。
+    image_edit_js = read_static("image-edit.js")
+    assert "用縮圖下方的選單改" in image_edit_js
+
+
 def test_workspace_canvas_viewport_is_wired_without_duplicate_library():
     html = read_static("index.html")
     history_wall_js = read_static("history-wall.js")
@@ -936,6 +1117,8 @@ def test_usage_dashboard_ui_is_wired():
     assert 'id="refreshUsage"' in html
     assert 'class="history-actions usage-query-controls"' in html
     assert "查詢日期（UTC）" in html
+    assert 'id="usageAdminToken"' in html
+    assert "headers: { 'X-Gallery-Admin-Token': token }" in usage_js
     assert 'id="galleryAdminToken"' in html
     assert 'id="refreshGalleryAdmin"' in html
     assert 'id="galleryAdminNext"' in html
