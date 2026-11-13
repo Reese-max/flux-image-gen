@@ -649,16 +649,21 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .transform-status.busy { color: var(--sun-ink); }
 .transform-status.done { color: var(--sage-ink); }
 .transform-status.fail { color: var(--danger); }
+/* 人機驗證：不再另包一層框（Cloudflare 的 widget 自己就是一個框）；寬度夠時狀態字排在 widget 右邊，不夠時換到下一行 */
 .turnstile-gate {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 16px;
 }
 .turnstile-gate[hidden] { display: none; }
+/* iframe 是行內元素，行高會在下方多出約 7px；先留好 widget 的位置，載入後下方內容不會跳動 */
+.turnstile-gate .cf-turnstile {
+  min-width: 300px;
+  min-height: 65px;
+  line-height: 0;
+}
 .turnstile-status {
   margin: 0;
   color: var(--muted);
@@ -667,7 +672,8 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 }
 .turnstile-status.done { color: var(--sage-ink); }
 .turnstile-status.warn { color: var(--sun-ink); }
-.turnstile-status.fail { color: var(--danger); }
+/* 狀態字現在直接壓在頁面底色上：用深色文字 token，失敗訊息的對比才穩定高於 4.5:1 */
+.turnstile-status.fail { color: var(--danger-ink); }
 
 .prompt-enhancer {
   display: grid;
