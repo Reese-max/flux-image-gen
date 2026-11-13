@@ -108,6 +108,12 @@ body {
   margin-bottom: 28px;
   scroll-margin-top: 88px;
 }
+/* 公開模式會多出人機驗證區塊（65px＋16px 間距）：從首屏高度公式裡扣掉，工作台底邊才會落在首屏內 */
+@media (min-width: 981px) {
+  .turnstile-gate:not([hidden]) ~ .tabpanel .generation-workspace {
+    min-height: clamp(480px, calc(100dvh - 461px), 900px);
+  }
+}
 .generation-controls,
 .generation-preview {
   min-width: 0;
