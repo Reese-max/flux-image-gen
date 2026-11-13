@@ -740,7 +740,11 @@ async function handleGalleryGet(env, id) {
 }
 
 function requireGalleryAdmin(request, env, scope = "gallery") {
-  const expected = env && env.GALLERY_ADMIN_TOKEN;
+  // The usage dashboard has its own token so it works while the gallery (and GALLERY_ADMIN_TOKEN) is off;
+  // GALLERY_ADMIN_TOKEN is still accepted for it when USAGE_ADMIN_TOKEN is not set.
+  const expected = scope === "usage"
+    ? (env && (env.USAGE_ADMIN_TOKEN || env.GALLERY_ADMIN_TOKEN))
+    : env && env.GALLERY_ADMIN_TOKEN;
   const provided = request.headers.get("x-gallery-admin-token") || "";
   if (!expected) {
     return scope === "usage"
