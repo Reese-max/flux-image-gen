@@ -206,7 +206,7 @@ body {
   height: 46px;
   border-radius: 999px;
   background: var(--line-2);
-  transition: background .15s var(--ease), height .15s var(--ease);
+  transition: background .15s var(--ease), transform .15s var(--ease);
 }
 .workspace-divider:hover::before,
 .workspace-divider:focus-visible::before,
@@ -217,7 +217,8 @@ body {
 .workspace-divider:hover span,
 .workspace-divider:focus-visible span,
 .generation-workspace.is-resizing .workspace-divider span {
-  height: 64px;
+  /* 46px 伸長到約 64px：用 transform，滑過與拖曳時不觸發版面重排 */
+  transform: scaleY(1.39);
   background: var(--accent);
 }
 .workspace-divider:focus-visible {
