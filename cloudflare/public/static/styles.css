@@ -103,7 +103,8 @@ body {
   display: grid;
   grid-template-columns: minmax(320px, var(--control-panel-width)) 10px minmax(0, 1fr);
   align-items: stretch;
-  min-height: clamp(680px, calc(100dvh - 280px), 900px);
+  /* 工作台填滿首屏剩餘高度：頁首＋大標＋分頁約 380px（原 280px 已過時，加上 680px 下限讓兩欄超出視窗、控制台下方留空） */
+  min-height: clamp(480px, calc(100dvh - 380px), 900px);
   margin-bottom: 28px;
   scroll-margin-top: 88px;
 }
