@@ -2506,6 +2506,12 @@ body[data-tab="usage"] #mobileGenerateBar { display: none !important; }
   .canvas-state i { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); }
   .canvas-status-spacer { flex: 1 1 auto; }
   .canvas-status-shortcut { color: var(--muted); }
+  /* 畫布欄窄時（約 1000–1200px 寬）：標題、工具、狀態各項保持一行，放不下就整項換行，不擠成直排或被裁 */
+  .generation-preview .result-heading { flex-wrap: wrap; row-gap: 8px; }
+  .generation-preview .result-heading h2 { white-space: nowrap; }
+  .canvas-heading-tools { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
+  .canvas-preset-chip, .canvas-statusbar > span { white-space: nowrap; }
+  .canvas-statusbar { flex-wrap: wrap; row-gap: 4px; }
   .generation-preview .stage.is-canvas-interactive {
     overflow: hidden;
     cursor: grab;
