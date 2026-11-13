@@ -95,5 +95,10 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --tag ${{ steps.version.outputs.tag }}
           workingDirectory: cloudflare
+          # Fails the deploy if the GitHub secret is missing (wrangler-action getSecret throws).
+          secrets: |
+            MINIMAX_API_KEY
+        env:
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
 
 
