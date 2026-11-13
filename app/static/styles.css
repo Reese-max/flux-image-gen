@@ -2022,6 +2022,7 @@ button:focus-visible, a:focus-visible, .btn:focus-visible, .idea:focus-visible, 
 .edit-mode-card:hover, .edit-mode-card:focus-visible, .edit-mode-card.is-active {
   border-color: var(--accent-line);
   background: var(--accent-soft);
+  color: var(--text); /* accent-soft 上 muted 只有 4.42:1 */
   outline: none;
 }
 .edit-drop {
