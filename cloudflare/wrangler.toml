@@ -31,6 +31,9 @@ binding = "ASSETS"
 #   npx wrangler secret put MINIMAX_API_KEY
 #   npx wrangler secret put GEMINI_API_KEY
 #   npx wrangler secret put TURNSTILE_SECRET_KEY
+# Optional independent /api/usage token (falls back to GALLERY_ADMIN_TOKEN when unset):
+#   npx wrangler secret put USAGE_ADMIN_TOKEN
+# /api/usage uses the X-Gallery-Admin-Token header.
 #   npx wrangler secret put GALLERY_TOKEN_SECRET
 #   npx wrangler secret put GALLERY_ADMIN_TOKEN
 # Do not put GALLERY_ADMIN_TOKEN in [vars]; it gates GET /api/gallery for the
@@ -40,8 +43,21 @@ NVIDIA_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 GEMINI_PROMPT_MODEL = "gemma-4-31b-it"
 GEMINI_COMPLETE_MODEL = "gemma-4-26b-a4b-it"
 GEMINI_VISION_MODEL = "gemini-2.5-flash"
-# Optional paid visual QA for agent mode. Keep false until budget is approved.
+# Post-generation visual QA. Opt-in per request: the checkbox ships unchecked and
+# app.js hides the row entirely while this is false, so turning it on exposes the
+# option rather than spending on every generation.
 VISION_QA_ENABLED = "false"
+# Vision QA runs on the NVIDIA VLM, sharing the NVIDIA_API_KEY generation already
+# needs, so it burns no separate paid quota. The cost is latency: 6 Worker runs
+# measured median 8.4s / slowest 17.0s (2026-07-28), with an earlier run at 38s,
+# against ~7s for the generation itself. QA is opt-in per request, so that wait
+# only lands on users who ask for it.
+# Must be sized for that tail or QA aborts - which is exactly how this shipped
+# broken. Capped by visionTimeoutMs() in vision.js; raising this beyond that cap
+# is silently ignored, so move both together.
+VISION_QA_TIMEOUT_MS = "60000"
+NVIDIA_CHAT_BASE_URL = "https://integrate.api.nvidia.com/v1"
+NVIDIA_VISION_MODEL = "meta/llama-3.2-90b-vision-instruct"
 # Third-tier keyless Pollinations fallback when NVIDIA + Workers AI both fail on
 # infrastructure (5xx/timeout). Never used on content filter / rate limit.
 POLLINATIONS_FALLBACK_ENABLED = "true"

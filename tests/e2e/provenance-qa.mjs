@@ -99,7 +99,7 @@ test('real C2PA fixtures and generation/edit/share/download/export roundtrip in 
     assert.equal(inspection.invalid.status, 'invalid');
 
     await page.locator('#plainPrompt').fill('Private cat artwork');
-    await page.evaluate(() => { document.querySelector('#advancedSettings').open = true; });
+    await page.evaluate(() => { document.querySelector('#advancedSettings').open = true; document.querySelector('#advancedPromptSettings').open = true; });
     // The hidden model select is restored through the app's existing history/settings API.
     await page.evaluate(() => ImageGenApp.setGenerationSettings({ model: 'schnell' }));
     assert.equal(await page.locator('#model').inputValue(), 'schnell');

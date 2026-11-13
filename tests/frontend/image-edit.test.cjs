@@ -21,6 +21,83 @@ function assertDims(d, width, height) {
   assert.equal(d.height, height);
 }
 
+test('edit toolkit emits one receipt-ready history event and preserves provenance when reusing its result', async () => {
+  const { createHash, webcrypto } = require('node:crypto');
+  const emitted = [];
+  const nodes = new Map();
+  function element() {
+    return {
+      value: '', textContent: '', innerHTML: '', disabled: false, children: [], handlers: {},
+      classList: { add() {}, remove() {}, toggle() {} }, style: { setProperty() {} },
+      setAttribute() {}, removeAttribute() {}, closest() { return null; }, focus() {},
+      appendChild(child) { this.children.push(child); },
+      addEventListener(name, callback) { this.handlers[name] = callback; },
+      getContext() { return { drawImage() {} }; },
+      toBlob(callback) { callback(new Blob(['submitted-png'])); },
+    };
+  }
+  function byId(id) {
+    if (!nodes.has(id)) nodes.set(id, element());
+    return nodes.get(id);
+  }
+  const output = 'data:image/png;base64,' + Buffer.from('edited-image').toString('base64');
+  const hash = value => createHash('sha256').update(value).digest('hex');
+  let urlCount = 0;
+  const context = vm.createContext({
+    Blob, FormData, Uint8Array, atob, crypto: webcrypto,
+    URL: { createObjectURL: () => 'blob:edit-' + (++urlCount), revokeObjectURL() {} },
+    navigator: {}, window: { addEventListener() {} },
+    CustomEvent: function (type, init) { this.type = type; this.detail = init.detail; },
+    Image: class {
+      constructor() { this.naturalWidth = 900; this.naturalHeight = 700; }
+      set src(value) { queueMicrotask(() => this.onload()); }
+    },
+    document: {
+      getElementById: byId, querySelectorAll: () => [], createElement: element,
+      dispatchEvent(event) { emitted.push(event); },
+    },
+    ImageProvenance: {
+      sha256: async blob => hash(Buffer.from(await blob.arrayBuffer())),
+      inspectCredentials: async () => ({ status: 'absent' }),
+    },
+    ElapsedTimer: { start: () => ({ stop: () => '0.1' }) },
+    fetch: async url => url === '/edit'
+      ? { ok: true, status: 200, json: async () => ({ image: output, provider: 'workers-ai', model: 'actual-edit-model', providerProvenance: { model_id: 'actual-edit-model' } }) }
+      : { blob: async () => new Blob(['edited-image']) },
+  });
+  vm.runInContext(fs.readFileSync(scriptPath, 'utf8'), context, { filename: scriptPath });
+  async function settle() {
+    for (let i = 0; i < 20; i++) await new Promise(resolve => setImmediate(resolve));
+  }
+  byId('editFiles').files = [new Blob(['original-image'])];
+  byId('editFiles').handlers.change();
+  await settle();
+  byId('editPrompt').value = 'change the background';
+  byId('editGo').handlers.click();
+  await settle();
+  assert.equal(emitted.length, 1);
+  const first = emitted[0].detail;
+  assert.equal(emitted[0].type, 'imagegen:generated');
+  assert.equal(first.prompt, 'change the background');
+  assert.match(first.providerPrompt, /change the background/);
+  assert.ok(first.tags.includes('AI 改圖'));
+  assert.equal(first.model, 'actual-edit-model');
+  assert.equal(first.operation, 'edit');
+  assert.equal(first.provenanceInputs[0].original_sha256, hash('original-image'));
+  assert.equal(first.provenanceInputs[0].submitted_sha256, hash('submitted-png'));
+  assert.equal(first.providerProvenance.model_id, 'actual-edit-model');
+  assert.match(byId('editDl').href, /^blob:/);
+  byId('editCompare').handlers.click();
+  assert.equal(emitted.length, 1, 'rendering the comparison must not duplicate history');
+  byId('editReuse').handlers.click();
+  await settle();
+  byId('editGo').handlers.click();
+  await settle();
+  assert.equal(emitted.length, 2);
+  assert.equal(emitted[1].detail.provenanceInputs[0].original_sha256, hash('edited-image'));
+  assert.equal(emitted[1].detail.provenanceInputs[0].submitted_sha256, hash('submitted-png'));
+});
+
 test('computeResizeDims shrinks large images to fit under the cap on the long edge', () => {
   const E = loadImageEdit();
   assertDims(E.computeResizeDims(1600, 900, 511), 511, 287);
@@ -148,4 +225,70 @@ test('editAvailabilityFromHealth supports Worker providerList health responses',
   const E = loadImageEdit();
   assert.equal(E.editAvailabilityFromHealth({ providerList: ['workers-ai'] }).available, true);
   assert.equal(E.editAvailabilityFromHealth({ providerList: ['nvidia'] }).available, false);
+});
+
+test('normalizeStrength keeps known levels and falls back to balanced', () => {
+  const E = loadImageEdit();
+  assert.equal(E.normalizeStrength('subtle'), 'subtle');
+  assert.equal(E.normalizeStrength('bold'), 'bold');
+  assert.equal(E.normalizeStrength('nope'), 'balanced');
+  assert.equal(E.normalizeStrength(undefined), 'balanced');
+});
+
+test('normalizeKeepList drops unknown keys, dedupes, and uses a stable declared order', () => {
+  const E = loadImageEdit();
+  const keep = E.normalizeKeepList(['palette', 'ghost', 'face', 'face']);
+  assert.deepEqual(Array.from(keep), ['face', 'palette']);
+  assert.deepEqual(Array.from(E.normalizeKeepList(null)), []);
+});
+
+test('composeEditPrompt appends the strength clause and the keep list', () => {
+  const E = loadImageEdit();
+  const prompt = E.composeEditPrompt('換成雨夜街道', [{ role: 'style' }], {
+    mode: 'general',
+    strength: 'subtle',
+    keep: ['layout', 'face'],
+  });
+  assert.match(prompt, /修改幅度：微調。/);
+  assert.match(prompt, /務必保留：人物臉部特徵與表情、原本的構圖與主體位置。/);
+  assert.match(prompt, /換成雨夜街道/);
+});
+
+test('composeEditPrompt defaults to the balanced strength and omits an empty keep list', () => {
+  const E = loadImageEdit();
+  const prompt = E.composeEditPrompt('換背景', [], {});
+  assert.match(prompt, /修改幅度：適中。/);
+  assert.equal(/務必保留/.test(prompt), false);
+});
+
+test('presetsForMode returns per-mode quick commands and falls back to general', () => {
+  const E = loadImageEdit();
+  assert.ok(E.presetsForMode('product').length > 0);
+  assert.ok(E.presetsForMode('product').every((p) => p.label && p.text));
+  assert.equal(E.presetsForMode('nope').length, E.presetsForMode('general').length);
+});
+
+test('buildEditRecord produces a history record tagged as an AI edit', () => {
+  const E = loadImageEdit();
+  const record = E.buildEditRecord('data:image/png;base64,AAAA', '換背景', 'final prompt', {
+    provider: 'workers-ai',
+    modeLabel: '產品照',
+  });
+  assert.equal(record.image, 'data:image/png;base64,AAAA');
+  assert.equal(record.thumbnail, record.image);
+  assert.equal(record.prompt, '換背景');
+  assert.equal(record.providerPrompt, 'final prompt');
+  assert.equal(record.provider, 'workers-ai');
+  assert.equal(record.model, 'edit');
+  assert.deepEqual(Array.from(record.tags), ['AI 改圖', '產品照']);
+});
+
+test('mapEditResponse surfaces the provider on success and an advice code on failure', () => {
+  const E = loadImageEdit();
+  const ok = E.mapEditResponse(true, 200, { image: 'data:image/png;base64,AAAA', provider: 'workers-ai' });
+  const bad = E.mapEditResponse(false, 429, { error: '太頻繁', code: 'rate_limited' });
+  assert.equal(ok.provider, 'workers-ai');
+  assert.equal(ok.code, '');
+  assert.equal(bad.code, 'rate_limited');
+  assert.equal(E.mapEditResponse(false, 500, {}).code, 'unknown');
 });

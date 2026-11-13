@@ -24,6 +24,7 @@
     byProvider: document.getElementById('usageByProvider'),
     byRoute: document.getElementById('usageByRoute'),
     byError: document.getElementById('usageByError'),
+    usageToken: document.getElementById('usageAdminToken'),
     galleryToken: document.getElementById('galleryAdminToken'),
     galleryRefresh: document.getElementById('refreshGalleryAdmin'),
     galleryNext: document.getElementById('galleryAdminNext'),
@@ -367,7 +368,7 @@
 
   function fetchUsage() {
     var date = els.date && els.date.value ? els.date.value : todayKey();
-    var token = els.galleryToken && els.galleryToken.value ? els.galleryToken.value : '';
+    var token = els.usageToken && els.usageToken.value ? els.usageToken.value : '';
     if (!token) {
       setStatus('請先輸入站長 Token；此欄位只保留在目前頁面，不寫入 localStorage。', 'fail');
       return Promise.resolve();

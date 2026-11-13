@@ -247,6 +247,10 @@ def api_health() -> dict[str, object]:
         "hasApiKey": has_nvidia_key or has_minimax_key or has_workers_ai_key,
         "storageAvailable": False,
         "visionQa": settings.vision_qa_enabled,
+        # QA 實際跑得起來才回後端名稱；空字串＝沒啟用或缺 NVIDIA_API_KEY。
+        "visionQaProvider": (
+            "nvidia" if settings.vision_qa_enabled and settings.nvidia_api_key.strip() else ""
+        ),
         "turnstile": {
             "required": turnstile_enabled(settings),
             "siteKey": settings.turnstile_site_key.strip() if turnstile_enabled(settings) else "",

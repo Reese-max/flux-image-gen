@@ -130,7 +130,7 @@ for (const mode of ['source','deploy']) {
         const fixtureBytes = Buffer.from(await (await local.source.get(scenario)).arrayBuffer());
         const start = (await control(scenario)).calls;
         await page.locator('#plainPrompt').fill('private artwork '+scenario);
-        await page.evaluate(() => {document.querySelector('#advancedSettings').open=true;ImageGenApp.setGenerationSettings({model:'schnell'});});
+        await page.evaluate(() => {document.querySelector('#advancedSettings').open=true;document.querySelector('#advancedPromptSettings').open=true;ImageGenApp.setGenerationSettings({model:'schnell'});});
         await page.locator('#prompt').fill('a cat in a garden');
         const generationResponse = page.waitForResponse(response => new URL(response.url()).pathname==='/generate' && response.request().method()==='POST');
         await page.locator('#go').click();
