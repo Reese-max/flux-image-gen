@@ -826,6 +826,15 @@ test('GET /api/usage reports a missing admin secret as disabled', async () => {
   assert.equal(body.code, 'admin_usage_disabled');
 });
 
+test('GET /api/usage accepts USAGE_ADMIN_TOKEN on its own; the gallery list does not', async () => {
+  const env = fakeEnv({ USAGE_ADMIN_TOKEN: 'usage-secret' });
+  const withToken = (path, token) => new Request(`https://example.test${path}`, { headers: { 'x-gallery-admin-token': token } });
+  assert.equal((await worker.fetch(withToken('/api/usage', 'usage-secret'), env)).status, 200);
+  assert.equal((await worker.fetch(withToken('/api/usage', 'wrong'), env)).status, 401);
+  const gallery = await worker.fetch(withToken('/api/gallery', 'usage-secret'), env);
+  assert.equal((await gallery.json()).code, 'admin_gallery_disabled');
+});
+
 test('GET /api/usage records Worker failure codes and validates date', async () => {
   resetUsageMetrics();
   const env = fakeEnv({ GALLERY_ADMIN_TOKEN: 'admin-secret' });

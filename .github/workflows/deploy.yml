@@ -83,12 +83,17 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ steps.cf_token.outputs.token }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Same tag format as scripts/deploy.mjs, so /health versionTag names the deployed commit.
+      - name: Compute version tag
+        id: version
+        run: echo "tag=git-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
       - name: Deploy Production
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ steps.cf_token.outputs.token }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
+          command: deploy --tag ${{ steps.version.outputs.tag }}
           workingDirectory: cloudflare
 
 
