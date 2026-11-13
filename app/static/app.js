@@ -51,7 +51,8 @@ var R_EXTRAS = [
 
 var MAX_SEED = 2147483647;
 var WORKSPACE_STORAGE_KEY = 'fluxiGenerationWorkspace.v1';
-var WORKSPACE_DEFAULT_WIDTH = 390;
+var WORKSPACE_LEGACY_DEFAULT_WIDTH = 390;
+var WORKSPACE_DEFAULT_WIDTH = 460;
 var WORKSPACE_MIN_WIDTH = 320;
 var WORKSPACE_MAX_WIDTH = 560;
 var generationInFlight = false;
@@ -887,13 +888,16 @@ function applyWorkspaceState(width, collapsed, shouldPersist){
 }
 function readWorkspaceState(){
   var parsed;
+  var storedWidth;
   try{
     parsed = JSON.parse(window.localStorage.getItem(WORKSPACE_STORAGE_KEY) || '{}');
   }catch(error){
     parsed = {};
   }
+  storedWidth = Number(parsed.width);
+  if(storedWidth === WORKSPACE_LEGACY_DEFAULT_WIDTH){ storedWidth = WORKSPACE_DEFAULT_WIDTH; }
   return {
-    width: clampWorkspaceWidth(parsed.width),
+    width: clampWorkspaceWidth(storedWidth),
     collapsed: !!parsed.collapsed
   };
 }
@@ -1850,8 +1854,10 @@ function generate(options){
 function setPromptForReview(prompt, label){
   var field = el('prompt');
   var advanced = el('advancedSettings');
+  var promptSettings = el('advancedPromptSettings');
   if(field){ field.value = prompt || ''; }
   if(advanced){ advanced.open = true; }
+  if(promptSettings){ promptSettings.open = true; }
   setGenerationState('idle');
   setStatus('已套用' + (label || '提示詞') + '；確認後再按「生成圖片」，不會自動消耗額度。', 'done');
   scrollToComposerAndFocus();
@@ -2049,6 +2055,7 @@ function applyTemplateFromUrl(){
   setSelectIfOptionExists('promptStyle', params.get('style'));
   setSelectIfOptionExists('useCase', params.get('useCase'));
   if(el('advancedSettings')){ el('advancedSettings').open = true; }
+  if(promptValue && el('advancedPromptSettings')){ el('advancedPromptSettings').open = true; }
   updateMobileGenerateSummary();
   setGenerationState('idle');
   if(promptValue || plainPromptValue){

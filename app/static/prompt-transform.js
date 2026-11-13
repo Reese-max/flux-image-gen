@@ -1,192 +1,213 @@
+// 中文補完整（/prompt/complete）與轉英文（/prompt/transform）的共用管線。
+// 生成分頁與 AI 改圖分頁各註冊一組 ctx：差別只在讀寫哪個欄位、狀態列與按鈕。
+// 改圖分頁的 sourceId === targetId，轉英文就是就地取代同一個指令框。
 (function(){
-  var completionInFlight = false;
-  var transformInFlight = false;
+  var inFlight = {};
+
+  var GENERATE_CTX = {
+    key: 'generate',
+    sourceId: 'plainPrompt',
+    targetId: 'prompt',
+    styleId: 'promptStyle',
+    statusId: 'transformStatus',
+    completeButtonId: 'completePrompt',
+    transformButtonId: 'transformPrompt',
+    emptySourceMessage: '請先輸入白話中文描述'
+  };
+
+  var EDIT_CTX = {
+    key: 'edit',
+    sourceId: 'editPrompt',
+    targetId: 'editPrompt',
+    styleId: 'editPromptStyle',
+    statusId: 'editTransformStatus',
+    completeButtonId: 'editCompletePrompt',
+    transformButtonId: 'editTransformPrompt',
+    emptySourceMessage: '請先輸入中文改圖指令'
+  };
 
   function byId(id){
     return document.getElementById(id);
   }
 
-  function setTransformStatus(message, cls){
-    var status = byId('transformStatus');
+  function setTransformStatus(ctx, message, cls){
+    var status = byId(ctx.statusId);
     if(!status){ return; }
     status.textContent = message;
     status.className = 'transform-status' + (cls ? ' ' + cls : '');
   }
 
-  function setCompletionBusy(button, busy){
+  // 忙碌時換掉按鈕文字，恢復時用第一次記下的原文字，免得每個分頁各寫一份標籤。
+  function setBusy(button, busy, busyText){
     if(!button){ return; }
-    button.disabled = busy;
     if(busy){
+      if(!button.getAttribute('data-idle-label')){
+        button.setAttribute('data-idle-label', button.textContent);
+      }
+      button.disabled = true;
       button.setAttribute('aria-busy', 'true');
-      button.textContent = '正在補完整…';
+      button.textContent = busyText;
       return;
     }
+    button.disabled = false;
     button.removeAttribute('aria-busy');
-    button.textContent = '✨ 幫我補完整';
+    button.textContent = button.getAttribute('data-idle-label') || button.textContent;
   }
 
-  function setTransformBusy(button, busy){
-    if(!button){ return; }
-    button.disabled = busy;
-    if(busy){
-      button.setAttribute('aria-busy', 'true');
-      return;
-    }
-    button.removeAttribute('aria-busy');
-    button.textContent = '轉成英文提示詞';
+  function readSource(ctx){
+    var source = byId(ctx.sourceId);
+    return source ? source.value.trim() : '';
   }
 
-  function transformPrompt(){
-    var plainPrompt = byId('plainPrompt');
-    var promptStyle = byId('promptStyle');
-    var finalPrompt = byId('prompt');
-    var source = plainPrompt ? plainPrompt.value.trim() : '';
-    var style = promptStyle ? promptStyle.value : 'auto';
+  function readStyle(ctx){
+    var style = byId(ctx.styleId);
+    return style ? style.value : 'auto';
+  }
 
-    if(transformInFlight){ return; }
+  function busyKey(ctx, action){
+    return ctx.key + ':' + action;
+  }
+
+  function postPrompt(path, payload){
+    return fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    }).then(function(response){
+      return response.json().then(function(data){
+        if(!response.ok){
+          throw new Error(data.error || ('HTTP ' + response.status));
+        }
+        if(!data.prompt){
+          throw new Error('結果缺少提示詞');
+        }
+        return data;
+      });
+    });
+  }
+
+  function transformPrompt(ctx){
+    var source = readSource(ctx);
+    var targetField = byId(ctx.targetId);
+    var button = byId(ctx.transformButtonId);
+    var key = busyKey(ctx, 'transform');
+    var elapsedTimer;
+
+    if(inFlight[key]){ return; }
     if(!source){
-      setTransformStatus('請先輸入白話中文描述', 'fail');
-      if(plainPrompt){ plainPrompt.focus(); }
+      setTransformStatus(ctx, ctx.emptySourceMessage, 'fail');
+      if(byId(ctx.sourceId)){ byId(ctx.sourceId).focus(); }
       return;
     }
 
-    transformInFlight = true;
-    var transformButton = byId('transformPrompt');
-    setTransformBusy(transformButton, true);
-    var elapsedTimer = window.ElapsedTimer.start({
+    inFlight[key] = true;
+    setBusy(button, true, '轉換中…');
+    elapsedTimer = window.ElapsedTimer.start({
       onTick: function(seconds){
-        setTransformStatus('AI 轉換中… 已用 ' + seconds + ' 秒', 'busy');
-        if(transformButton){ transformButton.textContent = '轉換中… ' + seconds + ' 秒'; }
+        setTransformStatus(ctx, 'AI 轉換中… 已用 ' + seconds + ' 秒', 'busy');
+        if(button){ button.textContent = '轉換中… ' + seconds + ' 秒'; }
       }
     });
 
-    fetch('/prompt/transform', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({source: source, style: style})
-      })
-      .then(function(response){
-        return response.json().then(function(data){
-          if(!response.ok){
-            throw new Error(data.error || ('HTTP ' + response.status));
-          }
-          if(!data.prompt){
-            throw new Error('轉換結果缺少提示詞');
-          }
-
-          if(finalPrompt){
-            finalPrompt.value = data.prompt;
-            finalPrompt.setAttribute('data-auto-source', source);
-          }
-          var providerLabels = { gemini: 'AI 智慧轉換 (Gemini)', codex: 'AI 備援轉換 (Codex)' };
-          var label = providerLabels[data.provider] || '離線規則轉換';
-          var seconds = elapsedTimer.stop();
-          var message = '已轉成英文提示詞 · ' + label + ' · 耗時 ' + seconds + ' 秒';
-          if(data.warnings && data.warnings.length){
-            message += ' · ' + data.warnings.join('、');
-          }
-          setTransformStatus(message, 'done');
-        });
+    postPrompt('/prompt/transform', {source: source, style: readStyle(ctx)})
+      .then(function(data){
+        if(targetField){
+          targetField.value = data.prompt;
+          targetField.setAttribute('data-auto-source', source);
+        }
+        var providerLabels = { gemini: 'AI 智慧轉換 (Gemini)', codex: 'AI 備援轉換 (Codex)' };
+        var label = providerLabels[data.provider] || '離線規則轉換';
+        var message = '已轉成英文提示詞 · ' + label + ' · 耗時 ' + elapsedTimer.stop() + ' 秒';
+        if(data.warnings && data.warnings.length){
+          message += ' · ' + data.warnings.join('、');
+        }
+        setTransformStatus(ctx, message, 'done');
       })
       .catch(function(error){
-        setTransformStatus('轉換失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + error.message, 'fail');
+        setTransformStatus(ctx, '轉換失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + error.message, 'fail');
       })
       .then(function(){
-        transformInFlight = false;
-        setTransformBusy(transformButton, false);
-      }, function(){
-        transformInFlight = false;
-        setTransformBusy(transformButton, false);
+        inFlight[key] = false;
+        setBusy(button, false);
       });
   }
 
-  function completePrompt(){
-    var plainPrompt = byId('plainPrompt');
-    var promptStyle = byId('promptStyle');
-    var completePromptButton = byId('completePrompt');
-    var source = plainPrompt ? plainPrompt.value.trim() : '';
-    var style = promptStyle ? promptStyle.value : 'auto';
+  function completePrompt(ctx){
+    var source = readSource(ctx);
+    var sourceField = byId(ctx.sourceId);
+    var button = byId(ctx.completeButtonId);
+    var key = busyKey(ctx, 'complete');
+    var elapsedTimer;
 
-    if(completionInFlight){ return; }
+    if(inFlight[key]){ return; }
     if(!source){
-      setTransformStatus('請先輸入白話中文描述', 'fail');
-      if(plainPrompt){ plainPrompt.focus(); }
+      setTransformStatus(ctx, ctx.emptySourceMessage, 'fail');
+      if(sourceField){ sourceField.focus(); }
       return;
     }
 
-    completionInFlight = true;
-    setCompletionBusy(completePromptButton, true);
-    var elapsedTimer = window.ElapsedTimer.start({
+    inFlight[key] = true;
+    setBusy(button, true, '正在補完整…');
+    elapsedTimer = window.ElapsedTimer.start({
       onTick: function(seconds){
-        setTransformStatus('AI 正在補完整中文描述… 已用 ' + seconds + ' 秒', 'busy');
-        if(completePromptButton){ completePromptButton.textContent = '正在補完整… ' + seconds + ' 秒'; }
+        setTransformStatus(ctx, 'AI 正在補完整中文描述… 已用 ' + seconds + ' 秒', 'busy');
+        if(button){ button.textContent = '正在補完整… ' + seconds + ' 秒'; }
       }
     });
 
-    fetch('/prompt/complete', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({source: source, style: style})
-      })
-      .then(function(response){
-        return response.json().then(function(data){
-          if(!response.ok){
-            throw new Error(data.error || ('HTTP ' + response.status));
+    postPrompt('/prompt/complete', {source: source, style: readStyle(ctx)})
+      .then(function(data){
+        var targetField;
+        if(sourceField){
+          sourceField.value = data.prompt;
+          sourceField.focus();
+          if(typeof sourceField.setSelectionRange === 'function'){
+            sourceField.setSelectionRange(sourceField.value.length, sourceField.value.length);
           }
-          if(!data.prompt){
-            throw new Error('補全結果缺少提示詞');
-          }
-
-          if(plainPrompt){
-            plainPrompt.value = data.prompt;
-            plainPrompt.focus();
-            if(typeof plainPrompt.setSelectionRange === 'function'){
-              plainPrompt.setSelectionRange(plainPrompt.value.length, plainPrompt.value.length);
-            }
-          }
-          var finalPrompt = byId('prompt');
-          if(finalPrompt && finalPrompt.getAttribute('data-auto-source')){
-            finalPrompt.value = '';
-            finalPrompt.removeAttribute('data-auto-source');
-          }
-          var providerLabel = data.provider === 'gemini' ? 'Gemma' : '離線補全';
-          var seconds = elapsedTimer.stop();
-          var message = '已補完整中文描述 · ' + providerLabel + ' · 耗時 ' + seconds + ' 秒';
-          if(data.warnings && data.warnings.length){ message += ' · ' + data.warnings.join('、'); }
-          setTransformStatus(message, 'done');
-        });
+        }
+        // 中文換了，之前自動轉出的英文就過期了；只有獨立英文欄位才清（改圖分頁共用同一個框）。
+        targetField = ctx.targetId === ctx.sourceId ? null : byId(ctx.targetId);
+        if(targetField && targetField.getAttribute('data-auto-source')){
+          targetField.value = '';
+          targetField.removeAttribute('data-auto-source');
+        }
+        var providerLabel = data.provider === 'gemini' ? 'Gemma' : '離線補全';
+        var message = '已補完整中文描述 · ' + providerLabel + ' · 耗時 ' + elapsedTimer.stop() + ' 秒';
+        if(data.warnings && data.warnings.length){ message += ' · ' + data.warnings.join('、'); }
+        setTransformStatus(ctx, message, 'done');
       })
       .catch(function(error){
-        setTransformStatus('補全失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + error.message, 'fail');
+        setTransformStatus(ctx, '補全失敗（耗時 ' + elapsedTimer.stop() + ' 秒）：' + error.message, 'fail');
       })
       .then(function(){
-        completionInFlight = false;
-        setCompletionBusy(completePromptButton, false);
-      }, function(){
-        completionInFlight = false;
-        setCompletionBusy(completePromptButton, false);
+        inFlight[key] = false;
+        setBusy(button, false);
       });
   }
 
-  document.addEventListener('DOMContentLoaded', function(){
-    var plainPrompt = byId('plainPrompt');
-    var transformPromptButton = byId('transformPrompt');
-    var completePromptButton = byId('completePrompt');
+  function wire(ctx){
+    var sourceField = byId(ctx.sourceId);
+    var transformButton = byId(ctx.transformButtonId);
+    var completeButton = byId(ctx.completeButtonId);
 
-    if(transformPromptButton){
-      transformPromptButton.addEventListener('click', transformPrompt);
+    if(transformButton){
+      transformButton.addEventListener('click', function(){ transformPrompt(ctx); });
     }
-    if(completePromptButton){
-      completePromptButton.addEventListener('click', completePrompt);
+    if(completeButton){
+      completeButton.addEventListener('click', function(){ completePrompt(ctx); });
     }
-
-    if(plainPrompt){
-      plainPrompt.addEventListener('keydown', function(event){
+    if(sourceField){
+      sourceField.addEventListener('keydown', function(event){
         if((event.metaKey || event.ctrlKey) && event.key === 'Enter'){
           event.preventDefault();
-          transformPrompt();
+          transformPrompt(ctx);
         }
       });
     }
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    wire(GENERATE_CTX);
+    wire(EDIT_CTX);
   });
 })();

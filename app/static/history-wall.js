@@ -1351,6 +1351,7 @@
         var record = getSelectedRecord();
         if (!record) { return; }
         if (root.ImageGenApp && typeof root.ImageGenApp.lockCompositionFromRecord === 'function') {
+          if (!switchToGenerateTab()) { return; }
           if (root.ImageGenApp.lockCompositionFromRecord(record)) {
             closeHistoryDetail();
           }

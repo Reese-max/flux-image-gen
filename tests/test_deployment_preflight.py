@@ -1,4 +1,5 @@
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,10 @@ def run_preflight(root: Path, *args: str):
         [sys.executable, str(SCRIPT), "--root", str(root), *args],
         cwd=ROOT,
         text=True,
+        # 子行程與父行程固定使用同一編碼，避免 Windows 的 cp950 破壞 JSON 中文。
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         timeout=20,
         check=False,

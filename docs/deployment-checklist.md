@@ -17,13 +17,14 @@ npx wrangler secret put GALLERY_ADMIN_TOKEN
 ```
 
 - `NVIDIA_API_KEY`：供 FLUX live 出圖使用。
-- `GEMINI_API_KEY`：供中文 prompt 補全／轉換／強化使用；若 `VISION_QA_ENABLED="true"`，也會用於智慧體視覺 QA。
-- `GEMINI_VISION_MODEL` / `VISION_QA_ENABLED`：公開站預設可先維持 `VISION_QA_ENABLED="false"` 控制成本；開啟前需確認每日預算與用量告警。
+- `GEMINI_API_KEY`：供中文 prompt 補全／轉換／強化使用；多金鑰可使用 `GEMINI_API_KEYS` 輪替。
+- `VISION_QA_ENABLED`：保留 production 預設 `false`；開啟後，逐次勾選才使用 NVIDIA VLM（`NVIDIA_VISION_MODEL`／`NVIDIA_API_KEY`），逾時由 `VISION_QA_TIMEOUT_MS` 控制。
 - `TURNSTILE_SECRET_KEY`：後端驗證人機 token；驗證失敗不得呼叫模型。
-- `GALLERY_TOKEN_SECRET`：簽發短效雲端儲存 token；未設定時 `/gallery` 會拒絕寫入，因此公開站不得省略。
+- `USAGE_ADMIN_TOKEN`：選用的獨立用量 token，可用 `npx wrangler secret put USAGE_ADMIN_TOKEN` 設定；`GET /api/usage` 透過 `X-Gallery-Admin-Token` 傳送，未設定此 secret 時回退 `GALLERY_ADMIN_TOKEN`。兩者皆未設定時，用量端點回應 503 `admin_usage_disabled`。
+- `GALLERY_TOKEN_SECRET`：簽發短效雲端儲存 token；未設定時 `/gallery` 會拒絕寫入，`GALLERY_ENABLED="false"` 時免設，啟用相簿才必須設定。
 - `GALLERY_ADMIN_TOKEN`：站長雲端圖庫 `GET /api/gallery` 使用；前端只由站長手動輸入並送 `X-Gallery-Admin-Token`，不可持久化到 `localStorage`。
 
-正式 deploy 會透過專案鎖定的 Wrangler 唯讀執行 `secret list --format json`，並要求上述五個名稱全部存在。檢查只解析與輸出 secret 名稱，不讀取或顯示 secret 值；缺少任一名稱即在上傳前停止。
+正式 deploy 會透過專案鎖定的 Wrangler 唯讀執行 `secret list --format json`，要求三個核心名稱（`TURNSTILE_SECRET_KEY`、`NVIDIA_API_KEY`、`GEMINI_API_KEY`）存在；僅 `GALLERY_ENABLED="false"` 時免除兩個圖庫 secret。檢查只解析與輸出 secret 名稱，不讀取或顯示 secret 值；缺少任一名稱即在上傳前停止。
 
 ## 2. Public vars 與 Worker binding
 

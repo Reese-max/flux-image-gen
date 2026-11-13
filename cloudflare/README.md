@@ -56,7 +56,7 @@ Cloudflare Workers 版與 FastAPI 版同步支援以下功能：
 ## 本機開發
 
 ```powershell
-cd D:\Users\Administrator\Desktop\圖片生成\cloudflare
+cd D:\Users\Administrator\Desktop\04_AI內容與產品\圖片生成\cloudflare
 npm install
 npm test
 npm run check
