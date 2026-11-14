@@ -108,6 +108,12 @@ body {
   margin-bottom: 28px;
   scroll-margin-top: 88px;
 }
+/* 公開模式會多出人機驗證區塊（65px＋16px 間距）：從首屏高度公式裡扣掉，再留 16px，工作台的底邊與陰影才會完整落在首屏內 */
+@media (min-width: 981px) {
+  .turnstile-gate:not([hidden]) ~ .tabpanel .generation-workspace {
+    min-height: clamp(480px, calc(100dvh - 477px), 900px);
+  }
+}
 .generation-controls,
 .generation-preview {
   min-width: 0;
@@ -200,7 +206,7 @@ body {
   height: 46px;
   border-radius: 999px;
   background: var(--line-2);
-  transition: background .15s var(--ease), height .15s var(--ease);
+  transition: background .15s var(--ease), transform .15s var(--ease);
 }
 .workspace-divider:hover::before,
 .workspace-divider:focus-visible::before,
@@ -211,7 +217,8 @@ body {
 .workspace-divider:hover span,
 .workspace-divider:focus-visible span,
 .generation-workspace.is-resizing .workspace-divider span {
-  height: 64px;
+  /* 46px 伸長到約 64px：用 transform，滑過與拖曳時不觸發版面重排 */
+  transform: scaleY(1.39);
   background: var(--accent);
 }
 .workspace-divider:focus-visible {
@@ -649,16 +656,21 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 .transform-status.busy { color: var(--sun-ink); }
 .transform-status.done { color: var(--sage-ink); }
 .transform-status.fail { color: var(--danger); }
+/* 人機驗證：不再另包一層框（Cloudflare 的 widget 自己就是一個框）；寬度夠時狀態字排在 widget 右邊，不夠時換到下一行 */
 .turnstile-gate {
-  display: grid;
-  gap: 8px;
-  justify-items: start;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--surface-2);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 16px;
 }
 .turnstile-gate[hidden] { display: none; }
+/* iframe 是行內元素，行高會在下方多出約 7px；先留好 widget 的位置，載入後下方內容不會跳動 */
+.turnstile-gate .cf-turnstile {
+  min-width: 300px;
+  min-height: 65px;
+  line-height: 0;
+}
 .turnstile-status {
   margin: 0;
   color: var(--muted);
@@ -667,7 +679,8 @@ textarea[aria-invalid="true"], input[aria-invalid="true"], select[aria-invalid="
 }
 .turnstile-status.done { color: var(--sage-ink); }
 .turnstile-status.warn { color: var(--sun-ink); }
-.turnstile-status.fail { color: var(--danger); }
+/* 狀態字現在直接壓在頁面底色上：用深色文字 token，失敗訊息的對比才穩定高於 4.5:1 */
+.turnstile-status.fail { color: var(--danger-ink); }
 
 .prompt-enhancer {
   display: grid;
