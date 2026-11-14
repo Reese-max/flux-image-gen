@@ -84,11 +84,11 @@ var PROVIDER_STATUS_COPY = {
 };
 
 var GENERATION_STATE_COPY = {
-  idle: '🎨 生成圖片',
+  idle: '生成圖片',
   compiling_prompt: '正在整理提示詞…',
   generating: '正在生成圖片…',
   saving: '正在保存作品…',
-  success: '🎨 生成圖片',
+  success: '生成圖片',
   error: '重試',
   cancelled: '已取消'
 };
@@ -557,7 +557,7 @@ function updateGenerateButtons(){
   var disabled = generationInFlight;
   var retrySeconds = retrySecondsRemaining();
   if(!generationInFlight && generationState === 'idle' && providerStatus === 'demo'){
-    text = '🎨 Demo 生成圖片';
+    text = 'Demo 生成圖片';
   }
   if(!generationInFlight && retrySeconds){
     text = retrySeconds + ' 秒後可重試';
@@ -1180,12 +1180,12 @@ function applyPromptEnhancement(){
 function progressCopy(model, seconds){
   var preset = currentQualityPreset();
   if(preset === 'draft' || model === 'schnell'){
-    return '⚡ 快速模型產圖中… 已用 ' + seconds + ' 秒';
+    return '快速模型產圖中… 已用 ' + seconds + ' 秒';
   }
   if(model === 'dev'){
-    return '🎨 高品質模型產圖中… 已用 ' + seconds + ' 秒，通常會久一點';
+    return '高品質模型產圖中… 已用 ' + seconds + ' 秒，通常會久一點';
   }
-  return '⚡ 快速模型產圖中… 已用 ' + seconds + ' 秒';
+  return '快速模型產圖中… 已用 ' + seconds + ' 秒';
 }
 function fallbackCopyText(value){
   return new Promise(function(resolve, reject){
@@ -1455,10 +1455,10 @@ function renderBatchResults(stage, images, base){
   mainLock = document.createElement('button');
   mainLock.type = 'button';
   mainLock.className = 'btn mini secondary';
-  mainLock.textContent = '🔒 鎖定';
+  mainLock.textContent = '鎖定';
   mainDownload = document.createElement('a');
   mainDownload.className = 'btn mini secondary';
-  mainDownload.textContent = '⬇ 下載';
+  mainDownload.textContent = '下載';
   mainActions.appendChild(mainSeed);
   mainActions.appendChild(mainLock);
   mainActions.appendChild(mainDownload);
