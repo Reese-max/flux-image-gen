@@ -721,7 +721,7 @@ def test_prompt_transform_ui_is_wired():
     assert 'id="promptStyle"' in html
     assert 'id="transformPrompt"' in html
     assert 'id="completePrompt"' in html
-    assert "✨ 幫我補完整" in html
+    assert ">幫我補完整" in html
     assert 'class="prompt-shortcut-hint"' in html
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html

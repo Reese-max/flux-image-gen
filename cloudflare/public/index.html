@@ -152,8 +152,8 @@
           </label>
         </div>
         <div class="prompt-controls">
-          <button id="completePrompt" class="btn secondary" type="button" aria-describedby="transformStatus">✨ 幫我補完整</button>
-          <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">🎨 生成圖片</button>
+          <button id="completePrompt" class="btn secondary" type="button" aria-describedby="transformStatus">幫我補完整</button>
+          <button id="go" class="btn primary hero-generate" type="button" aria-describedby="status">生成圖片</button>
         </div>
         <div id="transformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
       </div>
@@ -336,13 +336,13 @@
         </div>
 
         <div id="resultActions" class="result-actions" aria-label="生成結果操作" hidden>
-          <a id="dl" class="btn primary is-disabled" aria-disabled="true" download="flux.png" hidden>⬇ 下載圖片</a>
-          <button id="regenerate" class="btn secondary" type="button" aria-label="再生成一張圖片">🔁 再生一張</button>
-          <button id="useComposition" class="btn secondary" type="button" aria-label="以目前圖片的構圖再變化">🔧 以這張構圖再變化</button>
+          <a id="dl" class="btn primary is-disabled" aria-disabled="true" download="flux.png" hidden>下載圖片</a>
+          <button id="regenerate" class="btn secondary" type="button" aria-label="再生成一張圖片">再生一張</button>
+          <button id="useComposition" class="btn secondary" type="button" aria-label="以目前圖片的構圖再變化">以這張構圖再變化</button>
           <details id="resultMoreActions" class="result-more-actions">
             <summary class="btn secondary">更多操作</summary>
             <div class="result-more-actions-body">
-              <button id="copySettings" class="btn secondary" type="button" aria-label="複製目前生成設定">📋 複製這組設定</button>
+              <button id="copySettings" class="btn secondary" type="button" aria-label="複製目前生成設定">複製這組設定</button>
               <button id="copyPrompt" class="btn secondary" type="button">複製提示詞</button>
             </div>
           </details>
@@ -568,7 +568,7 @@
               </div>
 
               <div class="prompt-controls">
-                <button id="editCompletePrompt" class="btn secondary" type="button" aria-describedby="editTransformStatus">✨ 幫我補完整</button>
+                <button id="editCompletePrompt" class="btn secondary" type="button" aria-describedby="editTransformStatus">幫我補完整</button>
                 <button id="editGo" class="btn primary hero-generate" type="button" disabled aria-disabled="true" aria-describedby="editStatus">✦ 開始改圖</button>
               </div>
               <div id="editTransformStatus" class="transform-status" role="status" aria-live="polite" aria-atomic="true"></div>
@@ -618,10 +618,10 @@
         </div>
 
         <div class="edit-preview-actions" id="editResultActions">
-          <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">⬇ 下載結果</a>
+          <a id="editDl" class="btn download is-disabled" aria-disabled="true" download="edited.png">下載結果</a>
           <button id="editCompare" class="btn secondary" type="button" disabled aria-pressed="false" aria-label="前後對比：切換原圖與結果">⇔ 前後對比</button>
-          <button id="editReuse" class="btn secondary" type="button" disabled aria-label="用結果再改一次：把結果當成新的參考圖繼續改">🔁 用結果再改一次</button>
-          <button id="editCopyPrompt" class="btn secondary" type="button" aria-label="複製指令：複製這次送出的完整改圖指令">📋 複製指令</button>
+          <button id="editReuse" class="btn secondary" type="button" disabled aria-label="用結果再改一次：把結果當成新的參考圖繼續改">用結果再改一次</button>
+          <button id="editCopyPrompt" class="btn secondary" type="button" aria-label="複製指令：複製這次送出的完整改圖指令">複製指令</button>
         </div>
       </section>
     </div>
@@ -839,7 +839,7 @@
           <button id="copyHistoryPrompt" class="btn secondary" type="button">複製提示詞</button>
           <button id="copyHistoryShareText" class="btn secondary" type="button">複製分享文案</button>
           <button id="exportHistoryJson" class="btn secondary" type="button">匯出作品 JSON</button>
-          <button id="useCompositionDetail" class="btn secondary" type="button">🔧 以這張構圖再變化</button>
+          <button id="useCompositionDetail" class="btn secondary" type="button">以這張構圖再變化</button>
           <button id="regenerateHistoryDetail" class="btn primary" type="button">以此版本再生</button>
         </div>
       </div>
@@ -947,7 +947,7 @@
 
     <div id="mobileGenerateBar" class="mobile-generate-bar" role="region" aria-label="手機固定生成列" hidden>
       <span id="mobileGenerateSummary" class="mobile-generate-summary" aria-live="polite">自動用途｜自動風格</span>
-      <button id="mobileGenerate" class="btn primary" type="button" aria-describedby="mobileGenerateSummary status">🎨 生成圖片</button>
+      <button id="mobileGenerate" class="btn primary" type="button" aria-describedby="mobileGenerateSummary status">生成圖片</button>
     </div>
   </main>
 
