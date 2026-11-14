@@ -599,7 +599,7 @@ def test_service_worker_static_cache_is_safe():
     assert "'/generate'" not in service_worker_js
     assert '"/generate"' not in service_worker_js
     assert "caches.delete" in service_worker_js
-    assert "ai-image-generator-pwa-v38" in service_worker_js
+    assert "ai-image-generator-pwa-v39" in service_worker_js
     # HTML 與靜態資產都 network-first，避免新版 HTML 搭配舊版 JS。
     assert "return network.then(function(response){ return response || cached; });" in service_worker_js
     assert "return cached || network;" not in service_worker_js
@@ -721,7 +721,7 @@ def test_prompt_transform_ui_is_wired():
     assert 'id="promptStyle"' in html
     assert 'id="transformPrompt"' in html
     assert 'id="completePrompt"' in html
-    assert "✨ 幫我補完整" in html
+    assert ">幫我補完整" in html
     assert 'class="prompt-shortcut-hint"' in html
     assert "鍵盤使用者可按 Ctrl / ⌘ + Enter 轉英文" in html
     assert "Tab 會正常移到下一個控制項" in html
